@@ -1,0 +1,88 @@
+use postgres::Row;
+use tauri::State;
+
+use crate::db::Database;
+use crate::error::{AppError, AppResult};
+use crate::models::{Expense, ExpenseInput};
+
+#[tauri::command]
+pub fn list_expenses(db: State<Database>) -> AppResult<Vec<Expense>> {
+    db.with_client(|client| {
+        let rows = client.query(
+            "SELECT id, label, category, amount, note, expense_date::text, created_at::text
+             FROM expenses ORDER BY expense_date DESC, id DESC",
+            &[],
+        )?;
+        Ok(rows.iter().map(expense_from_row).collect())
+    })
+}
+
+#[tauri::command]
+pub fn save_expense(db: State<Database>, input: ExpenseInput) -> AppResult<Expense> {
+    if input.label.trim().is_empty() || input.amount <= 0.0 {
+        return Err(AppError::Message("Libelle et montant valides obligatoires".into()));
+    }
+
+    db.with_client(|client| {
+        let id: i64 = if let Some(id) = input.id {
+            client.execute(
+                "UPDATE expenses SET label = $1, category = $2, amount = $3, note = $4, expense_date = $5::date
+                 WHERE id = $6",
+                &[
+                    &input.label.trim(),
+                    &input.category.trim(),
+                    &input.amount,
+                    &input.note.trim(),
+                    &input.expense_date,
+                    &id,
+                ],
+            )?;
+            id
+        } else {
+            client
+                .query_one(
+                    "INSERT INTO expenses (label, category, amount, note, expense_date)
+                     VALUES ($1, $2, $3, $4, $5::date)
+                     RETURNING id",
+                    &[
+                        &input.label.trim(),
+                        &input.category.trim(),
+                        &input.amount,
+                        &input.note.trim(),
+                        &input.expense_date,
+                    ],
+                )?
+                .get(0)
+        };
+        get_expense(client, id)
+    })
+}
+
+#[tauri::command]
+pub fn delete_expense(db: State<Database>, id: i64) -> AppResult<()> {
+    db.with_client(|client| {
+        client.execute("DELETE FROM expenses WHERE id = $1", &[&id])?;
+        Ok(())
+    })
+}
+
+fn get_expense(client: &mut postgres::Client, id: i64) -> AppResult<Expense> {
+    let row = client.query_one(
+        "SELECT id, label, category, amount, note, expense_date::text, created_at::text
+         FROM expenses WHERE id = $1",
+        &[&id],
+    )?;
+    Ok(expense_from_row(&row))
+}
+
+fn expense_from_row(row: &Row) -> Expense {
+    Expense {
+        id: row.get(0),
+        label: row.get(1),
+        category: row.get(2),
+        amount: row.get(3),
+        note: row.get(4),
+        expense_date: row.get(5),
+        created_at: row.get(6),
+    }
+}
