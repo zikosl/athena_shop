@@ -8,7 +8,7 @@ import { Language, Product, ProductInput, ProductStockFilter } from "../../share
 const emptyProduct: ProductInput = {
   name: "",
   barcode: "",
-  category: "Home Wear",
+  category: "Athena Collection",
   size: "",
   color: "",
   quantity: 0,

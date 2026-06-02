@@ -830,9 +830,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"anna-store-pos@workspace:.":
+"athena-shop-pos@workspace:.":
   version: 0.0.0-use.local
-  resolution: "anna-store-pos@workspace:."
+  resolution: "athena-shop-pos@workspace:."
   dependencies:
     "@tauri-apps/api": "npm:^2.8.0"
     "@tauri-apps/cli": "npm:^2.8.4"

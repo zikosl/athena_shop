@@ -26,9 +26,9 @@ type Db = {
 
 const seed: Db = {
   products: [
-    sampleProduct(1, "Pyjama satin noir", "AS100001", "Home Wear", "M", "Noir", 18, 4, 1800, 3450),
+    sampleProduct(1, "Robe Athena drapee", "AS100001", "Athena Collection", "M", "Ivoire", 18, 4, 1800, 3450),
     sampleProduct(2, "Robe de chambre dorée", "AS100002", "Loungewear", "L", "Gold", 7, 3, 2600, 5200),
-    sampleProduct(3, "Ensemble coton doux", "AS100003", "Home Wear", "S", "Ivoire", 24, 5, 1400, 2900),
+    sampleProduct(3, "Ensemble olive doux", "AS100003", "Athena Collection", "S", "Olive", 24, 5, 1400, 2900),
     sampleProduct(4, "Pantoufles premium", "AS100004", "Accessoires", "38", "Beige", 3, 4, 900, 1850)
   ],
   expenses: [],
@@ -66,9 +66,9 @@ function sampleProduct(
 }
 
 function readDb(): Db {
-  const raw = localStorage.getItem("anna-store-demo-db");
+  const raw = localStorage.getItem("athena-shop-demo-db");
   if (!raw) {
-    localStorage.setItem("anna-store-demo-db", JSON.stringify(seed));
+    localStorage.setItem("athena-shop-demo-db", JSON.stringify(seed));
     return structuredClone(seed);
   }
   const parsed = JSON.parse(raw) as Partial<Db>;
@@ -96,7 +96,7 @@ function normalizeSale(sale: Sale): Sale {
 }
 
 function writeDb(db: Db) {
-  localStorage.setItem("anna-store-demo-db", JSON.stringify(db));
+  localStorage.setItem("athena-shop-demo-db", JSON.stringify(db));
 }
 
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {

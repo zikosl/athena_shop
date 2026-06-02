@@ -2,7 +2,7 @@ import { FormEvent, useState } from "react";
 import { Database, Server, User } from "lucide-react";
 import { api } from "../../shared/api";
 import { PostgresConfig } from "../../shared/types";
-import annaStoreLogo from "../../assets/anna-store-logo.png";
+import athenaShopLogo from "../../assets/athena-shop-logo.png";
 
 export function DatabaseSetupPage({ onConfigured }: { onConfigured: () => void }) {
   const [form, setForm] = useState<PostgresConfig>({
@@ -34,9 +34,9 @@ export function DatabaseSetupPage({ onConfigured }: { onConfigured: () => void }
       <div className="particles" />
       <form className="login-card setup-card" onSubmit={submit}>
         <div className="login-brand">
-          <img src={annaStoreLogo} alt="ANNA STORE HOME WEAR" className="brand-logo" />
+          <img src={athenaShopLogo} alt="Athena Shop" className="brand-logo" />
           <div>
-            <h1>ANNA STORE</h1>
+            <h1>ATHENA SHOP</h1>
             <p>POSTGRESQL</p>
           </div>
         </div>

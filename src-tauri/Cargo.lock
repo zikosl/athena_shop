@@ -42,21 +42,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anna_store_pos"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "postgres",
- "rand 0.8.6",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tauri",
- "tauri-build",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "anyhow"
 version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -71,6 +56,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "athena_shop_pos"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "postgres",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tauri",
+ "tauri-build",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

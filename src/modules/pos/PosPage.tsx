@@ -191,8 +191,8 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
     <div className="modal-backdrop">
       <section className="receipt-modal">
         <div className="receipt-paper" id="receipt">
-          <h2>ANNA STORE</h2>
-          <p>HOME WEAR</p>
+          <h2>ATHENA SHOP</h2>
+          <p>RETAIL ATELIER</p>
           <small>{sale.receipt_no} · {sale.created_at}</small>
           <hr />
           {sale.items.map((item) => (

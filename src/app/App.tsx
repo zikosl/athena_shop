@@ -28,7 +28,7 @@ import { api } from "../shared/api";
 import { appDateLabel } from "../shared/format";
 import { useText } from "../shared/i18n";
 import { Language, ProductStockFilter, UserSession, ViewKey } from "../shared/types";
-import annaStoreLogo from "../assets/anna-store-logo.png";
+import athenaShopLogo from "../assets/athena-shop-logo.png";
 
 const nav = [
   { key: "dashboard", icon: Home },
@@ -41,18 +41,18 @@ const nav = [
 ] as const;
 
 export function App() {
-  const [language, setLanguage] = useState<Language>(() => (localStorage.getItem("anna-store-lang") as Language) || "fr");
+  const [language, setLanguage] = useState<Language>(() => (localStorage.getItem("athena-shop-lang") as Language) || "fr");
   const [view, setView] = useState<ViewKey>("dashboard");
   const [stockFilter, setStockFilter] = useState<ProductStockFilter>("all");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [databaseConfigured, setDatabaseConfigured] = useState<boolean | null>(null);
   const [user, setUser] = useState<UserSession | null>(() => {
-    const raw = localStorage.getItem("anna-store-session");
+    const raw = localStorage.getItem("athena-shop-session");
     if (!raw) return null;
     try {
       return JSON.parse(raw) as UserSession;
     } catch {
-      localStorage.removeItem("anna-store-session");
+      localStorage.removeItem("athena-shop-session");
       return null;
     }
   });
@@ -62,7 +62,7 @@ export function App() {
   const t = useText(language);
 
   useEffect(() => {
-    localStorage.setItem("anna-store-lang", language);
+    localStorage.setItem("athena-shop-lang", language);
     document.documentElement.lang = language;
     document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
   }, [language]);
@@ -94,7 +94,7 @@ export function App() {
 
   const logout = useCallback(async () => {
     await saveData();
-    localStorage.removeItem("anna-store-session");
+    localStorage.removeItem("athena-shop-session");
     setUser(null);
   }, [saveData]);
 
@@ -120,7 +120,7 @@ export function App() {
   if (!user) {
     return <LoginPage language={language} setLanguage={setLanguage} onLogin={(session) => {
       setUser(session);
-      localStorage.setItem("anna-store-session", JSON.stringify(session));
+      localStorage.setItem("athena-shop-session", JSON.stringify(session));
     }} />;
   }
 
@@ -129,8 +129,10 @@ export function App() {
       <aside className="sidebar">
         <div className="brand-mark">
           <div className="brand-logo-frame">
-            <img src={annaStoreLogo} alt="ANNA STORE HOME WEAR" className="brand-logo" />
+            <img src={athenaShopLogo} alt="Athena Shop" className="brand-logo" />
           </div>
+          <strong>ATHENA SHOP</strong>
+          <span>Bijoux & Retail</span>
         </div>
 
         <nav className="menu">
@@ -190,10 +192,10 @@ export function App() {
               <Menu size={22} />
             </button>
             <section className="title-lockup">
-              <img src={annaStoreLogo} alt="" className="title-logo-mark" />
+              <img src={athenaShopLogo} alt="" className="title-logo-mark" />
               <div>
-                <h1>ANNA STORE</h1>
-                <p>HOME WEAR</p>
+                <h1>ATHENA SHOP</h1>
+                <p>BIJOUX & RETAIL</p>
               </div>
             </section>
           </section>

@@ -33,5 +33,5 @@ pub fn run() {
             commands::system::save_database,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running ANNA STORE POS");
+        .expect("error while running Athena Shop POS");
 }

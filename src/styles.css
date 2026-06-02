@@ -1,13 +1,16 @@
 :root {
-  --black: #050505;
+  --black: #030303;
   --charcoal: #111111;
-  --gold: #d4af37;
-  --gold-soft: #f5d76f;
-  --muted: #b8b1a2;
-  --white: #f8f2df;
+  --gold: #d6a019;
+  --gold-soft: #ffe36f;
+  --olive: #8a6a18;
+  --teal: #f7f4ee;
+  --marble: #f8f6f1;
+  --muted: #b9b4aa;
+  --white: #fffdf7;
   --danger: #ff6b6b;
   --success: #39d98a;
-  --border: rgba(212, 175, 55, 0.42);
+  --border: rgba(255, 216, 93, 0.34);
   --font-ui: "Poppins", Inter, "Segoe UI", sans-serif;
   --font-ar: "Cairo", "Poppins", sans-serif;
   --font-display: "Cinzel Decorative", Cinzel, Georgia, serif;
@@ -25,9 +28,9 @@ body,
   width: 100%;
   min-height: 100%;
   background:
-    radial-gradient(circle at 74% 6%, rgba(212, 175, 55, 0.2), transparent 24rem),
-    radial-gradient(circle at 32% 54%, rgba(212, 175, 55, 0.09), transparent 34rem),
-    linear-gradient(135deg, #020202 0%, var(--black) 42%, #0d0b07 100%);
+    radial-gradient(circle at 72% 4%, rgba(255, 227, 111, 0.18), transparent 22rem),
+    radial-gradient(circle at 20% 62%, rgba(255, 255, 255, 0.07), transparent 30rem),
+    linear-gradient(135deg, #000 0%, var(--black) 48%, #15110a 100%);
   overflow-x: hidden;
 }
 
@@ -41,9 +44,9 @@ body {
   min-height: 100vh;
   color: var(--white);
   background:
-    radial-gradient(circle at 74% 6%, rgba(212, 175, 55, 0.2), transparent 24rem),
-    radial-gradient(circle at 32% 54%, rgba(212, 175, 55, 0.09), transparent 34rem),
-    linear-gradient(135deg, #020202 0%, var(--black) 42%, #0d0b07 100%);
+    radial-gradient(circle at 72% 4%, rgba(255, 227, 111, 0.18), transparent 22rem),
+    radial-gradient(circle at 20% 62%, rgba(255, 255, 255, 0.07), transparent 30rem),
+    linear-gradient(135deg, #000 0%, var(--black) 48%, #15110a 100%);
   font-family: var(--font-ui);
   font-size: 14px;
 }
@@ -60,9 +63,9 @@ button { cursor: pointer; }
   min-height: 100vh;
   padding: 8px;
   background:
-    radial-gradient(circle at 74% 6%, rgba(212, 175, 55, 0.2), transparent 24rem),
-    radial-gradient(circle at 32% 54%, rgba(212, 175, 55, 0.09), transparent 34rem),
-    linear-gradient(135deg, #020202 0%, var(--black) 42%, #0d0b07 100%);
+    radial-gradient(circle at 72% 4%, rgba(255, 227, 111, 0.18), transparent 22rem),
+    radial-gradient(circle at 20% 62%, rgba(255, 255, 255, 0.07), transparent 30rem),
+    linear-gradient(135deg, #000 0%, var(--black) 48%, #15110a 100%);
   overflow-x: hidden;
   --active-sidebar-width: var(--sidebar-width);
 }
@@ -113,9 +116,9 @@ button { cursor: pointer; }
 .sidebar, .panel, .module-card, .login-card {
   border: 1px solid var(--border);
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.055), transparent 36%),
-    rgba(10, 10, 10, 0.78);
-  box-shadow: inset 0 1px rgba(255,255,255,0.08), 0 24px 70px rgba(0,0,0,0.5), 0 0 34px rgba(212,175,55,0.08);
+    linear-gradient(180deg, rgba(255,255,255,0.08), transparent 34%),
+    rgba(7, 7, 7, 0.86);
+  box-shadow: inset 0 1px rgba(255,255,255,0.1), 0 24px 70px rgba(0,0,0,0.56), 0 0 34px rgba(255,227,111,0.08);
   backdrop-filter: blur(20px);
 }
 
@@ -145,34 +148,45 @@ button { cursor: pointer; }
 .brand-mark {
   display: grid;
   justify-items: center;
-  margin-bottom: 34px;
+  gap: 7px;
+  margin-bottom: 30px;
   text-align: center;
+}
+.brand-mark strong {
+  color: var(--marble);
+  font-family: var(--font-display);
+  font-size: 16px;
+  letter-spacing: 0.5px;
+}
+.brand-mark span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
 }
 
 .brand-logo-frame {
   display: grid;
   place-items: center;
-  width: 184px;
+  width: 174px;
   aspect-ratio: 1;
   background: transparent;
   transition: width 180ms ease;
 }
-
 .brand-logo {
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
-  filter: saturate(1.08) contrast(1.04) drop-shadow(0 0 20px rgba(212,175,55,0.2));
+  filter: drop-shadow(0 0 18px rgba(255,227,111,0.2));
 }
 
 .login-logo-frame { width: 210px; margin: 0 auto 20px; }
 
 .title-logo-mark {
-  width: 64px;
-  height: 64px;
+  width: 76px;
+  height: 76px;
   object-fit: contain;
-  filter: drop-shadow(0 0 14px rgba(212,175,55,0.22));
+  filter: drop-shadow(0 0 14px rgba(255,227,111,0.2));
 }
 
 .menu { display: grid; gap: 10px; }
@@ -202,14 +216,14 @@ button { cursor: pointer; }
 
 .nav-item:hover, .nav-item.active {
   color: #fff8df;
-  border-color: rgba(212,175,55,0.58);
-  background: linear-gradient(90deg, rgba(212,175,55,0.44), rgba(212,175,55,0.1));
-  box-shadow: inset 0 1px rgba(255,255,255,0.18), 0 12px 28px rgba(212,175,55,0.12);
+  border-color: rgba(255,227,111,0.56);
+  background: linear-gradient(90deg, rgba(255,227,111,0.28), rgba(255,255,255,0.06));
+  box-shadow: inset 0 1px rgba(255,255,255,0.18), 0 12px 28px rgba(255,227,111,0.12);
 }
 
 .nav-item svg, .module-icon svg, .stat-icon svg, .section-title svg {
   color: var(--gold-soft);
-  filter: drop-shadow(0 0 8px rgba(212,175,55,0.3));
+  filter: drop-shadow(0 0 8px rgba(255,227,111,0.26));
 }
 
 .admin-mini {
@@ -252,8 +266,8 @@ button { cursor: pointer; }
   inset: 0;
   pointer-events: none;
   background-image:
-    radial-gradient(circle, rgba(245,215,111,0.84) 0 1px, transparent 1.6px),
-    radial-gradient(circle, rgba(212,175,55,0.42) 0 1px, transparent 1.7px);
+    radial-gradient(circle, rgba(255,227,111,0.76) 0 1px, transparent 1.6px),
+    radial-gradient(circle, rgba(255,255,255,0.38) 0 1px, transparent 1.7px);
   background-size: 190px 150px, 280px 230px;
   background-position: 18px 22px, 95px 65px;
   opacity: 0.22;
@@ -268,9 +282,9 @@ button { cursor: pointer; }
   width: min(760px, 62vw);
   height: 210px;
   fill: none;
-  stroke: rgba(212,175,55,0.36);
+  stroke: rgba(255,227,111,0.32);
   stroke-width: 1.2;
-  filter: drop-shadow(0 0 14px rgba(212,175,55,0.44));
+  filter: drop-shadow(0 0 14px rgba(255,227,111,0.34));
   pointer-events: none;
 }
 
@@ -287,8 +301,8 @@ button { cursor: pointer; }
   border: 1px solid rgba(212,175,55,0.18);
   border-radius: 20px;
   background:
-    radial-gradient(circle at 48% 0%, rgba(212,175,55,0.12), transparent 42%),
-    linear-gradient(110deg, rgba(255,255,255,0.035), rgba(0,0,0,0.14));
+    radial-gradient(circle at 48% 0%, rgba(255,227,111,0.12), transparent 42%),
+    linear-gradient(110deg, rgba(245,241,232,0.055), rgba(0,0,0,0.16));
   box-shadow: inset 0 1px rgba(255,255,255,0.06), 0 20px 48px rgba(0,0,0,0.28);
   overflow: hidden;
 }
@@ -325,14 +339,14 @@ button { cursor: pointer; }
   gap: 14px;
   min-width: 0;
   text-align: start;
-  color: var(--gold-soft);
-  filter: drop-shadow(0 0 18px rgba(212,175,55,0.3));
+  color: var(--marble);
+  filter: drop-shadow(0 0 18px rgba(255,227,111,0.2));
 }
 
 .title-lockup h1 {
   margin: 2px 0 0;
   font-family: var(--font-display);
-  font-size: clamp(30px, 3vw, 44px);
+  font-size: clamp(30px, 3vw, 42px);
   line-height: 0.95;
   white-space: nowrap;
 }
@@ -341,7 +355,8 @@ button { cursor: pointer; }
   margin: 6px 0 0;
   font-family: var(--font-display);
   font-size: 16px;
-  letter-spacing: 3px;
+  color: var(--gold-soft);
+  letter-spacing: 2.6px;
 }
 
 .top-actions {
@@ -415,13 +430,13 @@ th,
   padding: clamp(16px, 1.5vw, 22px);
   border-radius: 18px;
   background:
-    radial-gradient(circle at 50% 0%, rgba(255,255,255,0.08), transparent 55%),
-    linear-gradient(155deg, rgba(28,28,28,0.94), rgba(8,8,8,0.9));
+    radial-gradient(circle at 50% 0%, rgba(245,241,232,0.08), transparent 55%),
+    linear-gradient(155deg, rgba(27,38,40,0.94), rgba(12,17,20,0.9));
   transition: 180ms ease;
 }
 
-.module-card:hover { transform: translateY(-6px); box-shadow: inset 0 1px rgba(255,255,255,0.11), 0 28px 70px rgba(0,0,0,0.54), 0 0 34px rgba(212,175,55,0.16); }
-.module-icon { display: grid; place-items: center; width: clamp(64px, 6vw, 84px); height: clamp(64px, 6vw, 84px); border-radius: 50%; background: linear-gradient(145deg, #252525, #0c0c0c); box-shadow: 0 18px 24px rgba(0,0,0,0.5); }
+.module-card:hover { transform: translateY(-6px); box-shadow: inset 0 1px rgba(255,255,255,0.11), 0 28px 70px rgba(0,0,0,0.5), 0 0 34px rgba(255,227,111,0.14); }
+.module-icon { display: grid; place-items: center; width: clamp(64px, 6vw, 84px); height: clamp(64px, 6vw, 84px); border-radius: 50%; background: linear-gradient(145deg, #26211a, #090909); box-shadow: 0 18px 24px rgba(0,0,0,0.46); }
 .module-card h3 { margin: 10px 0 0; color: var(--gold-soft); font-family: var(--font-display); font-size: 21px; }
 .module-card p { max-width: 235px; color: #cbc5b8; text-align: center; font-size: 12px; line-height: 1.5; }
 .module-card button, .ghost-button {
@@ -531,10 +546,10 @@ th,
 label { display: grid; gap: 7px; color: var(--muted); font-size: 11px; }
 .field, select, textarea, .searchbar {
   min-height: 42px;
-  border: 1px solid rgba(212,175,55,0.28);
+  border: 1px solid rgba(255,216,93,0.28);
   border-radius: 12px;
   color: var(--white);
-  background: rgba(0,0,0,0.36);
+  background: rgba(6,12,15,0.42);
 }
 
 .field, .searchbar {
@@ -571,10 +586,10 @@ textarea { min-height: 92px; padding: 12px; resize: vertical; }
   min-height: 44px;
   border: 0;
   border-radius: 999px;
-  color: #140f04;
-  background: linear-gradient(135deg, #fff2ad, var(--gold) 56%, #9b741d);
+  color: #10161a;
+  background: linear-gradient(135deg, #f5f1e8, var(--gold) 54%, #7a6440);
   font-weight: 800;
-  box-shadow: 0 0 26px rgba(212,175,55,0.28);
+  box-shadow: 0 0 26px rgba(255,227,111,0.24), 0 10px 26px rgba(0,0,0,0.24);
 }
 
 .gold-button:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -691,12 +706,12 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
   border: 1px solid rgba(212,175,55,0.32);
   border-radius: 16px;
   color: var(--white);
-  background: linear-gradient(145deg, rgba(36,36,36,0.8), rgba(8,8,8,0.88));
+  background: linear-gradient(145deg, rgba(32,44,45,0.82), rgba(10,16,18,0.9));
   text-align: start;
   font-size: 13px;
 }
 
-.product-tile span { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: rgba(212,175,55,0.1); color: var(--gold-soft); }
+.product-tile span { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: rgba(255,227,111,0.11); color: var(--gold-soft); }
 .product-tile em, .product-tile small { color: var(--muted); font-style: normal; }
 .product-tile em { display: flex; align-items: center; gap: 5px; }
 
@@ -987,9 +1002,9 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
 }
 .login-brand h1 {
   margin: 0;
-  color: var(--gold-soft);
+  color: var(--marble);
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 25px;
   line-height: 1;
 }
 .login-brand p {
