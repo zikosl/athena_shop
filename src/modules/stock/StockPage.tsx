@@ -1,5 +1,5 @@
 import { FormEvent, MouseEvent, ReactNode, useEffect, useMemo, useState } from "react";
-import { Barcode, ClipboardList, Coins, Edit3, Plus, RefreshCcw, Save, Search, Trash2 } from "lucide-react";
+import { Barcode, ClipboardList, Coins, Edit3, ImagePlus, Plus, RefreshCcw, Save, Search, Trash2, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
@@ -8,13 +8,14 @@ import { Language, Product, ProductInput, ProductStockFilter } from "../../share
 const emptyProduct: ProductInput = {
   name: "",
   barcode: "",
-  category: "Athena Collection",
+  category: "Home Wear",
   size: "",
   color: "",
   quantity: 0,
   low_stock_threshold: 3,
   purchase_price: 0,
-  sale_price: 0
+  sale_price: 0,
+  image_data: ""
 };
 
 function createBarcode() {
@@ -41,6 +42,7 @@ export function StockPage({
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [form, setForm] = useState<ProductInput>(newProduct);
+  const [formOpen, setFormOpen] = useState(false);
   const [inventoryMode, setInventoryMode] = useState(false);
   const [inventoryCounts, setInventoryCounts] = useState<Record<number, number>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; product: Product } | null>(null);
@@ -57,9 +59,7 @@ export function StockPage({
   }, [initialStockFilter]);
 
   useEffect(() => {
-    api.products()
-      .then((items) => setCategories(Array.from(new Set(items.map((product) => product.category))).sort()))
-      .catch((err) => setError(String(err)));
+    refreshCategories().catch((err) => setError(String(err)));
   }, []);
 
   useEffect(() => {
@@ -95,7 +95,9 @@ export function StockPage({
     try {
       await api.saveProduct(form);
       setForm(newProduct());
+      setFormOpen(false);
       await load();
+      await refreshCategories();
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -107,6 +109,7 @@ export function StockPage({
     try {
       await api.deleteProduct(id);
       await load();
+      await refreshCategories();
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -141,7 +144,40 @@ export function StockPage({
   function updateFromContextMenu() {
     if (!contextMenu) return;
     setForm(contextMenu.product);
+    setFormOpen(true);
     setContextMenu(null);
+  }
+
+  function openNewProduct() {
+    setError("");
+    setForm(newProduct());
+    setFormOpen(true);
+  }
+
+  function openEditProduct(product: Product) {
+    setError("");
+    setForm(product);
+    setFormOpen(true);
+  }
+
+  async function refreshCategories() {
+    const items = await api.products();
+    setCategories(Array.from(new Set(items.map((product) => product.category).filter(Boolean))).sort());
+  }
+
+  async function chooseImage(file: File | undefined) {
+    setError("");
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Veuillez choisir une image valide");
+      return;
+    }
+    if (file.size > 1_500_000) {
+      setError("Image trop grande. Maximum 1.5 MB");
+      return;
+    }
+    const imageData = await readImage(file);
+    setForm((current) => ({ ...current, image_data: imageData }));
   }
 
   async function saveInventory() {
@@ -158,7 +194,8 @@ export function StockPage({
         quantity: inventoryCounts[product.id] ?? product.quantity,
         low_stock_threshold: product.low_stock_threshold,
         purchase_price: product.purchase_price,
-        sale_price: product.sale_price
+        sale_price: product.sale_price,
+        image_data: product.image_data
       })));
       await api.saveNow();
       await load();
@@ -170,35 +207,13 @@ export function StockPage({
   }
 
   return (
-    <section className="work-grid">
-      <form className="panel form-panel" onSubmit={submit}>
-        <div className="section-title"><h2><Plus size={18} /> {form.id ? t.edit : t.newProduct}</h2><span /></div>
-        <div className="form-grid">
-          <Input label={t.product} value={form.name} onChange={(name) => setForm({ ...form, name })} />
-          <Input label={t.barcode} value={form.barcode} icon={<Barcode size={16} />} onChange={(barcode) => setForm({ ...form, barcode })} />
-          <Input label={t.category} value={form.category} onChange={(category) => setForm({ ...form, category })} />
-          <Input label={t.size} value={form.size} onChange={(size) => setForm({ ...form, size })} />
-          <Input label={t.color} value={form.color} onChange={(color) => setForm({ ...form, color })} />
-          <Input label={t.quantity} type="number" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity: Number(quantity) })} />
-          <Input label={t.alert} type="number" value={form.low_stock_threshold} onChange={(value) => setForm({ ...form, low_stock_threshold: Number(value) })} />
-          <Input label={t.buyPrice} type="number" value={form.purchase_price} onChange={(value) => setForm({ ...form, purchase_price: Number(value) })} />
-          <Input label={t.salePrice} type="number" value={form.sale_price} onChange={(value) => setForm({ ...form, sale_price: Number(value) })} />
-        </div>
-        <div className="profit-preview">{t.estimatedMargin} <strong>{money(margin)}</strong></div>
-        {error && <p className="error">{error}</p>}
-        <div className="button-row">
-          {!form.id && (
-            <button className="ghost-button" type="button" onClick={() => setForm({ ...form, barcode: createBarcode() })}>
-              <RefreshCcw size={17} /> {t.generateBarcode}
-            </button>
-          )}
-          <button className="gold-button" type="submit"><Save size={18} /> {t.save}</button>
-        </div>
-      </form>
-
-      <section className="panel table-panel">
+    <>
+      <section className="panel table-panel full">
         <div className="section-title">
           <h2><ClipboardList size={18} /> {t.stock}</h2>
+          <button className="gold-button compact-button" type="button" onClick={openNewProduct}>
+            <Plus size={17} /> {t.newProduct}
+          </button>
           <button className={inventoryMode ? "gold-button compact-button" : "ghost-button compact-button"} onClick={toggleInventory}>
             <ClipboardList size={17} /> {t.inventory}
           </button>
@@ -209,6 +224,7 @@ export function StockPage({
           <article><span>{t.stockMarginValue}</span><strong>{money(stockTotals.marginValue)}</strong></article>
           <article><span>{t.quantity}</span><strong><Coins size={16} /> {stockTotals.quantity}</strong></article>
         </div>
+        {error && !formOpen && <p className="error">{error}</p>}
         {inventoryMode && (
           <div className="inventory-toolbar">
             <span>{t.inventoryGap}: <strong>{inventoryDiff}</strong></span>
@@ -254,7 +270,12 @@ export function StockPage({
                   className={product.quantity <= product.low_stock_threshold ? "low-row" : ""}
                   onContextMenu={(event) => openContextMenu(event, product)}
                 >
-                  <td><strong>{product.name}</strong><span>{product.category} · {product.size} · {product.color}</span></td>
+                  <td>
+                    <div className="product-cell">
+                      {product.image_data ? <img src={product.image_data} alt="" /> : <span className="product-thumb-placeholder"><ImagePlus size={16} /></span>}
+                      <div><strong>{product.name}</strong><span>{product.category} · {product.size} · {product.color}</span></div>
+                    </div>
+                  </td>
                   <td>{product.barcode}</td>
                   <td>{product.quantity}</td>
                   {inventoryMode && (
@@ -274,7 +295,7 @@ export function StockPage({
                   <td>{money(product.purchase_price * product.quantity)}</td>
                   <td>{money(product.sale_price * product.quantity)}</td>
                   <td className="row-actions">
-                    <button onClick={() => setForm(product)} onContextMenu={(event) => openContextMenu(event, product)}><Edit3 size={16} /></button>
+                    <button onClick={() => openEditProduct(product)} onContextMenu={(event) => openContextMenu(event, product)}><Edit3 size={16} /></button>
                     <button onClick={() => remove(product.id)}><Trash2 size={16} /></button>
                   </td>
                 </tr>
@@ -290,24 +311,85 @@ export function StockPage({
           </div>
         )}
       </section>
-    </section>
+      {formOpen && (
+        <div className="modal-backdrop">
+          <form className="panel form-panel form-modal" onSubmit={submit}>
+            <div className="section-title">
+              <h2><Plus size={18} /> {form.id ? t.edit : t.newProduct}</h2>
+              <span />
+              <button className="ghost-button compact-button" type="button" onClick={() => setFormOpen(false)}><X size={16} /> {t.close}</button>
+            </div>
+            <div className="form-grid">
+              <Input label={t.product} value={form.name} onChange={(name) => setForm({ ...form, name })} />
+              <Input label={t.barcode} value={form.barcode} icon={<Barcode size={16} />} onChange={(barcode) => setForm({ ...form, barcode })} />
+              <Input label={t.category} value={form.category} list="product-categories" onChange={(category) => setForm({ ...form, category })} />
+              <Input label={t.size} value={form.size} onChange={(size) => setForm({ ...form, size })} />
+              <Input label={t.color} value={form.color} onChange={(color) => setForm({ ...form, color })} />
+              <Input label={t.quantity} type="number" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity: Number(quantity) })} />
+              <Input label={t.alert} type="number" value={form.low_stock_threshold} onChange={(value) => setForm({ ...form, low_stock_threshold: Number(value) })} />
+              <Input label={t.buyPrice} type="number" value={form.purchase_price} onChange={(value) => setForm({ ...form, purchase_price: Number(value) })} />
+              <Input label={t.salePrice} type="number" value={form.sale_price} onChange={(value) => setForm({ ...form, sale_price: Number(value) })} />
+            </div>
+            <datalist id="product-categories">
+              {categories.map((item) => <option value={item} key={item} />)}
+            </datalist>
+            <div className="image-uploader">
+              <div className="product-image-preview">
+                {form.image_data ? <img src={form.image_data} alt="" /> : <ImagePlus size={30} />}
+              </div>
+              <div className="image-actions">
+                <label className="ghost-button compact-button">
+                  <ImagePlus size={16} /> Image produit
+                  <input type="file" accept="image/*" onChange={(event) => void chooseImage(event.target.files?.[0])} />
+                </label>
+                {form.image_data && (
+                  <button className="ghost-button compact-button" type="button" onClick={() => setForm({ ...form, image_data: "" })}>
+                    <X size={16} /> Retirer image
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="profit-preview">{t.estimatedMargin} <strong>{money(margin)}</strong></div>
+            {error && <p className="error">{error}</p>}
+            <div className="button-row">
+              {!form.id && (
+                <button className="ghost-button" type="button" onClick={() => setForm({ ...form, barcode: createBarcode() })}>
+                  <RefreshCcw size={17} /> {t.generateBarcode}
+                </button>
+              )}
+              <button className="gold-button" type="submit"><Save size={18} /> {t.save}</button>
+            </div>
+          </form>
+        </div>
+      )}
+    </>
   );
 }
 
-function Input({ label, value, onChange, type = "text", icon }: {
+function Input({ label, value, onChange, type = "text", icon, list }: {
   label: string;
   value: string | number;
   onChange: (value: string) => void;
   type?: string;
   icon?: ReactNode;
+  list?: string;
 }) {
   return (
     <label>
       <span>{label}</span>
       <div className="field">
         {icon}
-        <input type={type} value={type === "number" && value === 0 ? "" : value} onChange={(event) => onChange(event.target.value)} />
+        <input type={type} list={list} value={type === "number" && value === 0 ? "" : value} onChange={(event) => onChange(event.target.value)} />
       </div>
     </label>
   );
+}
+
+function readImage(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }

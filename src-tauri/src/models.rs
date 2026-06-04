@@ -8,6 +8,14 @@ pub struct UserSession {
     pub role: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ProfileInput {
+    pub id: i64,
+    pub username: String,
+    pub display_name: String,
+    pub password: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct Product {
     pub id: i64,
@@ -20,6 +28,7 @@ pub struct Product {
     pub low_stock_threshold: i64,
     pub purchase_price: f64,
     pub sale_price: f64,
+    pub image_data: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -36,6 +45,7 @@ pub struct ProductInput {
     pub low_stock_threshold: i64,
     pub purchase_price: f64,
     pub sale_price: f64,
+    pub image_data: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -76,6 +86,25 @@ pub struct CheckoutInput {
     pub due_date: String,
     pub credit_note: String,
     pub cashier: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaleItemUpdateInput {
+    pub product_id: i64,
+    pub quantity: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaleUpdateInput {
+    pub sale_id: i64,
+    pub items: Vec<SaleItemUpdateInput>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaleReturnInput {
+    pub sale_id: i64,
+    pub product_id: i64,
+    pub quantity: i64,
 }
 
 #[derive(Debug, Serialize)]

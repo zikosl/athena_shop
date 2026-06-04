@@ -127,7 +127,7 @@ const dictionary = {
     adminAccount: "Compte administrateur",
     defaultUser: "Utilisateur par défaut: admin / admin123",
     database: "Base de données",
-    databaseInfo: "SQLite local via Tauri, stockée dans les données de l'application.",
+    databaseInfo: "PostgreSQL configuré au premier lancement.",
     languagePair: "Français / العربية"
   },
   ar: {
@@ -255,7 +255,7 @@ const dictionary = {
     adminAccount: "حساب المدير",
     defaultUser: "المستخدم الافتراضي: admin / admin123",
     database: "قاعدة البيانات",
-    databaseInfo: "SQLite محلية عبر Tauri ومحفوظة في بيانات التطبيق.",
+    databaseInfo: "PostgreSQL configuré au premier lancement.",
     languagePair: "Français / العربية"
   }
 } as const;

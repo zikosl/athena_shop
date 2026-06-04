@@ -8,6 +8,13 @@ export interface UserSession {
   role: string;
 }
 
+export interface ProfileInput {
+  id: number;
+  username: string;
+  display_name: string;
+  password: string;
+}
+
 export interface PostgresConfig {
   host: string;
   port: number;
@@ -27,6 +34,7 @@ export interface Product {
   low_stock_threshold: number;
   purchase_price: number;
   sale_price: number;
+  image_data: string;
   created_at: string;
   updated_at: string;
 }
@@ -42,6 +50,7 @@ export interface ProductInput {
   low_stock_threshold: number;
   purchase_price: number;
   sale_price: number;
+  image_data: string;
 }
 
 export type ProductStockFilter = "all" | "available" | "low" | "out";
@@ -98,6 +107,22 @@ export interface CheckoutInput {
   due_date: string;
   credit_note: string;
   cashier: string;
+}
+
+export interface SaleItemUpdateInput {
+  product_id: number;
+  quantity: number;
+}
+
+export interface SaleUpdateInput {
+  sale_id: number;
+  items: SaleItemUpdateInput[];
+}
+
+export interface SaleReturnInput {
+  sale_id: number;
+  product_id: number;
+  quantity: number;
 }
 
 export interface SaleItem {

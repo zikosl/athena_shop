@@ -172,6 +172,7 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           low_stock_threshold BIGINT NOT NULL DEFAULT 3,
           purchase_price DOUBLE PRECISION NOT NULL DEFAULT 0,
           sale_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+          image_data TEXT NOT NULL DEFAULT '',
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -231,6 +232,11 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL
         );
+        ",
+    )?;
+    client.batch_execute(
+        "
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS image_data TEXT NOT NULL DEFAULT '';
         ",
     )?;
     Ok(())

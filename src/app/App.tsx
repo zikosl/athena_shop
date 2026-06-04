@@ -9,10 +9,12 @@ import {
   Languages,
   LogOut,
   Menu,
+  Moon,
   ReceiptText,
   Save,
   Settings,
   ShoppingCart,
+  Sun,
   Wallet
 } from "lucide-react";
 import { DatabaseSetupPage } from "../modules/auth/DatabaseSetupPage";
@@ -28,7 +30,7 @@ import { api } from "../shared/api";
 import { appDateLabel } from "../shared/format";
 import { useText } from "../shared/i18n";
 import { Language, ProductStockFilter, UserSession, ViewKey } from "../shared/types";
-import athenaShopLogo from "../assets/athena-shop-logo.png";
+import annaStoreLogo from "../assets/anna-store-logo.png";
 
 const nav = [
   { key: "dashboard", icon: Home },
@@ -40,8 +42,11 @@ const nav = [
   { key: "settings", icon: Settings }
 ] as const;
 
+type Theme = "dark" | "light";
+
 export function App() {
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem("athena-shop-lang") as Language) || "fr");
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("athena-shop-theme") as Theme) || "dark");
   const [view, setView] = useState<ViewKey>("dashboard");
   const [stockFilter, setStockFilter] = useState<ProductStockFilter>("all");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -66,6 +71,11 @@ export function App() {
     document.documentElement.lang = language;
     document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
   }, [language]);
+
+  useEffect(() => {
+    localStorage.setItem("athena-shop-theme", theme);
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   useEffect(() => {
     api.isDatabaseConfigured()
@@ -98,6 +108,11 @@ export function App() {
     setUser(null);
   }, [saveData]);
 
+  const updateUserSession = useCallback((session: UserSession) => {
+    setUser(session);
+    localStorage.setItem("athena-shop-session", JSON.stringify(session));
+  }, []);
+
   const screen = useMemo(() => {
     if (!user) return null;
     if (view === "dashboard") return <DashboardPage language={language} onNavigate={setView} onOpenAlerts={openStockAlerts} refreshToken={refreshToken} />;
@@ -106,8 +121,8 @@ export function App() {
     if (view === "revenue") return <RevenuePage language={language} />;
     if (view === "expenses") return <ExpensesPage language={language} onChanged={refresh} />;
     if (view === "credits") return <CreditsPage language={language} user={user} onChanged={refresh} />;
-    return <SettingsPage language={language} setLanguage={setLanguage} />;
-  }, [language, openStockAlerts, refresh, refreshToken, stockFilter, user, view]);
+    return <SettingsPage language={language} setLanguage={setLanguage} user={user} onUserChanged={updateUserSession} />;
+  }, [language, openStockAlerts, refresh, refreshToken, stockFilter, updateUserSession, user, view]);
 
   if (databaseConfigured === null) {
     return <main className="login-shell"><div className="particles" /><section className="login-card"><h2>Loading...</h2></section></main>;
@@ -129,10 +144,10 @@ export function App() {
       <aside className="sidebar">
         <div className="brand-mark">
           <div className="brand-logo-frame">
-            <img src={athenaShopLogo} alt="Athena Shop" className="brand-logo" />
+            <img src={annaStoreLogo} alt="Anna Store" className="brand-logo" />
           </div>
-          <strong>ATHENA SHOP</strong>
-          <span>Bijoux & Retail</span>
+          <strong>ANNA STORE</strong>
+          <span>Home Wear</span>
         </div>
 
         <nav className="menu">
@@ -192,16 +207,23 @@ export function App() {
               <Menu size={22} />
             </button>
             <section className="title-lockup">
-              <img src={athenaShopLogo} alt="" className="title-logo-mark" />
+              <img src={annaStoreLogo} alt="" className="title-logo-mark" />
               <div>
-                <h1>ATHENA SHOP</h1>
-                <p>BIJOUX & RETAIL</p>
+                <h1>ANNA STORE</h1>
+                <p>HOME WEAR</p>
               </div>
             </section>
           </section>
 
           <section className="top-actions">
             <button className="glass-pill icon-only" title={t.alerts} onClick={openStockAlerts}><Bell size={18} /><b>3</b></button>
+            <button
+              className="glass-pill icon-only"
+              title={theme === "dark" ? "Mode clair" : "Mode sombre"}
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            >
+              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
             <button className="glass-pill" onClick={() => void saveData()} title={saveStatus || t.saveData}>
               <Save size={17} />
               <span>{saveStatus || t.saveData}</span>

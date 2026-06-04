@@ -112,7 +112,9 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
         <div className="product-picker">
           {products.map((product) => (
             <button key={product.id} className="product-tile" onClick={() => addProduct(product)}>
-              <span><ShoppingBag size={22} /></span>
+              <span className="product-tile-media">
+                {product.image_data ? <img src={product.image_data} alt="" /> : <ShoppingBag size={22} />}
+              </span>
               <strong>{product.name}</strong>
               <em><Barcode size={13} /> {product.barcode}</em>
               <small>{product.quantity} pcs · {money(product.sale_price)}</small>
@@ -191,8 +193,8 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
     <div className="modal-backdrop">
       <section className="receipt-modal">
         <div className="receipt-paper" id="receipt">
-          <h2>ATHENA SHOP</h2>
-          <p>RETAIL ATELIER</p>
+          <h2>ANNA STORE</h2>
+          <p>HOME WEAR</p>
           <small>{sale.receipt_no} · {sale.created_at}</small>
           <hr />
           {sale.items.map((item) => (
