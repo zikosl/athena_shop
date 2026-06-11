@@ -6,6 +6,10 @@ import {
   DashboardStats,
   Expense,
   ExpenseInput,
+  Flacon,
+  FlaconInput,
+  Perfume,
+  PerfumeInput,
   PostgresConfig,
   Product,
   ProductFilters,
@@ -22,6 +26,8 @@ type Db = {
   expenses: Expense[];
   sales: Sale[];
   creditPayments: CreditAccount["payments"];
+  flacons: Flacon[];
+  perfumes: Perfume[];
 };
 
 const seed: Db = {
@@ -33,7 +39,13 @@ const seed: Db = {
   ],
   expenses: [],
   sales: [],
-  creditPayments: []
+  creditPayments: [],
+  flacons: [
+    { id: 1, name: "6ml", volume_ml: 6, active: true, created_at: new Date().toISOString() },
+    { id: 2, name: "12ml", volume_ml: 12, active: true, created_at: new Date().toISOString() },
+    { id: 3, name: "30ml", volume_ml: 30, active: true, created_at: new Date().toISOString() }
+  ],
+  perfumes: []
 };
 
 function sampleProduct(
@@ -76,7 +88,9 @@ function readDb(): Db {
     products: parsed.products ?? seed.products,
     expenses: parsed.expenses ?? [],
     sales: (parsed.sales ?? []).map(normalizeSale),
-    creditPayments: parsed.creditPayments ?? []
+    creditPayments: parsed.creditPayments ?? [],
+    flacons: parsed.flacons ?? seed.flacons,
+    perfumes: parsed.perfumes ?? []
   };
 }
 
@@ -123,6 +137,56 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "save_database") {
     writeDb(db);
     return undefined as T;
+  }
+
+  if (command === "list_flacons") return db.flacons as T;
+
+  if (command === "save_flacon") {
+    const input = args?.input as FlaconInput;
+    const flacon = {
+      id: input.id ?? Date.now(),
+      name: input.name,
+      volume_ml: input.volume_ml,
+      active: input.active,
+      created_at: new Date().toISOString()
+    };
+    db.flacons = input.id ? db.flacons.map((item) => item.id === input.id ? flacon : item) : [...db.flacons, flacon];
+    writeDb(db);
+    return flacon as T;
+  }
+
+  if (command === "list_perfumes") return db.perfumes as T;
+
+  if (command === "save_perfume") {
+    const input = args?.input as PerfumeInput;
+    const existing = input.id ? db.perfumes.find((item) => item.id === input.id) : undefined;
+    const totalVolume = (existing?.total_volume_ml ?? 0) + input.added_volume_ml;
+    const remainingVolume = (existing?.remaining_volume_ml ?? 0) + input.added_volume_ml;
+    const purchaseTotal = (existing?.total_purchase_price ?? 0) + input.total_purchase_price;
+    const perfume: Perfume = {
+      id: input.id ?? Date.now(),
+      name: input.name,
+      family: input.family,
+      total_volume_ml: totalVolume,
+      remaining_volume_ml: remainingVolume,
+      total_purchase_price: purchaseTotal,
+      cost_per_ml: totalVolume > 0 ? purchaseTotal / totalVolume : 0,
+      low_stock_ml: input.low_stock_ml,
+      created_at: existing?.created_at ?? new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      prices: input.prices.map((price) => {
+        const flacon = db.flacons.find((item) => item.id === price.flacon_id);
+        return {
+          flacon_id: price.flacon_id,
+          flacon_name: flacon?.name ?? "",
+          volume_ml: flacon?.volume_ml ?? 0,
+          sale_price: price.sale_price
+        };
+      })
+    };
+    db.perfumes = existing ? db.perfumes.map((item) => item.id === perfume.id ? perfume : item) : [perfume, ...db.perfumes];
+    writeDb(db);
+    return perfume as T;
   }
 
   if (command === "list_products") {
@@ -202,7 +266,24 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
         line_total: product.sale_price * item.quantity
       };
     });
-    const subtotal = items.reduce((sum, item) => sum + item.line_total, 0);
+    const perfumeItems = (input.perfume_items ?? []).map((item) => {
+      const perfume = db.perfumes.find((candidate) => candidate.id === item.perfume_id);
+      if (!perfume) throw new Error("Parfum introuvable");
+      const price = perfume.prices.find((candidate) => candidate.flacon_id === item.flacon_id);
+      if (!price) throw new Error("Flacon introuvable");
+      const needed = price.volume_ml * item.quantity;
+      if (perfume.remaining_volume_ml < needed) throw new Error(`Stock insuffisant pour ${perfume.name}`);
+      perfume.remaining_volume_ml -= needed;
+      return {
+        product_id: -perfume.id,
+        product_name: `${perfume.name} - ${price.flacon_name}`,
+        barcode: `PF-${perfume.id}-${price.flacon_id}`,
+        quantity: item.quantity,
+        unit_price: price.sale_price,
+        line_total: price.sale_price * item.quantity
+      };
+    });
+    const subtotal = [...items, ...perfumeItems].reduce((sum, item) => sum + item.line_total, 0);
     const total = Math.max(0, subtotal - input.discount);
     if (input.sale_type === "credit" && !input.customer_name.trim()) throw new Error("Nom client obligatoire pour un crédit");
     if (input.paid_amount > total) throw new Error("Le montant payé dépasse le total");
@@ -226,7 +307,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       credit_status: remaining <= 0 ? "paid" : paid > 0 ? "partial" : "open",
       cashier: input.cashier,
       created_at: new Date().toISOString(),
-      items
+      items: [...items, ...perfumeItems]
     };
     db.sales.unshift(sale);
     writeDb(db);
@@ -313,6 +394,10 @@ export const api = {
   saveExpense: (input: ExpenseInput) => call<Expense>("save_expense", { input }),
   deleteExpense: (id: number) => call<void>("delete_expense", { id }),
   checkout: (input: CheckoutInput) => call<Sale>("checkout", { input }),
+  flacons: () => call<Flacon[]>("list_flacons"),
+  saveFlacon: (input: FlaconInput) => call<Flacon>("save_flacon", { input }),
+  perfumes: () => call<Perfume[]>("list_perfumes"),
+  savePerfume: (input: PerfumeInput) => call<Perfume>("save_perfume", { input }),
   sales: () => call<Sale[]>("list_sales"),
   credits: () => call<CreditAccount[]>("list_credits"),
   addCreditPayment: (input: CreditPaymentInput) => call<CreditAccount>("add_credit_payment", { input })

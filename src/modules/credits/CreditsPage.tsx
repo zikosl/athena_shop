@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { HandCoins, Phone, ReceiptText } from "lucide-react";
+import { HandCoins, Phone, ReceiptText, Save, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
@@ -16,17 +16,13 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
   const load = () => api.credits().then(setCredits);
 
   useEffect(() => {
-    void load();
+    load().catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
   const selected = useMemo(
-    () => credits.find((credit) => credit.sale.id === selectedId) ?? credits[0],
+    () => credits.find((credit) => credit.sale.id === selectedId) ?? null,
     [credits, selectedId]
   );
-
-  useEffect(() => {
-    if (!selectedId && credits[0]) setSelectedId(credits[0].sale.id);
-  }, [credits, selectedId]);
 
   const totals = useMemo(() => ({
     open: credits.filter((credit) => credit.sale.remaining_amount > 0).length,
@@ -54,21 +50,36 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
     }
   }
 
+  function openCredit(credit: CreditAccount) {
+    setSelectedId(credit.sale.id);
+    setAmount(0);
+    setNote("");
+    setError("");
+  }
+
+  function closeCredit() {
+    setSelectedId(null);
+    setAmount(0);
+    setNote("");
+    setError("");
+  }
+
   return (
-    <section className="credits-grid">
-      <section className="panel table-panel">
+    <>
+      <section className="panel table-panel full">
         <div className="section-title"><h2><HandCoins size={18} /> {t.credits}</h2><span /></div>
         <div className="summary-strip compact">
           <article><span>{t.openCredits}</span><strong>{totals.open}</strong></article>
           <article><span>{t.totalToCollect}</span><strong>{money(totals.remaining)}</strong></article>
           <article><span>{t.totalPaid}</span><strong>{money(totals.paid)}</strong></article>
         </div>
-        <div className="credit-list">
+        {error && !selected && <p className="error">{error}</p>}
+        <div className="credit-list wide-credit-list">
           {credits.map((credit) => (
             <button
               key={credit.sale.id}
-              className={`credit-row ${selected?.sale.id === credit.sale.id ? "active" : ""}`}
-              onClick={() => setSelectedId(credit.sale.id)}
+              className="credit-row"
+              onClick={() => openCredit(credit)}
             >
               <span>
                 <strong>{credit.sale.customer_name}</strong>
@@ -80,13 +91,18 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
               </span>
             </button>
           ))}
+          {!credits.length && <p className="empty-state">{t.noCredits}</p>}
         </div>
       </section>
 
-      <aside className="panel cart-panel">
-        <div className="section-title"><h2>{t.installment}</h2><span /></div>
-        {selected ? (
-          <>
+      {selected && (
+        <div className="modal-backdrop">
+          <section className="panel form-panel form-modal compact-form-modal">
+            <div className="section-title">
+              <h2>{t.installment}</h2>
+              <span />
+              <button className="ghost-button compact-button" type="button" onClick={closeCredit}><X size={16} /> {t.close}</button>
+            </div>
             <div className="credit-detail">
               <strong>{selected.sale.customer_name}</strong>
               <span><Phone size={14} /> {selected.sale.customer_phone || t.noPhone}</span>
@@ -96,10 +112,10 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
               {selected.sale.due_date && <span>{t.dueDate}: {selected.sale.due_date}</span>}
             </div>
             <form className="payment-form" onSubmit={submit}>
-              <label><span>{t.cashInstallment}</span><div className="field"><input type="number" min={0} max={selected.sale.remaining_amount} value={amount} onChange={(event) => setAmount(Number(event.target.value))} /></div></label>
+              <label><span>{t.cashInstallment}</span><div className="field"><input type="number" min={0} max={selected.sale.remaining_amount} value={amount === 0 ? "" : amount} onChange={(event) => setAmount(Number(event.target.value))} /></div></label>
               <label><span>{t.note}</span><textarea value={note} onChange={(event) => setNote(event.target.value)} /></label>
               {error && <p className="error">{error}</p>}
-              <button className="gold-button" disabled={selected.sale.remaining_amount <= 0 || amount <= 0 || amount > selected.sale.remaining_amount}>{t.save}</button>
+              <button className="gold-button" disabled={selected.sale.remaining_amount <= 0 || amount <= 0 || amount > selected.sale.remaining_amount}><Save size={18} /> {t.save}</button>
             </form>
             <div className="payment-history">
               {!selected.payments.length && <p className="empty-state">{t.noCreditPayments}</p>}
@@ -111,11 +127,9 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
                 </article>
               ))}
             </div>
-          </>
-        ) : (
-          <p className="empty-state">{t.noCredits}</p>
-        )}
-      </aside>
-    </section>
+          </section>
+        </div>
+      )}
+    </>
   );
 }

@@ -16,9 +16,21 @@ struct ProductForSale {
     sale_price: f64,
 }
 
+#[derive(Debug)]
+struct PerfumeForSale {
+    id: i64,
+    name: String,
+    remaining_volume_ml: f64,
+    cost_per_ml: f64,
+    flacon_id: i64,
+    flacon_name: String,
+    volume_ml: f64,
+    sale_price: f64,
+}
+
 #[tauri::command]
 pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
-    if input.items.is_empty() {
+    if input.items.is_empty() && input.perfume_items.is_empty() {
         return Err(AppError::Message("Le panier est vide".into()));
     }
     if input.discount < 0.0 {
@@ -37,6 +49,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
         let mut subtotal = 0.0;
         let mut gross_profit = 0.0;
         let mut sale_lines = Vec::new();
+        let mut perfume_lines = Vec::new();
 
         for item in &input.items {
             if item.quantity <= 0 {
@@ -63,6 +76,29 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
             )?;
 
             sale_lines.push((product, item.quantity, line_total));
+        }
+
+        for item in &input.perfume_items {
+            if item.quantity <= 0 {
+                return Err(AppError::Message("Quantite invalide".into()));
+            }
+            let perfume = get_perfume_for_sale(&mut tx, item.perfume_id, item.flacon_id)?
+                .ok_or_else(|| AppError::Message("Parfum ou flacon introuvable".into()))?;
+            let needed_ml = perfume.volume_ml * item.quantity as f64;
+            if perfume.remaining_volume_ml + f64::EPSILON < needed_ml {
+                return Err(AppError::Message(format!(
+                    "Stock insuffisant pour {} {}",
+                    perfume.name, perfume.flacon_name
+                )));
+            }
+            let line_total = perfume.sale_price * item.quantity as f64;
+            subtotal += line_total;
+            gross_profit += (perfume.sale_price - perfume.cost_per_ml * perfume.volume_ml) * item.quantity as f64;
+            tx.execute(
+                "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml - $1, updated_at = NOW() WHERE id = $2",
+                &[&needed_ml, &perfume.id],
+            )?;
+            perfume_lines.push((perfume, item.quantity, line_total));
         }
 
         let total = (subtotal - input.discount).max(0.0);
@@ -137,6 +173,33 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                 line_total,
             });
         }
+        for (perfume, quantity, line_total) in perfume_lines {
+            tx.execute(
+                "INSERT INTO perfume_sale_items
+                 (sale_id, perfume_id, flacon_id, perfume_name, flacon_name, volume_ml, quantity, unit_price, cost_per_ml, line_total)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                &[
+                    &sale_id,
+                    &perfume.id,
+                    &perfume.flacon_id,
+                    &perfume.name,
+                    &perfume.flacon_name,
+                    &perfume.volume_ml,
+                    &quantity,
+                    &perfume.sale_price,
+                    &perfume.cost_per_ml,
+                    &line_total,
+                ],
+            )?;
+            response_items.push(SaleItem {
+                product_id: -perfume.id,
+                product_name: format!("{} - {}", perfume.name, perfume.flacon_name),
+                barcode: format!("PF-{}-{}", perfume.id, perfume.flacon_id),
+                quantity,
+                unit_price: perfume.sale_price,
+                line_total,
+            });
+        }
 
         tx.commit()?;
 
@@ -203,13 +266,46 @@ fn get_product_for_sale(
     }))
 }
 
+fn get_perfume_for_sale(
+    client: &mut postgres::Transaction<'_>,
+    perfume_id: i64,
+    flacon_id: i64,
+) -> AppResult<Option<PerfumeForSale>> {
+    let row = client.query_opt(
+        "SELECT p.id, p.name, p.remaining_volume_ml, p.cost_per_ml,
+                f.id, f.name, f.volume_ml, pp.sale_price
+         FROM perfumes p
+         JOIN perfume_prices pp ON pp.perfume_id = p.id
+         JOIN flacons f ON f.id = pp.flacon_id
+         WHERE p.id = $1 AND f.id = $2 AND f.active = TRUE",
+        &[&perfume_id, &flacon_id],
+    )?;
+    Ok(row.map(|row| PerfumeForSale {
+        id: row.get(0),
+        name: row.get(1),
+        remaining_volume_ml: row.get(2),
+        cost_per_ml: row.get(3),
+        flacon_id: row.get(4),
+        flacon_name: row.get(5),
+        volume_ml: row.get(6),
+        sale_price: row.get(7),
+    }))
+}
+
 pub fn list_sale_items(client: &mut Client, sale_id: i64) -> AppResult<Vec<SaleItem>> {
     let rows = client.query(
         "SELECT product_id, product_name, barcode, quantity, unit_price, line_total
          FROM sale_items WHERE sale_id = $1 ORDER BY id",
         &[&sale_id],
     )?;
-    Ok(rows.iter().map(sale_item_from_row).collect())
+    let mut items: Vec<SaleItem> = rows.iter().map(sale_item_from_row).collect();
+    let perfume_rows = client.query(
+        "SELECT perfume_id, perfume_name, flacon_id, flacon_name, quantity, unit_price, line_total
+         FROM perfume_sale_items WHERE sale_id = $1 ORDER BY id",
+        &[&sale_id],
+    )?;
+    items.extend(perfume_rows.iter().map(perfume_sale_item_from_row));
+    Ok(items)
 }
 
 pub fn sale_from_row(row: &Row) -> Sale {
@@ -243,5 +339,20 @@ fn sale_item_from_row(row: &Row) -> SaleItem {
         quantity: row.get(3),
         unit_price: row.get(4),
         line_total: row.get(5),
+    }
+}
+
+fn perfume_sale_item_from_row(row: &Row) -> SaleItem {
+    let perfume_id: i64 = row.get(0);
+    let perfume_name: String = row.get(1);
+    let flacon_id: i64 = row.get(2);
+    let flacon_name: String = row.get(3);
+    SaleItem {
+        product_id: -perfume_id,
+        product_name: format!("{} - {}", perfume_name, flacon_name),
+        barcode: format!("PF-{}-{}", perfume_id, flacon_id),
+        quantity: row.get(4),
+        unit_price: row.get(5),
+        line_total: row.get(6),
     }
 }

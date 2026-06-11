@@ -8,6 +8,7 @@ const dictionary = {
     subtitle: "Gérez votre boutique en toute simplicité",
     dashboard: "Accueil",
     stock: "Stock",
+    perfumery: "Perfumerie",
     pos: "POS",
     revenue: "Recettes",
     expenses: "Dépenses",
@@ -80,6 +81,8 @@ const dictionary = {
     modules: {
       stockTitle: "STOCK",
       stockText: "Gérez vos produits, quantités et alertes de stock.",
+      perfumeryTitle: "PERFUMERIE",
+      perfumeryText: "Gérez les parfums, volumes, familles et marges.",
       posTitle: "POS",
       posText: "Vente rapide, encaissement et impression de tickets.",
       revenueTitle: "RECETTES",
@@ -127,7 +130,7 @@ const dictionary = {
     adminAccount: "Compte administrateur",
     defaultUser: "Utilisateur par défaut: admin / admin123",
     database: "Base de données",
-    databaseInfo: "SQLite local via Tauri, stockée dans les données de l'application.",
+    databaseInfo: "PostgreSQL configure via Tauri, stocke dans les donnees de l'application.",
     languagePair: "Français / العربية"
   },
   ar: {
@@ -137,6 +140,7 @@ const dictionary = {
     subtitle: "إدارة المتجر بكل أناقة وسهولة",
     dashboard: "الرئيسية",
     stock: "المخزون",
+    perfumery: "العطور",
     pos: "نقطة البيع",
     revenue: "المداخيل",
     expenses: "المصاريف",
@@ -208,6 +212,8 @@ const dictionary = {
     modules: {
       stockTitle: "المخزون",
       stockText: "إدارة المنتجات والكميات وتنبيهات نقص المخزون.",
+      perfumeryTitle: "العطور",
+      perfumeryText: "إدارة العطور والأحجام والهوامش.",
       posTitle: "نقطة البيع",
       posText: "بيع سريع، قبض نقدي وطباعة التذاكر.",
       revenueTitle: "المداخيل",
@@ -255,7 +261,7 @@ const dictionary = {
     adminAccount: "حساب المدير",
     defaultUser: "المستخدم الافتراضي: admin / admin123",
     database: "قاعدة البيانات",
-    databaseInfo: "SQLite محلية عبر Tauri ومحفوظة في بيانات التطبيق.",
+    databaseInfo: "PostgreSQL via Tauri.",
     languagePair: "Français / العربية"
   }
 } as const;

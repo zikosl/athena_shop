@@ -227,6 +227,48 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           cashier TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS flacons (
+          id BIGSERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          volume_ml DOUBLE PRECISION NOT NULL,
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS perfumes (
+          id BIGSERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          family TEXT NOT NULL DEFAULT '',
+          total_volume_ml DOUBLE PRECISION NOT NULL DEFAULT 0,
+          remaining_volume_ml DOUBLE PRECISION NOT NULL DEFAULT 0,
+          total_purchase_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+          cost_per_ml DOUBLE PRECISION NOT NULL DEFAULT 0,
+          low_stock_ml DOUBLE PRECISION NOT NULL DEFAULT 30,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS perfume_prices (
+          perfume_id BIGINT NOT NULL REFERENCES perfumes(id) ON DELETE CASCADE,
+          flacon_id BIGINT NOT NULL REFERENCES flacons(id),
+          sale_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+          PRIMARY KEY (perfume_id, flacon_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS perfume_sale_items (
+          id BIGSERIAL PRIMARY KEY,
+          sale_id BIGINT NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+          perfume_id BIGINT NOT NULL REFERENCES perfumes(id),
+          flacon_id BIGINT NOT NULL REFERENCES flacons(id),
+          perfume_name TEXT NOT NULL,
+          flacon_name TEXT NOT NULL,
+          volume_ml DOUBLE PRECISION NOT NULL,
+          quantity BIGINT NOT NULL,
+          unit_price DOUBLE PRECISION NOT NULL,
+          cost_per_ml DOUBLE PRECISION NOT NULL,
+          line_total DOUBLE PRECISION NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS app_meta (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL

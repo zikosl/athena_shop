@@ -1,30 +1,34 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Save, Search, Trash2 } from "lucide-react";
+import { Plus, Save, Search, Trash2, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";
 import { Expense, ExpenseInput, Language } from "../../shared/types";
 
-const emptyExpense: ExpenseInput = {
-  label: "",
-  category: "Boutique",
-  amount: 0,
-  note: "",
-  expense_date: todayInputValue()
-};
+function newExpense(): ExpenseInput {
+  return {
+    label: "",
+    category: "Boutique",
+    amount: 0,
+    note: "",
+    expense_date: todayInputValue()
+  };
+}
 
 export function ExpensesPage({ language, onChanged }: { language: Language; onChanged: () => void }) {
   const t = useText(language);
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [form, setForm] = useState<ExpenseInput>(emptyExpense);
+  const [form, setForm] = useState<ExpenseInput>(newExpense);
+  const [formOpen, setFormOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [fromDate, setFromDate] = useState(todayInputValue);
   const [toDate, setToDate] = useState(todayInputValue);
+  const [error, setError] = useState("");
 
   const load = () => api.expenses().then(setExpenses);
   useEffect(() => {
-    void load();
+    load().catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
   const categories = useMemo(
@@ -46,16 +50,36 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    await api.saveExpense(form);
-    setForm(emptyExpense);
-    await load();
-    onChanged();
+    setError("");
+    if (!form.label.trim() || form.amount <= 0) {
+      setError("Libelle et montant valides obligatoires");
+      return;
+    }
+    try {
+      await api.saveExpense({
+        ...form,
+        label: form.label.trim(),
+        category: form.category.trim() || "Boutique",
+        note: form.note.trim()
+      });
+      setForm(newExpense());
+      setFormOpen(false);
+      await load();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function remove(id: number) {
-    await api.deleteExpense(id);
-    await load();
-    onChanged();
+    setError("");
+    try {
+      await api.deleteExpense(id);
+      await load();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   function filterToday() {
@@ -64,19 +88,23 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
     setToDate(today);
   }
 
-  return (
-    <section className="work-grid">
-      <form className="panel form-panel" onSubmit={submit}>
-        <div className="section-title"><h2>{t.expenses}</h2><span /></div>
-        <label><span>{t.label}</span><div className="field"><input value={form.label} onChange={(event) => setForm({ ...form, label: event.target.value })} /></div></label>
-        <label><span>{t.category}</span><div className="field"><input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} /></div></label>
-        <label><span>{t.amount}</span><div className="field"><input type="number" value={form.amount === 0 ? "" : form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} /></div></label>
-        <label><span>{t.date}</span><div className="field"><input type="date" value={form.expense_date} onChange={(event) => setForm({ ...form, expense_date: event.target.value })} /></div></label>
-        <label><span>{t.note}</span><textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>
-        <button className="gold-button"><Save size={18} /> {t.save}</button>
-      </form>
+  function openNewExpense() {
+    setError("");
+    setForm(newExpense());
+    setFormOpen(true);
+  }
 
-      <section className="panel table-panel">
+  return (
+    <>
+      <section className="panel table-panel full">
+        <div className="section-title">
+          <h2>{t.expenses}</h2>
+          <span />
+          <button className="gold-button compact-button" type="button" onClick={openNewExpense}>
+            <Plus size={17} /> {t.expenses}
+          </button>
+        </div>
+        {error && !formOpen && <p className="error">{error}</p>}
         <div className="filter-row">
           <div className="searchbar"><Search size={18} /><input placeholder={t.searchExpenses} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
           <select aria-label={t.category} value={category} onChange={(event) => setCategory(event.target.value)}>
@@ -104,6 +132,25 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
           </table>
         </div>
       </section>
-    </section>
+
+      {formOpen && (
+        <div className="modal-backdrop">
+          <form className="panel form-panel form-modal compact-form-modal" onSubmit={submit}>
+            <div className="section-title">
+              <h2>{t.expenses}</h2>
+              <span />
+              <button className="ghost-button compact-button" type="button" onClick={() => setFormOpen(false)}><X size={16} /> {t.close}</button>
+            </div>
+            <label><span>{t.label}</span><div className="field"><input value={form.label} onChange={(event) => setForm({ ...form, label: event.target.value })} /></div></label>
+            <label><span>{t.category}</span><div className="field"><input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} /></div></label>
+            <label><span>{t.amount}</span><div className="field"><input type="number" min={0} step="0.01" value={form.amount === 0 ? "" : form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} /></div></label>
+            <label><span>{t.date}</span><div className="field"><input type="date" value={form.expense_date} onChange={(event) => setForm({ ...form, expense_date: event.target.value })} /></div></label>
+            <label><span>{t.note}</span><textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>
+            {error && <p className="error">{error}</p>}
+            <button className="gold-button" disabled={!form.label.trim() || form.amount <= 0}><Save size={18} /> {t.save}</button>
+          </form>
+        </div>
+      )}
+    </>
   );
 }

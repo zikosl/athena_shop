@@ -1,5 +1,5 @@
 export type Language = "fr" | "ar";
-export type ViewKey = "dashboard" | "stock" | "pos" | "revenue" | "expenses" | "credits" | "settings";
+export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "revenue" | "expenses" | "credits" | "settings";
 
 export interface UserSession {
   id: number;
@@ -88,8 +88,66 @@ export interface CartItem {
   quantity: number;
 }
 
+export interface Flacon {
+  id: number;
+  name: string;
+  volume_ml: number;
+  active: boolean;
+  created_at: string;
+}
+
+export interface FlaconInput {
+  id?: number;
+  name: string;
+  volume_ml: number;
+  active: boolean;
+}
+
+export interface PerfumePrice {
+  flacon_id: number;
+  flacon_name: string;
+  volume_ml: number;
+  sale_price: number;
+}
+
+export interface Perfume {
+  id: number;
+  name: string;
+  family: string;
+  total_volume_ml: number;
+  remaining_volume_ml: number;
+  total_purchase_price: number;
+  cost_per_ml: number;
+  low_stock_ml: number;
+  created_at: string;
+  updated_at: string;
+  prices: PerfumePrice[];
+}
+
+export interface PerfumePriceInput {
+  flacon_id: number;
+  sale_price: number;
+}
+
+export interface PerfumeInput {
+  id?: number;
+  name: string;
+  family: string;
+  added_volume_ml: number;
+  total_purchase_price: number;
+  low_stock_ml: number;
+  prices: PerfumePriceInput[];
+}
+
+export interface PerfumeCartItem {
+  perfume: Perfume;
+  price: PerfumePrice;
+  quantity: number;
+}
+
 export interface CheckoutInput {
   items: Array<{ product_id: number; quantity: number }>;
+  perfume_items: Array<{ perfume_id: number; flacon_id: number; quantity: number }>;
   discount: number;
   sale_type: "cash" | "credit";
   paid_amount: number;

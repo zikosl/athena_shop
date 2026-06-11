@@ -13,6 +13,7 @@ import {
   Save,
   Settings,
   ShoppingCart,
+  SprayCan,
   Wallet
 } from "lucide-react";
 import { DatabaseSetupPage } from "../modules/auth/DatabaseSetupPage";
@@ -21,6 +22,7 @@ import { DashboardPage } from "../modules/dashboard/DashboardPage";
 import { ExpensesPage } from "../modules/expenses/ExpensesPage";
 import { CreditsPage } from "../modules/credits/CreditsPage";
 import { PosPage } from "../modules/pos/PosPage";
+import { PerfumeryPage } from "../modules/perfumery/PerfumeryPage";
 import { RevenuePage } from "../modules/revenue/RevenuePage";
 import { SettingsPage } from "../modules/settings/SettingsPage";
 import { StockPage } from "../modules/stock/StockPage";
@@ -33,6 +35,7 @@ import athenaShopLogo from "../assets/athena-shop-logo.png";
 const nav = [
   { key: "dashboard", icon: Home },
   { key: "stock", icon: Box },
+  { key: "perfumery", icon: SprayCan },
   { key: "pos", icon: ShoppingCart },
   { key: "revenue", icon: ChartColumnIncreasing },
   { key: "expenses", icon: Wallet },
@@ -102,6 +105,7 @@ export function App() {
     if (!user) return null;
     if (view === "dashboard") return <DashboardPage language={language} onNavigate={setView} onOpenAlerts={openStockAlerts} refreshToken={refreshToken} />;
     if (view === "stock") return <StockPage language={language} onChanged={refresh} initialStockFilter={stockFilter} />;
+    if (view === "perfumery") return <PerfumeryPage language={language} onChanged={refresh} />;
     if (view === "pos") return <PosPage language={language} user={user} onSale={refresh} />;
     if (view === "revenue") return <RevenuePage language={language} />;
     if (view === "expenses") return <ExpensesPage language={language} onChanged={refresh} />;

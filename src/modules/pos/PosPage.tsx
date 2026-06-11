@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Barcode, Minus, Plus, Printer, Search, ShoppingBag, Trash2 } from "lucide-react";
+import { Barcode, Minus, Plus, Printer, Search, ShoppingBag, SprayCan, Trash2 } from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
-import { CartItem, Language, Product, Sale, UserSession } from "../../shared/types";
+import { CartItem, Language, Perfume, PerfumeCartItem, Product, Sale, UserSession } from "../../shared/types";
 
 const maxDiscount = 200;
 
@@ -11,9 +11,12 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const t = useText(language);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
+  const [assortment, setAssortment] = useState<"all" | "home" | "perfumery">("all");
   const [products, setProducts] = useState<Product[]>([]);
+  const [perfumes, setPerfumes] = useState<Perfume[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [perfumeCart, setPerfumeCart] = useState<PerfumeCartItem[]>([]);
   const [discount, setDiscount] = useState(0);
   const [saleType, setSaleType] = useState<"cash" | "credit">("cash");
   const [customerName, setCustomerName] = useState("");
@@ -25,10 +28,19 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api.products({ query, category, stock: "all" })
-      .then((items) => setProducts(items.filter((product) => product.quantity > 0)))
+    const effectiveCategory = assortment === "perfumery" ? "Perfumerie" : category;
+    api.products({ query, category: effectiveCategory, stock: "all" })
+      .then((items) => setProducts(items.filter((product) =>
+        product.quantity > 0 && assortment !== "perfumery" && (assortment !== "home" || product.category !== "Perfumerie")
+      )))
       .catch((err) => setError(String(err)));
-  }, [query, category]);
+  }, [query, category, assortment]);
+
+  useEffect(() => {
+    api.perfumes()
+      .then((items) => setPerfumes(items.filter((perfume) => perfume.remaining_volume_ml > 0)))
+      .catch((err) => setError(String(err)));
+  }, []);
 
   useEffect(() => {
     api.products()
@@ -36,12 +48,21 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       .catch((err) => setError(String(err)));
   }, []);
 
-  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.product.sale_price * item.quantity, 0), [cart]);
+  const subtotal = useMemo(
+    () => cart.reduce((sum, item) => sum + item.product.sale_price * item.quantity, 0)
+      + perfumeCart.reduce((sum, item) => sum + item.price.sale_price * item.quantity, 0),
+    [cart, perfumeCart]
+  );
+  const visiblePerfumes = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return perfumes.filter((perfume) => !normalized || [perfume.name, perfume.family]
+      .some((value) => value.toLowerCase().includes(normalized)));
+  }, [perfumes, query]);
   const total = Math.max(0, subtotal - discount);
   const normalizedPaid = Math.max(0, Math.min(paidAmount, total));
   const creditRemaining = saleType === "credit" ? Math.max(0, total - normalizedPaid) : 0;
   const checkoutBlocked =
-    !cart.length ||
+    (!cart.length && !perfumeCart.length) ||
     discount < 0 ||
     discount > maxDiscount ||
     discount > subtotal ||
@@ -68,11 +89,42 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       .filter((item) => item.quantity > 0));
   }
 
+  function addPerfume(perfume: Perfume, flaconId: number) {
+    const price = perfume.prices.find((item) => item.flacon_id === flaconId);
+    if (!price || price.sale_price <= 0) return;
+    const maxQty = Math.floor(perfume.remaining_volume_ml / price.volume_ml);
+    if (maxQty <= 0) return;
+    setPerfumeCart((items) => {
+      const existing = items.find((item) => item.perfume.id === perfume.id && item.price.flacon_id === flaconId);
+      if (existing) {
+        return items.map((item) => item.perfume.id === perfume.id && item.price.flacon_id === flaconId
+          ? { ...item, quantity: Math.min(item.quantity + 1, maxQty) }
+          : item);
+      }
+      return [...items, { perfume, price, quantity: 1 }];
+    });
+  }
+
+  function setPerfumeQty(perfumeId: number, flaconId: number, quantity: number) {
+    setPerfumeCart((items) => items
+      .map((item) => {
+        if (item.perfume.id !== perfumeId || item.price.flacon_id !== flaconId) return item;
+        const maxQty = Math.floor(item.perfume.remaining_volume_ml / item.price.volume_ml);
+        return { ...item, quantity: Math.max(1, Math.min(quantity, maxQty)) };
+      })
+      .filter((item) => item.quantity > 0));
+  }
+
   async function checkout() {
     setError("");
     try {
       const sale = await api.checkout({
         items: cart.map((item) => ({ product_id: item.product.id, quantity: item.quantity })),
+        perfume_items: perfumeCart.map((item) => ({
+          perfume_id: item.perfume.id,
+          flacon_id: item.price.flacon_id,
+          quantity: item.quantity
+        })),
         discount,
         sale_type: saleType,
         paid_amount: saleType === "cash" ? total : normalizedPaid,
@@ -84,6 +136,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       });
       setReceipt(sale);
       setCart([]);
+      setPerfumeCart([]);
       setDiscount(0);
       setSaleType("cash");
       setCustomerName("");
@@ -92,7 +145,11 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       setDueDate("");
       setCreditNote("");
       const nextProducts = await api.products({ query, category, stock: "all" });
-      setProducts(nextProducts.filter((product) => product.quantity > 0));
+      setProducts(nextProducts.filter((product) =>
+        product.quantity > 0 && assortment !== "perfumery" && (assortment !== "home" || product.category !== "Perfumerie")
+      ));
+      const nextPerfumes = await api.perfumes();
+      setPerfumes(nextPerfumes.filter((perfume) => perfume.remaining_volume_ml > 0));
       onSale();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -102,14 +159,38 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   return (
     <section className="pos-grid">
       <section className="panel table-panel">
+        <div className="segmented pos-mode-tabs">
+          <button className={assortment === "all" ? "active" : ""} type="button" onClick={() => setAssortment("all")}>Tout</button>
+          <button className={assortment === "home" ? "active" : ""} type="button" onClick={() => setAssortment("home")}>Products</button>
+          <button className={assortment === "perfumery" ? "active" : ""} type="button" onClick={() => setAssortment("perfumery")}>Perfumerie</button>
+        </div>
         <div className="filter-row">
           <div className="searchbar"><Search size={18} /><input autoFocus placeholder={t.search} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
-          <select aria-label={t.category} value={category} onChange={(event) => setCategory(event.target.value)}>
+          <select aria-label={t.category} value={category} disabled={assortment === "perfumery"} onChange={(event) => setCategory(event.target.value)}>
             <option value="">{t.allCategories}</option>
-            {categories.map((item) => <option value={item} key={item}>{item}</option>)}
+            {categories
+              .filter((item) => assortment !== "home" || item !== "Perfumerie")
+              .map((item) => <option value={item} key={item}>{item}</option>)}
           </select>
         </div>
         <div className="product-picker">
+          {assortment !== "home" && visiblePerfumes.map((perfume) => (
+            <article key={`perfume-${perfume.id}`} className="product-tile perfume-tile">
+              <span><SprayCan size={22} /></span>
+              <strong>{perfume.name}</strong>
+              <em>{perfume.family} · {perfume.remaining_volume_ml.toFixed(1)} ml</em>
+              <div className="flacon-choice-row">
+                {perfume.prices
+                  .filter((price) => price.sale_price > 0 && perfume.remaining_volume_ml >= price.volume_ml)
+                  .map((price) => (
+                    <button type="button" key={price.flacon_id} onClick={() => addPerfume(perfume, price.flacon_id)}>
+                      {price.flacon_name}
+                      <small>{money(price.sale_price)}</small>
+                    </button>
+                  ))}
+              </div>
+            </article>
+          ))}
           {products.map((product) => (
             <button key={product.id} className="product-tile" onClick={() => addProduct(product)}>
               <span><ShoppingBag size={22} /></span>
@@ -137,6 +218,28 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
               </div>
               <strong>{money(item.product.sale_price * item.quantity)}</strong>
               <button className="plain-icon" onClick={() => setCart(cart.filter((line) => line.product.id !== item.product.id))}><Trash2 size={16} /></button>
+            </article>
+          ))}
+          {perfumeCart.map((item) => (
+            <article key={`${item.perfume.id}-${item.price.flacon_id}`} className="cart-line perfume-cart-line">
+              <div>
+                <strong>{item.perfume.name}</strong>
+                <span>{item.price.flacon_name} · {item.price.volume_ml} ml</span>
+              </div>
+              <div className="qty-control">
+                <button onClick={() => setPerfumeQty(item.perfume.id, item.price.flacon_id, item.quantity - 1)}><Minus size={14} /></button>
+                <b>{item.quantity}</b>
+                <button onClick={() => setPerfumeQty(item.perfume.id, item.price.flacon_id, item.quantity + 1)}><Plus size={14} /></button>
+              </div>
+              <strong>{money(item.price.sale_price * item.quantity)}</strong>
+              <button
+                className="plain-icon"
+                onClick={() => setPerfumeCart(perfumeCart.filter((line) =>
+                  line.perfume.id !== item.perfume.id || line.price.flacon_id !== item.price.flacon_id
+                ))}
+              >
+                <Trash2 size={16} />
+              </button>
             </article>
           ))}
         </div>
@@ -195,8 +298,8 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
           <p>RETAIL ATELIER</p>
           <small>{sale.receipt_no} · {sale.created_at}</small>
           <hr />
-          {sale.items.map((item) => (
-            <div className="receipt-line" key={item.product_id}>
+          {sale.items.map((item, index) => (
+            <div className="receipt-line" key={`${item.product_id}-${item.barcode}-${index}`}>
               <span>{item.product_name}<small>{item.quantity} x {money(item.unit_price)}</small></span>
               <strong>{money(item.line_total)}</strong>
             </div>

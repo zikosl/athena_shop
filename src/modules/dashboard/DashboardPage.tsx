@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Box, ChartColumnIncreasing, ShoppingCart, Wallet, Coins, AlertTriangle, HandCoins } from "lucide-react";
+import { Box, ChartColumnIncreasing, ShoppingCart, Wallet, Coins, AlertTriangle, HandCoins, SprayCan } from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
@@ -22,6 +22,7 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
 
   const modules = [
     { key: "stock" as ViewKey, title: t.modules.stockTitle, icon: Box, text: t.modules.stockText },
+    { key: "perfumery" as ViewKey, title: t.modules.perfumeryTitle, icon: SprayCan, text: t.modules.perfumeryText },
     { key: "pos" as ViewKey, title: t.modules.posTitle, icon: ShoppingCart, text: t.modules.posText },
     { key: "revenue" as ViewKey, title: t.modules.revenueTitle, icon: ChartColumnIncreasing, text: t.modules.revenueText },
     { key: "expenses" as ViewKey, title: t.modules.expensesTitle, icon: Wallet, text: t.modules.expensesText },

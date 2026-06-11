@@ -714,6 +714,39 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
 .product-tile span { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: rgba(255,227,111,0.11); color: var(--gold-soft); }
 .product-tile em, .product-tile small { color: var(--muted); font-style: normal; }
 .product-tile em { display: flex; align-items: center; gap: 5px; }
+.perfume-tile {
+  align-content: start;
+  min-height: 174px;
+  border-color: rgba(255,227,111,0.42);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255,227,111,0.16), transparent 58%),
+    linear-gradient(145deg, rgba(38,32,24,0.9), rgba(10,10,10,0.9));
+}
+.flacon-choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 2px;
+}
+.flacon-choice-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgba(212,175,55,0.34);
+  border-radius: 999px;
+  color: var(--gold-soft);
+  background: rgba(0,0,0,0.28);
+}
+.flacon-choice-row button:hover {
+  border-color: rgba(255,227,111,0.68);
+  background: rgba(212,175,55,0.14);
+}
+.flacon-choice-row small {
+  color: var(--white);
+  font-size: 11px;
+}
 
 .cart-lines { display: grid; gap: 10px; max-height: 340px; overflow-x: hidden; overflow-y: auto; }
 .cart-line {
@@ -728,6 +761,10 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
 }
 .cart-line { font-size: 13px; }
 .cart-line span { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+.perfume-cart-line {
+  border-color: rgba(212,175,55,0.18);
+  background: linear-gradient(135deg, rgba(212,175,55,0.08), rgba(255,255,255,0.03));
+}
 .qty-control { display: flex; align-items: center; gap: 7px; }
 .qty-control button { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid rgba(212,175,55,0.34); border-radius: 8px; color: var(--gold-soft); background: transparent; }
 .totals { display: grid; gap: 8px; padding: 14px 0; border-top: 1px solid rgba(212,175,55,0.18); }
@@ -738,10 +775,21 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 10;
+  z-index: 80;
   display: grid;
   place-items: center;
+  padding: 18px;
   background: rgba(0,0,0,0.72);
+}
+
+.form-modal {
+  width: min(780px, calc(100vw - 32px));
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+}
+
+.compact-form-modal {
+  width: min(460px, calc(100vw - 32px));
 }
 
 .receipt-modal {
@@ -766,6 +814,16 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
 .thanks { margin-top: 16px !important; }
 .modal-actions { display: flex; gap: 12px; }
 .modal-actions button { flex: 1; justify-content: center; }
+
+.price-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(212,175,55,0.2);
+  border-radius: 14px;
+  background: rgba(0,0,0,0.2);
+}
 
 .ticket-link {
   display: inline-flex;
@@ -837,11 +895,41 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
 .settings-panel { display: grid; gap: 14px; max-width: 800px; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .setting-row div:first-child { display: grid; gap: 5px; }
+.flacon-settings {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.flacon-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 10px;
+  flex: 1 1 360px;
+}
+.flacon-form button,
+.flacon-form .error {
+  grid-column: 1 / -1;
+}
+.flacon-list {
+  display: grid;
+  gap: 8px;
+  flex: 1 1 240px;
+  max-height: 260px;
+  overflow: auto;
+}
 .segmented { display: flex; padding: 4px; border: 1px solid rgba(212,175,55,0.28); border-radius: 999px; }
 .segmented button { min-width: 62px; height: 34px; border: 0; border-radius: 999px; color: var(--muted); background: transparent; }
 .segmented button.active { color: #120d03; background: var(--gold-soft); font-weight: 800; }
 .segmented.wide { width: 100%; border-radius: 12px; }
 .segmented.wide button { flex: 1; }
+.pos-mode-tabs {
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 14px;
+  border-radius: 12px;
+}
+.pos-mode-tabs button {
+  min-width: 96px;
+}
 
 .credit-fields {
   display: grid;
@@ -859,6 +947,11 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
   max-height: calc(100vh - 390px);
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.wide-credit-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  max-height: calc(100vh - 320px);
 }
 
 .credit-row {
