@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
+  CashShift,
   CheckoutInput,
+  CloseShiftInput,
   CreditAccount,
   CreditPaymentInput,
   DashboardStats,
@@ -11,10 +13,16 @@ import {
   Perfume,
   PerfumeInput,
   PostgresConfig,
+  ProfileInput,
   Product,
   ProductFilters,
   ProductInput,
+  OpenShiftInput,
+  ReportData,
+  ReportFilter,
   Sale,
+  SaleReturnInput,
+  SaleUpdateInput,
   UserSession
 } from "./types";
 import { todayInputValue } from "./format";
@@ -28,13 +36,14 @@ type Db = {
   creditPayments: CreditAccount["payments"];
   flacons: Flacon[];
   perfumes: Perfume[];
+  shifts: CashShift[];
 };
 
 const seed: Db = {
   products: [
-    sampleProduct(1, "Robe Athena drapee", "AS100001", "Athena Collection", "M", "Ivoire", 18, 4, 1800, 3450),
+    sampleProduct(1, "Robe Anna drapee", "AS100001", "Home Wear", "M", "Ivoire", 18, 4, 1800, 3450),
     sampleProduct(2, "Robe de chambre dorée", "AS100002", "Loungewear", "L", "Gold", 7, 3, 2600, 5200),
-    sampleProduct(3, "Ensemble olive doux", "AS100003", "Athena Collection", "S", "Olive", 24, 5, 1400, 2900),
+    sampleProduct(3, "Ensemble olive doux", "AS100003", "Home Wear", "S", "Olive", 24, 5, 1400, 2900),
     sampleProduct(4, "Pantoufles premium", "AS100004", "Accessoires", "38", "Beige", 3, 4, 900, 1850)
   ],
   expenses: [],
@@ -45,7 +54,8 @@ const seed: Db = {
     { id: 2, name: "12ml", volume_ml: 12, active: true, created_at: new Date().toISOString() },
     { id: 3, name: "30ml", volume_ml: 30, active: true, created_at: new Date().toISOString() }
   ],
-  perfumes: []
+  perfumes: [],
+  shifts: []
 };
 
 function sampleProduct(
@@ -72,6 +82,7 @@ function sampleProduct(
     low_stock_threshold: low,
     purchase_price: purchase,
     sale_price: sale,
+    image_data: "",
     created_at: now,
     updated_at: now
   };
@@ -85,12 +96,20 @@ function readDb(): Db {
   }
   const parsed = JSON.parse(raw) as Partial<Db>;
   return {
-    products: parsed.products ?? seed.products,
+    products: (parsed.products ?? seed.products).map(normalizeProduct),
     expenses: parsed.expenses ?? [],
     sales: (parsed.sales ?? []).map(normalizeSale),
     creditPayments: parsed.creditPayments ?? [],
     flacons: parsed.flacons ?? seed.flacons,
-    perfumes: parsed.perfumes ?? []
+    perfumes: parsed.perfumes ?? [],
+    shifts: parsed.shifts ?? []
+  };
+}
+
+function normalizeProduct(product: Product): Product {
+  return {
+    ...product,
+    image_data: product.image_data ?? ""
   };
 }
 
@@ -113,6 +132,114 @@ function writeDb(db: Db) {
   localStorage.setItem("athena-shop-demo-db", JSON.stringify(db));
 }
 
+function makeDummyDb(): Db {
+  const today = new Date();
+  const date = (daysAgo: number) => {
+    const next = new Date(today);
+    next.setDate(today.getDate() - daysAgo);
+    return next.toISOString();
+  };
+  const products = [
+    sampleProduct(1, "Pyjama satin noir", "AS-DEMO-001", "Products", "M", "Noir", 18, 4, 1800, 3400),
+    sampleProduct(2, "Ensemble coton creme", "AS-DEMO-002", "Products", "L", "Creme", 22, 5, 1400, 2800),
+    sampleProduct(3, "Robe maison fleurie", "AS-DEMO-003", "Products", "M", "Rose", 8, 3, 2100, 4300),
+    sampleProduct(4, "Pantoufles soft", "AS-DEMO-004", "Accessoires", "38", "Beige", 5, 4, 700, 1600),
+    sampleProduct(5, "Sac cadeau boutique", "AS-DEMO-005", "Accessoires", "Standard", "Or", 35, 8, 120, 350),
+    sampleProduct(6, "Kimono premium", "AS-DEMO-006", "Products", "XL", "Olive", 3, 4, 3200, 6500),
+    sampleProduct(7, "Musc blanc 12ml", "AS-DEMO-007", "Perfumerie", "12ml", "Blanc", 16, 5, 650, 1500),
+    sampleProduct(8, "Parfum oud 30ml", "AS-DEMO-008", "Perfumerie", "30ml", "Ambre", 9, 3, 1900, 4200)
+  ];
+  const sales: Sale[] = [
+    demoSale(1, "AS-DEMO-0001", date(6), "cash", 6200, 0, 6200, 3200, 6200, 0, "", "", "paid", [
+      demoItem(1, "Pyjama satin noir", "AS-DEMO-001", 1, 3400),
+      demoItem(2, "Ensemble coton creme", "AS-DEMO-002", 1, 2800)
+    ]),
+    demoSale(2, "AS-DEMO-0002", date(4), "credit", 8600, 200, 8400, 4200, 6000, 2400, "Samira", "0555000001", "partial", [
+      demoItem(3, "Robe maison fleurie", "AS-DEMO-003", 2, 4300)
+    ]),
+    demoSale(3, "AS-DEMO-0003", date(1), "cash", 6150, 0, 6150, 2780, 6150, 0, "", "", "paid", [
+      demoItem(7, "Musc blanc 12ml", "AS-DEMO-007", 3, 1500),
+      demoItem(4, "Pantoufles soft", "AS-DEMO-004", 1, 1600),
+      demoItem(5, "Sac cadeau boutique", "AS-DEMO-005", 1, 50)
+    ]),
+    demoSale(4, "AS-DEMO-0004", date(0), "credit", 10800, 0, 10800, 5200, 4000, 6800, "Nadia", "0555000002", "partial", [
+      demoItem(6, "Kimono premium", "AS-DEMO-006", 1, 6500),
+      demoItem(8, "Parfum oud 30ml", "AS-DEMO-008", 1, 4200),
+      demoItem(5, "Sac cadeau boutique", "AS-DEMO-005", 1, 100)
+    ]),
+    demoSale(5, "AS-DEMO-0005", date(0), "cash", 3150, 0, 3150, 1730, 3150, 0, "", "", "paid", [
+      demoItem(2, "Ensemble coton creme", "AS-DEMO-002", 1, 2800),
+      demoItem(5, "Sac cadeau boutique", "AS-DEMO-005", 1, 350)
+    ])
+  ];
+  return {
+    products,
+    expenses: [
+      { id: 1, label: "Loyer boutique", category: "Fixe", amount: 18000, note: "Dummy data", expense_date: date(2).slice(0, 10), created_at: date(2) },
+      { id: 2, label: "Publicite Instagram", category: "Marketing", amount: 4200, note: "Campagne test", expense_date: date(1).slice(0, 10), created_at: date(1) },
+      { id: 3, label: "Sachets et emballage", category: "Fournitures", amount: 2300, note: "Stock emballage", expense_date: date(0).slice(0, 10), created_at: date(0) },
+      { id: 4, label: "Livraison fournisseur", category: "Transport", amount: 3100, note: "Reception marchandise", expense_date: date(12).slice(0, 10), created_at: date(12) },
+      { id: 5, label: "Nettoyage boutique", category: "Service", amount: 1200, note: "Entretien", expense_date: date(20).slice(0, 10), created_at: date(20) }
+    ],
+    sales,
+    creditPayments: [
+      { id: 1, sale_id: 2, amount: 3000, note: "Versement dummy", cashier: "Administrateur", paid_at: date(2) }
+    ],
+    flacons: seed.flacons,
+    perfumes: [],
+    shifts: []
+  };
+}
+
+function demoItem(productId: number, productName: string, barcode: string, quantity: number, unitPrice: number) {
+  return {
+    product_id: productId,
+    product_name: productName,
+    barcode,
+    quantity,
+    unit_price: unitPrice,
+    line_total: unitPrice * quantity
+  };
+}
+
+function demoSale(
+  id: number,
+  receiptNo: string,
+  createdAt: string,
+  saleType: "cash" | "credit",
+  subtotal: number,
+  discount: number,
+  total: number,
+  profit: number,
+  paidAmount: number,
+  remainingAmount: number,
+  customerName: string,
+  customerPhone: string,
+  creditStatus: "open" | "partial" | "paid",
+  items: Sale["items"]
+): Sale {
+  return {
+    id,
+    receipt_no: receiptNo,
+    subtotal,
+    discount,
+    total,
+    profit,
+    payment_method: "Especes",
+    sale_type: saleType,
+    customer_name: customerName,
+    customer_phone: customerPhone,
+    paid_amount: paidAmount,
+    remaining_amount: remainingAmount,
+    due_date: "",
+    credit_note: "Dummy data",
+    credit_status: creditStatus,
+    cashier: "Administrateur",
+    created_at: createdAt,
+    items
+  };
+}
+
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (isTauri) return invoke<T>(command, args);
   return mockCall<T>(command, args);
@@ -132,6 +259,19 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       } as T;
     }
     throw new Error("Identifiants invalides");
+  }
+
+  if (command === "update_profile") {
+    const input = args?.input as ProfileInput;
+    if (!input.username.trim() || !input.display_name.trim()) {
+      throw new Error("Utilisateur et nom affiché obligatoires");
+    }
+    return {
+      id: input.id,
+      username: input.username.trim(),
+      display_name: input.display_name.trim(),
+      role: "Super Admin"
+    } as T;
   }
 
   if (command === "save_database") {
@@ -189,6 +329,63 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     return perfume as T;
   }
 
+  if (command === "reset_with_dummy_data") {
+    writeDb(makeDummyDb());
+    return undefined as T;
+  }
+
+  if (command === "print_receipt_text") {
+    console.info(args?.content);
+    return undefined as T;
+  }
+
+  if (command === "current_shift") {
+    closeDueDemoShift(db);
+    writeDb(db);
+    return (activeDemoShift(db) ?? null) as T;
+  }
+
+  if (command === "open_shift") {
+    closeDueDemoShift(db);
+    if (activeDemoShift(db)) throw new Error("Une caisse est deja ouverte");
+    const input = args?.input as OpenShiftInput;
+    const now = new Date();
+    const [hours, minutes] = input.auto_close_time.split(":").map(Number);
+    const autoClose = new Date(now);
+    autoClose.setHours(hours || 0, minutes || 0, 0, 0);
+    if (autoClose <= now) autoClose.setDate(autoClose.getDate() + 1);
+    const shift = buildDemoShift(db, {
+      id: Date.now(),
+      opened_at: now.toISOString(),
+      closed_at: "",
+      auto_close_at: autoClose.toISOString(),
+      opening_amount: input.opening_amount,
+      closing_amount: 0,
+      expected_amount: input.opening_amount,
+      cash_sales: 0,
+      credit_payments: 0,
+      expenses: 0,
+      status: "open",
+      cashier: input.cashier
+    });
+    db.shifts.unshift(shift);
+    writeDb(db);
+    return shift as T;
+  }
+
+  if (command === "close_shift") {
+    const input = args?.input as CloseShiftInput;
+    const shift = db.shifts.find((item) => item.id === input.id);
+    if (!shift) throw new Error("Caisse introuvable");
+    Object.assign(shift, buildDemoShift(db, shift), {
+      status: "closed",
+      closed_at: new Date().toISOString(),
+      closing_amount: input.closing_amount
+    });
+    writeDb(db);
+    return shift as T;
+  }
+
   if (command === "list_products") {
     const query = String(args?.query ?? "").trim().toLowerCase();
     const category = String(args?.category ?? "").trim().toLowerCase();
@@ -230,8 +427,10 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 
   if (command === "save_expense") {
     const input = args?.input as ExpenseInput;
+    const shift = activeDemoShift(db);
     const expense = {
       ...input,
+      shift_id: shift?.id,
       id: input.id ?? Date.now(),
       created_at: new Date().toISOString()
     } as Expense;
@@ -252,6 +451,8 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 
   if (command === "checkout") {
     const input = args?.input as CheckoutInput;
+    const shift = activeDemoShift(db);
+    if (!shift) throw new Error("Ouvrez la caisse avant de continuer");
     const items = input.items.map((item) => {
       const product = db.products.find((candidate) => candidate.id === item.product_id);
       if (!product) throw new Error("Produit introuvable");
@@ -291,6 +492,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     const remaining = Math.max(0, total - paid);
     const sale: Sale = {
       id: Date.now(),
+      shift_id: shift.id,
       receipt_no: `AS-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`,
       subtotal,
       discount: input.discount,
@@ -316,6 +518,42 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 
   if (command === "list_sales") return db.sales as T;
 
+  if (command === "update_sale") {
+    const input = args?.input as SaleUpdateInput;
+    const sale = replaceDemoSaleItems(db, input.sale_id, input.items);
+    writeDb(db);
+    return sale as T;
+  }
+
+  if (command === "return_sale_item") {
+    const input = args?.input as SaleReturnInput;
+    const sale = db.sales.find((item) => item.id === input.sale_id);
+    if (!sale) throw new Error("Bon introuvable");
+    const updatedItems = sale.items.map((item) => ({
+      product_id: item.product_id,
+      quantity: item.product_id === input.product_id ? item.quantity - input.quantity : item.quantity
+    })).filter((item) => item.quantity > 0);
+    if (!sale.items.some((item) => item.product_id === input.product_id)) throw new Error("Article introuvable dans le bon");
+    if (!updatedItems.length) throw new Error("Retour total: utilisez supprimer le bon");
+    const updatedSale = replaceDemoSaleItems(db, input.sale_id, updatedItems);
+    writeDb(db);
+    return updatedSale as T;
+  }
+
+  if (command === "delete_sale") {
+    const id = args?.id as number;
+    const sale = db.sales.find((item) => item.id === id);
+    if (!sale) throw new Error("Bon introuvable");
+    for (const item of sale.items) {
+      const product = db.products.find((product) => product.id === item.product_id);
+      if (product) product.quantity += item.quantity;
+    }
+    db.sales = db.sales.filter((item) => item.id !== id);
+    db.creditPayments = db.creditPayments.filter((payment) => payment.sale_id !== id);
+    writeDb(db);
+    return undefined as T;
+  }
+
   if (command === "list_credits") {
     return db.sales
       .filter((sale) => sale.sale_type === "credit")
@@ -327,6 +565,8 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 
   if (command === "add_credit_payment") {
     const input = args?.input as CreditPaymentInput;
+    const shift = activeDemoShift(db);
+    if (!shift) throw new Error("Ouvrez la caisse avant de continuer");
     const sale = db.sales.find((item) => item.id === input.sale_id);
     if (!sale) throw new Error("Crédit introuvable");
     if (input.amount <= 0) throw new Error("Montant de versement invalide");
@@ -336,6 +576,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     sale.credit_status = sale.remaining_amount <= 0 ? "paid" : "partial";
     db.creditPayments.unshift({
       id: Date.now(),
+      shift_id: shift.id,
       sale_id: sale.id,
       amount: input.amount,
       note: input.note,
@@ -351,35 +592,296 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 
   if (command === "get_dashboard") {
     const today = todayInputValue();
-    const sales = db.sales.filter((sale) => sale.created_at.slice(0, 10) === today);
-    const expenses = db.expenses.filter((expense) => expense.expense_date === today);
-    const paymentsToday = db.creditPayments
-      .filter((payment) => payment.paid_at.slice(0, 10) === today)
-      .reduce((sum, payment) => sum + payment.amount, 0);
-    const revenue = sales.reduce((sum, sale) => sum + (sale.paid_amount ?? sale.total), 0) + paymentsToday;
-    const expenseTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+    const yesterday = inputFromDate(new Date(Date.now() - 86_400_000));
+    const todayStats = demoDashboardDay(db, today);
+    const yesterdayStats = demoDashboardDay(db, yesterday);
     return {
-      sales_today: revenue,
-      sales_count_today: sales.length,
-      revenue_today: revenue,
-      expenses_today: expenseTotal,
-      profit_today: revenue - expenseTotal,
+      sales_today: todayStats.revenue,
+      sales_count_today: todayStats.salesCount,
+      revenue_today: todayStats.revenue,
+      expenses_today: todayStats.expenses,
+      profit_today: todayStats.profit,
+      sales_yesterday: yesterdayStats.revenue,
+      sales_count_yesterday: yesterdayStats.salesCount,
+      revenue_yesterday: yesterdayStats.revenue,
+      expenses_yesterday: yesterdayStats.expenses,
+      profit_yesterday: yesterdayStats.profit,
       low_stock_count: db.products.filter((product) => product.quantity <= product.low_stock_threshold).length,
       open_credit_count: db.sales.filter((sale) => sale.sale_type === "credit" && sale.remaining_amount > 0).length,
       credit_remaining_total: db.sales.reduce((sum, sale) => sum + (sale.remaining_amount ?? 0), 0),
-      credit_payments_today: paymentsToday
+      credit_payments_today: todayStats.creditPayments,
+      credit_payments_yesterday: yesterdayStats.creditPayments
     } as T;
   }
 
+  if (command === "get_report") {
+    const input = args?.input as ReportFilter;
+    return buildDemoReport(db, input) as T;
+  }
+
   throw new Error(`Commande non disponible: ${command}`);
+}
+
+function buildDemoReport(db: Db, input: ReportFilter): ReportData {
+  const from = input.from_date || todayInputValue();
+  const to = input.to_date || from;
+  const buckets = makeDateBuckets(input.period, from, to).map(({ label, start, end }) => {
+    const sales = db.sales.filter((sale) => between(sale.created_at.slice(0, 10), start, end));
+    const expenses = db.expenses.filter((expense) => between(expense.expense_date, start, end));
+    const payments = db.creditPayments.filter((payment) => between(payment.paid_at.slice(0, 10), start, end));
+    const paymentsBySale = db.creditPayments.reduce<Record<number, number>>((totals, payment) => {
+      totals[payment.sale_id] = (totals[payment.sale_id] ?? 0) + payment.amount;
+      return totals;
+    }, {});
+    const saleEntry = sales.reduce((sum, sale) => {
+      if (sale.sale_type === "cash") return sum + sale.total;
+      return sum + Math.max(0, sale.paid_amount - (paymentsBySale[sale.id] ?? 0));
+    }, 0);
+    const selling = sales.reduce((sum, sale) => sum + sale.total, 0);
+    const buying = sales.reduce((sum, sale) => sum + Math.max(0, sale.total - sale.profit), 0);
+    const bookedProfit = sales.reduce((sum, sale) => sum + sale.profit, 0);
+    const saleProfit = sales.reduce((sum, sale) => {
+      const collected = sale.sale_type === "cash"
+        ? sale.total
+        : Math.max(0, sale.paid_amount - (paymentsBySale[sale.id] ?? 0));
+      return sum + realizedProfit(sale, collected);
+    }, 0);
+    const creditEntry = payments.reduce((sum, payment) => sum + payment.amount, 0);
+    const creditProfit = payments.reduce((sum, payment) => {
+      const sale = db.sales.find((item) => item.id === payment.sale_id);
+      return sale ? sum + realizedProfit(sale, payment.amount) : sum;
+    }, 0);
+    const sortie = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+    return {
+      label,
+      start_date: start,
+      end_date: end,
+      entry: saleEntry + creditEntry,
+      sortie,
+      profit: saleProfit + creditProfit - sortie,
+      buying,
+      selling,
+      gain: bookedProfit - sortie,
+      sales_count: sales.length
+    };
+  });
+  const filteredSales = db.sales.filter((sale) => between(sale.created_at.slice(0, 10), from, to));
+  const grossSales = filteredSales.reduce((sum, sale) => sum + sale.total, 0);
+  const summary = {
+    entry: buckets.reduce((sum, bucket) => sum + bucket.entry, 0),
+    sortie: buckets.reduce((sum, bucket) => sum + bucket.sortie, 0),
+    profit: buckets.reduce((sum, bucket) => sum + bucket.profit, 0),
+    buying_total: buckets.reduce((sum, bucket) => sum + bucket.buying, 0),
+    selling_total: buckets.reduce((sum, bucket) => sum + bucket.selling, 0),
+    gain_total: buckets.reduce((sum, bucket) => sum + bucket.gain, 0),
+    sales_count: buckets.reduce((sum, bucket) => sum + bucket.sales_count, 0),
+    average_ticket: filteredSales.length ? grossSales / filteredSales.length : 0,
+    credit_collected: db.creditPayments
+      .filter((payment) => between(payment.paid_at.slice(0, 10), from, to))
+      .reduce((sum, payment) => sum + payment.amount, 0),
+    credit_remaining: db.sales.reduce((sum, sale) => sum + sale.remaining_amount, 0),
+    stock_purchase_value: db.products.reduce((sum, product) => sum + product.purchase_price * product.quantity, 0),
+    stock_sale_value: db.products.reduce((sum, product) => sum + product.sale_price * product.quantity, 0)
+  };
+  const productTotals = new Map<string, { name: string; quantity: number; total: number }>();
+  filteredSales.flatMap((sale) => sale.items).forEach((item) => {
+    const current = productTotals.get(item.product_name) ?? { name: item.product_name, quantity: 0, total: 0 };
+    current.quantity += item.quantity;
+    current.total += item.line_total;
+    productTotals.set(item.product_name, current);
+  });
+  return {
+    period: input.period,
+    from_date: from,
+    to_date: to,
+    summary,
+    buckets,
+    top_products: Array.from(productTotals.values()).sort((a, b) => b.total - a.total).slice(0, 5),
+    advice: buildDemoAdvice(summary)
+  };
+}
+
+function demoDashboardDay(db: Db, day: string) {
+  const sales = db.sales.filter((sale) => sale.created_at.slice(0, 10) === day);
+  const expenses = db.expenses.filter((expense) => expense.expense_date === day);
+  const payments = db.creditPayments.filter((payment) => payment.paid_at.slice(0, 10) === day);
+  const paymentsBySale = db.creditPayments.reduce<Record<number, number>>((totals, payment) => {
+    totals[payment.sale_id] = (totals[payment.sale_id] ?? 0) + payment.amount;
+    return totals;
+  }, {});
+  const saleEntry = sales.reduce((sum, sale) => {
+    if (sale.sale_type === "cash") return sum + sale.total;
+    return sum + Math.max(0, sale.paid_amount - (paymentsBySale[sale.id] ?? 0));
+  }, 0);
+  const saleProfit = sales.reduce((sum, sale) => {
+    const collected = sale.sale_type === "cash"
+      ? sale.total
+      : Math.max(0, sale.paid_amount - (paymentsBySale[sale.id] ?? 0));
+    return sum + realizedProfit(sale, collected);
+  }, 0);
+  const creditPayments = payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const creditProfit = payments.reduce((sum, payment) => {
+    const sale = db.sales.find((item) => item.id === payment.sale_id);
+    return sale ? sum + realizedProfit(sale, payment.amount) : sum;
+  }, 0);
+  const expenseTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  return {
+    revenue: saleEntry + creditPayments,
+    salesCount: sales.length,
+    expenses: expenseTotal,
+    profit: saleProfit + creditProfit - expenseTotal,
+    creditPayments
+  };
+}
+
+function activeDemoShift(db: Db) {
+  const shift = db.shifts.find((item) => item.status === "open");
+  return shift ? buildDemoShift(db, shift) : undefined;
+}
+
+function closeDueDemoShift(db: Db) {
+  const now = new Date();
+  for (const shift of db.shifts.filter((item) => item.status === "open" && new Date(item.auto_close_at) <= now)) {
+    Object.assign(shift, buildDemoShift(db, shift), {
+      status: "closed",
+      closed_at: shift.auto_close_at,
+      closing_amount: buildDemoShift(db, shift).expected_amount
+    });
+  }
+}
+
+function buildDemoShift(db: Db, shift: CashShift): CashShift {
+  const paymentsBySale = db.creditPayments.reduce<Record<number, number>>((totals, payment) => {
+    totals[payment.sale_id] = (totals[payment.sale_id] ?? 0) + payment.amount;
+    return totals;
+  }, {});
+  const cashSales = db.sales
+    .filter((sale) => sale.shift_id === shift.id)
+    .reduce((sum, sale) => {
+      if (sale.sale_type === "cash") return sum + sale.total;
+      return sum + Math.max(0, sale.paid_amount - (paymentsBySale[sale.id] ?? 0));
+    }, 0);
+  const creditPayments = db.creditPayments
+    .filter((payment) => payment.shift_id === shift.id)
+    .reduce((sum, payment) => sum + payment.amount, 0);
+  const expenses = db.expenses
+    .filter((expense) => expense.shift_id === shift.id)
+    .reduce((sum, expense) => sum + expense.amount, 0);
+  return {
+    ...shift,
+    cash_sales: cashSales,
+    credit_payments: creditPayments,
+    expenses,
+    expected_amount: shift.opening_amount + cashSales + creditPayments - expenses
+  };
+}
+
+function makeDateBuckets(period: ReportFilter["period"], from: string, to: string) {
+  const buckets: Array<{ label: string; start: string; end: string }> = [];
+  let cursor = dateFromInput(from);
+  const last = dateFromInput(to);
+  while (cursor <= last) {
+    const start = inputFromDate(cursor);
+    const next = new Date(cursor);
+    if (period === "weekly") next.setDate(next.getDate() + 7);
+    else if (period === "monthly") next.setMonth(next.getMonth() + 1, 1);
+    else next.setDate(next.getDate() + 1);
+    const endDate = new Date(Math.min(next.getTime() - 86_400_000, last.getTime()));
+    const end = inputFromDate(endDate);
+    buckets.push({
+      label: period === "monthly"
+        ? `${String(cursor.getMonth() + 1).padStart(2, "0")}/${cursor.getFullYear()}`
+        : period === "weekly"
+          ? `${start.slice(5)} -> ${end.slice(5)}`
+          : start.slice(5),
+      start,
+      end
+    });
+    cursor = next;
+  }
+  return buckets;
+}
+
+function dateFromInput(value: string) {
+  return new Date(`${value}T00:00:00`);
+}
+
+function inputFromDate(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function between(value: string, from: string, to: string) {
+  return value >= from && value <= to;
+}
+
+function buildDemoAdvice(summary: ReportData["summary"]) {
+  const advice: string[] = [];
+  if (summary.selling_total <= 0) advice.push("Aucune vente sur cette periode. Verifiez les bons ou choisissez une autre date.");
+  if (summary.gain_total < 0) advice.push("Attention: le benefice est negatif. Verifiez les depenses, les prix d'achat et les prix de vente.");
+  else if (summary.gain_total > 0) advice.push("La periode est positive: les ventes couvrent les achats et les depenses.");
+  if (summary.credit_remaining > 0) advice.push("Il reste du credit a recuperer. Les versements clients peuvent ameliorer la tresorerie.");
+  if (summary.sales_count === 0) advice.push("Aucune vente trouvee dans ce filtre.");
+  return advice;
+}
+
+function realizedProfit(sale: Sale, collected: number) {
+  if (sale.total <= 0 || collected <= 0) return 0;
+  return sale.profit * Math.min(collected / sale.total, 1);
+}
+
+function replaceDemoSaleItems(db: Db, saleId: number, items: Array<{ product_id: number; quantity: number }>) {
+  const sale = db.sales.find((item) => item.id === saleId);
+  if (!sale) throw new Error("Bon introuvable");
+  if (!items.length || items.every((item) => item.quantity <= 0)) throw new Error("Le bon doit garder au moins un article");
+
+  for (const item of sale.items) {
+    const product = db.products.find((product) => product.id === item.product_id);
+    if (product) product.quantity += item.quantity;
+  }
+
+  const nextItems = items.filter((item) => item.quantity > 0).map((input) => {
+    const oldItem = sale.items.find((item) => item.product_id === input.product_id);
+    if (!oldItem) throw new Error("Modification limitee aux articles du bon");
+    const product = db.products.find((product) => product.id === input.product_id);
+    if (!product) throw new Error("Produit introuvable");
+    if (product.quantity < input.quantity) throw new Error(`Stock insuffisant pour ${oldItem.product_name}`);
+    product.quantity -= input.quantity;
+    return {
+      ...oldItem,
+      quantity: input.quantity,
+      line_total: oldItem.unit_price * input.quantity
+    };
+  });
+
+  const subtotal = nextItems.reduce((sum, item) => sum + item.line_total, 0);
+  const discount = Math.min(Math.max(sale.discount, 0), subtotal);
+  const total = Math.max(0, subtotal - discount);
+  const profit = total;
+  const paid = sale.sale_type === "cash" ? total : Math.min(sale.paid_amount, total);
+  sale.items = nextItems;
+  sale.subtotal = subtotal;
+  sale.discount = discount;
+  sale.total = total;
+  sale.profit = profit;
+  sale.paid_amount = paid;
+  sale.remaining_amount = Math.max(0, total - paid);
+  sale.credit_status = sale.remaining_amount <= 0 ? "paid" : paid > 0 ? "partial" : "open";
+  return sale;
 }
 
 export const api = {
   isDatabaseConfigured: () => isTauri ? call<boolean>("is_database_configured") : Promise.resolve(true),
   configureDatabase: (input: PostgresConfig) => call<void>("configure_database", { input }),
   login: (username: string, password: string) => call<UserSession>("login", { input: { username, password } }),
+  updateProfile: (input: ProfileInput) => call<UserSession>("update_profile", { input }),
   saveNow: () => call<void>("save_database"),
+  resetWithDummyData: () => call<void>("reset_with_dummy_data"),
+  printReceiptText: (content: string) => call<void>("print_receipt_text", { content }),
+  currentShift: () => call<CashShift | null>("current_shift"),
+  openShift: (input: OpenShiftInput) => call<CashShift>("open_shift", { input }),
+  closeShift: (input: CloseShiftInput) => call<CashShift>("close_shift", { input }),
   dashboard: () => call<DashboardStats>("get_dashboard"),
+  report: (input: ReportFilter) => call<ReportData>("get_report", { input }),
   products: (filters: string | ProductFilters = "") => {
     const normalized = typeof filters === "string" ? { query: filters } : filters;
     return call<Product[]>("list_products", {
@@ -399,6 +901,9 @@ export const api = {
   perfumes: () => call<Perfume[]>("list_perfumes"),
   savePerfume: (input: PerfumeInput) => call<Perfume>("save_perfume", { input }),
   sales: () => call<Sale[]>("list_sales"),
+  updateSale: (input: SaleUpdateInput) => call<Sale>("update_sale", { input }),
+  returnSaleItem: (input: SaleReturnInput) => call<Sale>("return_sale_item", { input }),
+  deleteSale: (id: number) => call<void>("delete_sale", { id }),
   credits: () => call<CreditAccount[]>("list_credits"),
   addCreditPayment: (input: CreditPaymentInput) => call<CreditAccount>("add_credit_payment", { input })
 };

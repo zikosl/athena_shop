@@ -39,6 +39,7 @@ pub fn add_credit_payment(
     }
 
     db.with_client(|client| {
+        let shift_id = super::shifts::require_open_shift(client)?;
         let mut tx = client.transaction()?;
         let remaining: f64 = tx
             .query_one(
@@ -55,9 +56,10 @@ pub fn add_credit_payment(
         }
 
         tx.execute(
-            "INSERT INTO credit_payments (sale_id, amount, note, cashier)
-             VALUES ($1, $2, $3, $4)",
+            "INSERT INTO credit_payments (shift_id, sale_id, amount, note, cashier)
+             VALUES ($1, $2, $3, $4, $5)",
             &[
+                &shift_id,
                 &input.sale_id,
                 &input.amount,
                 &input.note.trim(),

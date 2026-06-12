@@ -3,7 +3,7 @@ import { Languages, LockKeyhole, User } from "lucide-react";
 import { api } from "../../shared/api";
 import { useText } from "../../shared/i18n";
 import { Language, UserSession } from "../../shared/types";
-import athenaShopLogo from "../../assets/athena-shop-logo.png";
+import annaStoreLogo from "../../assets/anna-store-logo.png";
 
 interface Props {
   language: Language;
@@ -36,10 +36,10 @@ export function LoginPage({ language, setLanguage, onLogin }: Props) {
       </button>
       <form className="login-card" onSubmit={submit}>
         <div className="login-brand">
-          <img src={athenaShopLogo} alt="Athena Shop" className="brand-logo" />
+          <img src={annaStoreLogo} alt="Anna Store" className="brand-logo" />
           <div>
-            <h1>ATHENA SHOP</h1>
-            <p>BIJOUX & RETAIL</p>
+            <h1>ANNA STORE</h1>
+            <p>HOME WEAR</p>
           </div>
         </div>
         <h2>{t.login}</h2>

@@ -172,12 +172,14 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           low_stock_threshold BIGINT NOT NULL DEFAULT 3,
           purchase_price DOUBLE PRECISION NOT NULL DEFAULT 0,
           sale_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+          image_data TEXT NOT NULL DEFAULT '',
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
         CREATE TABLE IF NOT EXISTS expenses (
           id BIGSERIAL PRIMARY KEY,
+          shift_id BIGINT,
           label TEXT NOT NULL,
           category TEXT NOT NULL,
           amount DOUBLE PRECISION NOT NULL,
@@ -188,6 +190,7 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
 
         CREATE TABLE IF NOT EXISTS sales (
           id BIGSERIAL PRIMARY KEY,
+          shift_id BIGINT,
           receipt_no TEXT NOT NULL UNIQUE,
           subtotal DOUBLE PRECISION NOT NULL,
           discount DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -220,6 +223,7 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
 
         CREATE TABLE IF NOT EXISTS credit_payments (
           id BIGSERIAL PRIMARY KEY,
+          shift_id BIGINT,
           sale_id BIGINT NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
           amount DOUBLE PRECISION NOT NULL,
           note TEXT NOT NULL DEFAULT '',
@@ -269,10 +273,29 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           line_total DOUBLE PRECISION NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS cash_shifts (
+          id BIGSERIAL PRIMARY KEY,
+          opening_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+          closing_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+          auto_close_at TIMESTAMPTZ NOT NULL,
+          opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          closed_at TIMESTAMPTZ,
+          status TEXT NOT NULL DEFAULT 'open',
+          cashier TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS app_meta (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL
         );
+        ",
+    )?;
+    client.batch_execute(
+        "
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS image_data TEXT NOT NULL DEFAULT '';
+        ALTER TABLE sales ADD COLUMN IF NOT EXISTS shift_id BIGINT REFERENCES cash_shifts(id);
+        ALTER TABLE expenses ADD COLUMN IF NOT EXISTS shift_id BIGINT REFERENCES cash_shifts(id);
+        ALTER TABLE credit_payments ADD COLUMN IF NOT EXISTS shift_id BIGINT REFERENCES cash_shifts(id);
         ",
     )?;
     Ok(())

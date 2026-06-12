@@ -1,3 +1,4 @@
+use chrono::NaiveDate;
 use postgres::Row;
 use tauri::State;
 
@@ -22,18 +23,32 @@ pub fn save_expense(db: State<Database>, input: ExpenseInput) -> AppResult<Expen
     if input.label.trim().is_empty() || input.amount <= 0.0 {
         return Err(AppError::Message("Libelle et montant valides obligatoires".into()));
     }
+    if input.expense_date.trim().is_empty() {
+        return Err(AppError::Message("Date obligatoire".into()));
+    }
+
+    let label = input.label.trim().to_string();
+    let category = if input.category.trim().is_empty() {
+        "Boutique".to_string()
+    } else {
+        input.category.trim().to_string()
+    };
+    let note = input.note.trim().to_string();
+    let expense_date = NaiveDate::parse_from_str(input.expense_date.trim(), "%Y-%m-%d")
+        .map_err(|_| AppError::Message("Date invalide".into()))?;
 
     db.with_client(|client| {
+        let shift_id = super::shifts::optional_open_shift_id(client)?;
         let id: i64 = if let Some(id) = input.id {
             client.execute(
-                "UPDATE expenses SET label = $1, category = $2, amount = $3, note = $4, expense_date = $5::date
+                "UPDATE expenses SET label = $1, category = $2, amount = $3, note = $4, expense_date = $5
                  WHERE id = $6",
                 &[
-                    &input.label.trim(),
-                    &input.category.trim(),
+                    &label,
+                    &category,
                     &input.amount,
-                    &input.note.trim(),
-                    &input.expense_date,
+                    &note,
+                    &expense_date,
                     &id,
                 ],
             )?;
@@ -41,15 +56,16 @@ pub fn save_expense(db: State<Database>, input: ExpenseInput) -> AppResult<Expen
         } else {
             client
                 .query_one(
-                    "INSERT INTO expenses (label, category, amount, note, expense_date)
-                     VALUES ($1, $2, $3, $4, $5::date)
+                    "INSERT INTO expenses (shift_id, label, category, amount, note, expense_date)
+                     VALUES ($1, $2, $3, $4, $5, $6)
                      RETURNING id",
                     &[
-                        &input.label.trim(),
-                        &input.category.trim(),
+                        &shift_id,
+                        &label,
+                        &category,
                         &input.amount,
-                        &input.note.trim(),
-                        &input.expense_date,
+                        &note,
+                        &expense_date,
                     ],
                 )?
                 .get(0)

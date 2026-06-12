@@ -1,11 +1,18 @@
 export type Language = "fr" | "ar";
-export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "revenue" | "expenses" | "credits" | "settings";
+export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "revenue" | "reports" | "expenses" | "credits" | "settings";
 
 export interface UserSession {
   id: number;
   username: string;
   display_name: string;
   role: string;
+}
+
+export interface ProfileInput {
+  id: number;
+  username: string;
+  display_name: string;
+  password: string;
 }
 
 export interface PostgresConfig {
@@ -27,6 +34,7 @@ export interface Product {
   low_stock_threshold: number;
   purchase_price: number;
   sale_price: number;
+  image_data: string;
   created_at: string;
   updated_at: string;
 }
@@ -42,6 +50,7 @@ export interface ProductInput {
   low_stock_threshold: number;
   purchase_price: number;
   sale_price: number;
+  image_data: string;
 }
 
 export type ProductStockFilter = "all" | "available" | "low" | "out";
@@ -54,6 +63,7 @@ export interface ProductFilters {
 
 export interface Expense {
   id: number;
+  shift_id?: number;
   label: string;
   category: string;
   amount: number;
@@ -77,10 +87,68 @@ export interface DashboardStats {
   revenue_today: number;
   expenses_today: number;
   profit_today: number;
+  sales_yesterday: number;
+  sales_count_yesterday: number;
+  revenue_yesterday: number;
+  expenses_yesterday: number;
+  profit_yesterday: number;
   low_stock_count: number;
   open_credit_count: number;
   credit_remaining_total: number;
   credit_payments_today: number;
+  credit_payments_yesterday: number;
+}
+
+export type ReportPeriod = "daily" | "weekly" | "monthly";
+
+export interface ReportFilter {
+  period: ReportPeriod;
+  from_date: string;
+  to_date: string;
+}
+
+export interface ReportSummary {
+  entry: number;
+  sortie: number;
+  profit: number;
+  buying_total: number;
+  selling_total: number;
+  gain_total: number;
+  sales_count: number;
+  average_ticket: number;
+  credit_collected: number;
+  credit_remaining: number;
+  stock_purchase_value: number;
+  stock_sale_value: number;
+}
+
+export interface ReportBucket {
+  label: string;
+  start_date: string;
+  end_date: string;
+  entry: number;
+  sortie: number;
+  profit: number;
+  buying: number;
+  selling: number;
+  gain: number;
+  sales_count: number;
+}
+
+export interface ReportTopItem {
+  name: string;
+  quantity: number;
+  total: number;
+}
+
+export interface ReportData {
+  period: ReportPeriod;
+  from_date: string;
+  to_date: string;
+  summary: ReportSummary;
+  buckets: ReportBucket[];
+  top_products: ReportTopItem[];
+  advice: string[];
 }
 
 export interface CartItem {
@@ -158,6 +226,22 @@ export interface CheckoutInput {
   cashier: string;
 }
 
+export interface SaleItemUpdateInput {
+  product_id: number;
+  quantity: number;
+}
+
+export interface SaleUpdateInput {
+  sale_id: number;
+  items: SaleItemUpdateInput[];
+}
+
+export interface SaleReturnInput {
+  sale_id: number;
+  product_id: number;
+  quantity: number;
+}
+
 export interface SaleItem {
   product_id: number;
   product_name: string;
@@ -169,6 +253,7 @@ export interface SaleItem {
 
 export interface Sale {
   id: number;
+  shift_id?: number;
   receipt_no: string;
   subtotal: number;
   discount: number;
@@ -190,6 +275,7 @@ export interface Sale {
 
 export interface CreditPayment {
   id: number;
+  shift_id?: number;
   sale_id: number;
   amount: number;
   note: string;
@@ -207,4 +293,30 @@ export interface CreditPaymentInput {
 export interface CreditAccount {
   sale: Sale;
   payments: CreditPayment[];
+}
+
+export interface CashShift {
+  id: number;
+  opened_at: string;
+  closed_at: string;
+  auto_close_at: string;
+  opening_amount: number;
+  closing_amount: number;
+  expected_amount: number;
+  cash_sales: number;
+  credit_payments: number;
+  expenses: number;
+  status: "open" | "closed";
+  cashier: string;
+}
+
+export interface OpenShiftInput {
+  opening_amount: number;
+  auto_close_time: string;
+  cashier: string;
+}
+
+export interface CloseShiftInput {
+  id: number;
+  closing_amount: number;
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Box, ChartColumnIncreasing, ShoppingCart, Wallet, Coins, AlertTriangle, HandCoins, SprayCan } from "lucide-react";
+import { Box, ChartColumnIncreasing, ShoppingCart, Wallet, Coins, AlertTriangle, HandCoins, ReceiptText, SprayCan } from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
@@ -25,17 +25,54 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
     { key: "perfumery" as ViewKey, title: t.modules.perfumeryTitle, icon: SprayCan, text: t.modules.perfumeryText },
     { key: "pos" as ViewKey, title: t.modules.posTitle, icon: ShoppingCart, text: t.modules.posText },
     { key: "revenue" as ViewKey, title: t.modules.revenueTitle, icon: ChartColumnIncreasing, text: t.modules.revenueText },
+    { key: "reports" as ViewKey, title: t.modules.reportsTitle, icon: ReceiptText, text: t.modules.reportsText },
     { key: "expenses" as ViewKey, title: t.modules.expensesTitle, icon: Wallet, text: t.modules.expensesText },
     { key: "credits" as ViewKey, title: t.modules.creditsTitle, icon: HandCoins, text: t.modules.creditsText }
   ];
 
   const cards = [
-    { label: t.dailySales, value: money(stats?.sales_today ?? 0), icon: ShoppingCart, trend: "+12.5%" },
-    { label: t.salesCount, value: String(stats?.sales_count_today ?? 0), icon: Box, trend: "+8.3%" },
-    { label: t.dailyRevenue, value: money(stats?.revenue_today ?? 0), icon: Coins, trend: "+12.5%" },
-    { label: t.dailyExpenses, value: money(stats?.expenses_today ?? 0), icon: Wallet, trend: "-3.2%", danger: true },
-    { label: t.dailyProfit, value: money(stats?.profit_today ?? 0), icon: ChartColumnIncreasing, trend: "+18.7%" },
-    { label: t.paymentsToday, value: money(stats?.credit_payments_today ?? 0), icon: HandCoins, trend: t.cash },
+    {
+      label: t.dailySales,
+      value: money(stats?.sales_today ?? 0),
+      icon: ShoppingCart,
+      trend: trendLabel(stats?.sales_today ?? 0, stats?.sales_yesterday ?? 0),
+      danger: false
+    },
+    {
+      label: t.salesCount,
+      value: String(stats?.sales_count_today ?? 0),
+      icon: Box,
+      trend: trendLabel(stats?.sales_count_today ?? 0, stats?.sales_count_yesterday ?? 0),
+      danger: false
+    },
+    {
+      label: t.dailyRevenue,
+      value: money(stats?.revenue_today ?? 0),
+      icon: Coins,
+      trend: trendLabel(stats?.revenue_today ?? 0, stats?.revenue_yesterday ?? 0),
+      danger: false
+    },
+    {
+      label: t.dailyExpenses,
+      value: money(stats?.expenses_today ?? 0),
+      icon: Wallet,
+      trend: trendLabel(stats?.expenses_today ?? 0, stats?.expenses_yesterday ?? 0),
+      danger: (stats?.expenses_today ?? 0) > (stats?.expenses_yesterday ?? 0)
+    },
+    {
+      label: t.dailyProfit,
+      value: money(stats?.profit_today ?? 0),
+      icon: ChartColumnIncreasing,
+      trend: trendLabel(stats?.profit_today ?? 0, stats?.profit_yesterday ?? 0),
+      danger: (stats?.profit_today ?? 0) < 0 || (stats?.profit_today ?? 0) < (stats?.profit_yesterday ?? 0)
+    },
+    {
+      label: t.paymentsToday,
+      value: money(stats?.credit_payments_today ?? 0),
+      icon: HandCoins,
+      trend: trendLabel(stats?.credit_payments_today ?? 0, stats?.credit_payments_yesterday ?? 0),
+      danger: false
+    },
     { label: t.totalToCollect, value: money(stats?.credit_remaining_total ?? 0), icon: HandCoins, trend: `${stats?.open_credit_count ?? 0} ${t.credit}`, danger: (stats?.open_credit_count ?? 0) > 0 },
     { label: t.lowStock, value: String(stats?.low_stock_count ?? 0), icon: AlertTriangle, trend: t.alerts, danger: (stats?.low_stock_count ?? 0) > 0 }
   ];
@@ -71,7 +108,7 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
                   <p>{card.label}</p>
                   <strong>{card.value}</strong>
                   <em className={card.danger ? "danger" : "success"}>{card.trend}</em>
-                  <small>{t.vsYesterday}</small>
+                  <small>{card.label === t.totalToCollect || card.label === t.lowStock ? t.alerts : t.vsYesterday}</small>
                 </div>
               </article>
             );
@@ -80,4 +117,11 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
       </section>
     </>
   );
+}
+
+function trendLabel(current: number, previous: number) {
+  if (previous === 0) return current === 0 ? "0" : "Nouveau";
+  const diff = current - previous;
+  const percent = Math.round((diff / Math.abs(previous)) * 100);
+  return `${diff >= 0 ? "+" : ""}${percent}%`;
 }

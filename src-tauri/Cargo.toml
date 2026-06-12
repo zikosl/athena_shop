@@ -1,12 +1,12 @@
 [package]
-name = "athena_shop_pos"
+name = "anna_store_pos"
 version = "0.1.0"
-description = "Athena Shop desktop POS"
-authors = ["Athena Shop"]
+description = "Anna Store Home Wear desktop POS"
+authors = ["Anna Store"]
 edition = "2021"
 
 [lib]
-name = "athena_shop_pos_lib"
+name = "anna_store_pos_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

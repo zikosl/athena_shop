@@ -1,5 +1,5 @@
 import { FormEvent, MouseEvent, ReactNode, useEffect, useMemo, useState } from "react";
-import { Barcode, ClipboardList, Coins, Edit3, Plus, RefreshCcw, Save, Search, Trash2, X } from "lucide-react";
+import { Barcode, ClipboardList, Coins, Edit3, ImagePlus, Plus, RefreshCcw, Save, Search, Trash2, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
@@ -14,7 +14,8 @@ const emptyProduct: ProductInput = {
   quantity: 0,
   low_stock_threshold: 3,
   purchase_price: 0,
-  sale_price: 0
+  sale_price: 0,
+  image_data: ""
 };
 
 function createBarcode() {
@@ -163,6 +164,21 @@ export function StockPage({
     setContextMenu(null);
   }
 
+  async function chooseImage(file: File | undefined) {
+    setError("");
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Veuillez choisir une image valide");
+      return;
+    }
+    if (file.size > 1_500_000) {
+      setError("Image trop grande. Maximum 1.5 MB");
+      return;
+    }
+    const imageData = await readImage(file);
+    setForm((current) => ({ ...current, image_data: imageData }));
+  }
+
   async function saveInventory() {
     setError("");
     try {
@@ -177,7 +193,8 @@ export function StockPage({
         quantity: inventoryCounts[product.id] ?? product.quantity,
         low_stock_threshold: product.low_stock_threshold,
         purchase_price: product.purchase_price,
-        sale_price: product.sale_price
+        sale_price: product.sale_price,
+        image_data: product.image_data
       })));
       await api.saveNow();
       await load();
@@ -252,7 +269,12 @@ export function StockPage({
                   className={product.quantity <= product.low_stock_threshold ? "low-row" : ""}
                   onContextMenu={(event) => openContextMenu(event, product)}
                 >
-                  <td><strong>{product.name}</strong><span>{product.category} · {product.size} · {product.color}</span></td>
+                  <td>
+                    <div className="product-cell">
+                      {product.image_data ? <img src={product.image_data} alt="" /> : <span className="product-thumb-placeholder"><ImagePlus size={16} /></span>}
+                      <div><strong>{product.name}</strong><span>{product.category} · {product.size} · {product.color}</span></div>
+                    </div>
+                  </td>
                   <td>{product.barcode}</td>
                   <td>{product.quantity}</td>
                   {inventoryMode && (
@@ -311,6 +333,22 @@ export function StockPage({
             <datalist id="product-categories">
               {categories.map((item) => <option value={item} key={item} />)}
             </datalist>
+            <div className="image-uploader">
+              <div className="product-image-preview">
+                {form.image_data ? <img src={form.image_data} alt="" /> : <ImagePlus size={30} />}
+              </div>
+              <div className="image-actions">
+                <label className="ghost-button compact-button">
+                  <ImagePlus size={16} /> Image produit
+                  <input type="file" accept="image/*" onChange={(event) => void chooseImage(event.target.files?.[0])} />
+                </label>
+                {form.image_data && (
+                  <button className="ghost-button compact-button" type="button" onClick={() => setForm({ ...form, image_data: "" })}>
+                    <X size={16} /> Retirer image
+                  </button>
+                )}
+              </div>
+            </div>
             <div className="profit-preview">{t.estimatedMargin} <strong>{money(margin)}</strong></div>
             {error && <p className="error">{error}</p>}
             <div className="button-row">
@@ -345,4 +383,13 @@ function Input({ label, value, onChange, type = "text", icon, list }: {
       </div>
     </label>
   );
+}
+
+function readImage(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }

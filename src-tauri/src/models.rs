@@ -8,6 +8,14 @@ pub struct UserSession {
     pub role: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ProfileInput {
+    pub id: i64,
+    pub username: String,
+    pub display_name: String,
+    pub password: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct Product {
     pub id: i64,
@@ -20,6 +28,7 @@ pub struct Product {
     pub low_stock_threshold: i64,
     pub purchase_price: f64,
     pub sale_price: f64,
+    pub image_data: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -36,6 +45,7 @@ pub struct ProductInput {
     pub low_stock_threshold: i64,
     pub purchase_price: f64,
     pub sale_price: f64,
+    pub image_data: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -85,6 +95,25 @@ pub struct CheckoutInput {
     pub due_date: String,
     pub credit_note: String,
     pub cashier: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaleItemUpdateInput {
+    pub product_id: i64,
+    pub quantity: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaleUpdateInput {
+    pub sale_id: i64,
+    pub items: Vec<SaleItemUpdateInput>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaleReturnInput {
+    pub sale_id: i64,
+    pub product_id: i64,
+    pub quantity: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -207,8 +236,98 @@ pub struct DashboardStats {
     pub revenue_today: f64,
     pub expenses_today: f64,
     pub profit_today: f64,
+    pub sales_yesterday: f64,
+    pub sales_count_yesterday: i64,
+    pub revenue_yesterday: f64,
+    pub expenses_yesterday: f64,
+    pub profit_yesterday: f64,
     pub low_stock_count: i64,
     pub open_credit_count: i64,
     pub credit_remaining_total: f64,
     pub credit_payments_today: f64,
+    pub credit_payments_yesterday: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReportFilter {
+    pub period: String,
+    pub from_date: String,
+    pub to_date: String,
+}
+
+#[derive(Debug, Serialize, Default, Clone)]
+pub struct ReportSummary {
+    pub entry: f64,
+    pub sortie: f64,
+    pub profit: f64,
+    pub buying_total: f64,
+    pub selling_total: f64,
+    pub gain_total: f64,
+    pub sales_count: i64,
+    pub average_ticket: f64,
+    pub credit_collected: f64,
+    pub credit_remaining: f64,
+    pub stock_purchase_value: f64,
+    pub stock_sale_value: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReportBucket {
+    pub label: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub entry: f64,
+    pub sortie: f64,
+    pub profit: f64,
+    pub buying: f64,
+    pub selling: f64,
+    pub gain: f64,
+    pub sales_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReportTopItem {
+    pub name: String,
+    pub quantity: i64,
+    pub total: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReportData {
+    pub period: String,
+    pub from_date: String,
+    pub to_date: String,
+    pub summary: ReportSummary,
+    pub buckets: Vec<ReportBucket>,
+    pub top_products: Vec<ReportTopItem>,
+    pub advice: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CashShift {
+    pub id: i64,
+    pub opened_at: String,
+    pub closed_at: String,
+    pub auto_close_at: String,
+    pub opening_amount: f64,
+    pub closing_amount: f64,
+    pub expected_amount: f64,
+    pub cash_sales: f64,
+    pub credit_payments: f64,
+    pub expenses: f64,
+    pub status: String,
+    pub cashier: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OpenShiftInput {
+    pub opening_amount: f64,
+    pub auto_close_time: String,
+    pub cashier: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CloseShiftInput {
+    pub id: i64,
+    pub closing_amount: f64,
 }

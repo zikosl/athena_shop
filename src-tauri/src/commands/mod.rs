@@ -4,5 +4,7 @@ pub mod dashboard;
 pub mod expenses;
 pub mod perfumery;
 pub mod products;
+pub mod reports;
 pub mod sales;
+pub mod shifts;
 pub mod system;

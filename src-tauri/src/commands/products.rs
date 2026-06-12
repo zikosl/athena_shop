@@ -19,7 +19,7 @@ pub fn list_products(
         let stock = stock.unwrap_or_else(|| "all".into());
         let rows = client.query(
             "SELECT id, name, barcode, category, size, color, quantity, low_stock_threshold,
-                    purchase_price, sale_price, created_at::text, updated_at::text
+                    purchase_price, sale_price, image_data, created_at::text, updated_at::text
              FROM products
              WHERE (name ILIKE $1 OR barcode ILIKE $1 OR category ILIKE $1 OR size ILIKE $1 OR color ILIKE $1)
                AND ($2 = '' OR category = $2)
@@ -47,8 +47,8 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
                 "UPDATE products
                  SET name = $1, barcode = $2, category = $3, size = $4, color = $5,
                      quantity = $6, low_stock_threshold = $7, purchase_price = $8,
-                     sale_price = $9, updated_at = NOW()
-                 WHERE id = $10",
+                     sale_price = $9, image_data = $10, updated_at = NOW()
+                 WHERE id = $11",
                 &[
                     &input.name.trim(),
                     &input.barcode.trim(),
@@ -59,6 +59,7 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
                     &input.low_stock_threshold,
                     &input.purchase_price,
                     &input.sale_price,
+                    &input.image_data,
                     &id,
                 ],
             )?;
@@ -67,8 +68,8 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
             client
                 .query_one(
                     "INSERT INTO products
-                     (name, barcode, category, size, color, quantity, low_stock_threshold, purchase_price, sale_price)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                     (name, barcode, category, size, color, quantity, low_stock_threshold, purchase_price, sale_price, image_data)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                      RETURNING id",
                     &[
                         &input.name.trim(),
@@ -80,6 +81,7 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
                         &input.low_stock_threshold,
                         &input.purchase_price,
                         &input.sale_price,
+                        &input.image_data,
                     ],
                 )?
                 .get(0)
@@ -121,7 +123,7 @@ fn validate_product(input: &ProductInput) -> AppResult<()> {
 fn get_product(client: &mut postgres::Client, id: i64) -> AppResult<Product> {
     let row = client.query_one(
         "SELECT id, name, barcode, category, size, color, quantity, low_stock_threshold,
-                purchase_price, sale_price, created_at::text, updated_at::text
+                purchase_price, sale_price, image_data, created_at::text, updated_at::text
          FROM products WHERE id = $1",
         &[&id],
     )?;
@@ -140,7 +142,8 @@ pub fn product_from_row(row: &Row) -> Product {
         low_stock_threshold: row.get(7),
         purchase_price: row.get(8),
         sale_price: row.get(9),
-        created_at: row.get(10),
-        updated_at: row.get(11),
+        image_data: row.get(10),
+        created_at: row.get(11),
+        updated_at: row.get(12),
     }
 }

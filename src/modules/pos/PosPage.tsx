@@ -193,7 +193,9 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
           ))}
           {products.map((product) => (
             <button key={product.id} className="product-tile" onClick={() => addProduct(product)}>
-              <span><ShoppingBag size={22} /></span>
+              <span className="product-tile-media">
+                {product.image_data ? <img src={product.image_data} alt="" /> : <ShoppingBag size={22} />}
+              </span>
               <strong>{product.name}</strong>
               <em><Barcode size={13} /> {product.barcode}</em>
               <small>{product.quantity} pcs · {money(product.sale_price)}</small>
@@ -290,12 +292,26 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
 
 function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Language; onClose: () => void }) {
   const t = useText(language);
+  const [printStatus, setPrintStatus] = useState("");
+  const [printError, setPrintError] = useState("");
+
+  async function printReceipt() {
+    setPrintStatus("");
+    setPrintError("");
+    try {
+      await api.printReceiptText(formatReceiptText(sale, t));
+      setPrintStatus("Ticket envoye a l'imprimante");
+    } catch (err) {
+      setPrintError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return (
     <div className="modal-backdrop">
       <section className="receipt-modal">
         <div className="receipt-paper" id="receipt">
-          <h2>ATHENA SHOP</h2>
-          <p>RETAIL ATELIER</p>
+          <h2>ANNA STORE</h2>
+          <p>HOME WEAR</p>
           <small>{sale.receipt_no} · {sale.created_at}</small>
           <hr />
           {sale.items.map((item, index) => (
@@ -317,11 +333,58 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
           <div className="receipt-line total"><span>{t.total}</span><strong>{money(sale.total)}</strong></div>
           <p className="thanks">{t.thankYou}</p>
         </div>
+        {printStatus && <p className="helper-text">{printStatus}</p>}
+        {printError && <p className="error">{printError}</p>}
         <div className="modal-actions">
-          <button className="gold-button" onClick={() => window.print()}><Printer size={18} /> {t.print}</button>
+          <button className="gold-button" onClick={() => void printReceipt()}><Printer size={18} /> {t.print}</button>
           <button className="ghost-button" onClick={onClose}>{t.close}</button>
         </div>
       </section>
     </div>
   );
+}
+
+function formatReceiptText(sale: Sale, t: ReturnType<typeof useText>) {
+  const width = 36;
+  const lines = [
+    center("ANNA STORE", width),
+    center("HOME WEAR", width),
+    "-".repeat(width),
+    sale.receipt_no,
+    sale.created_at,
+    "-".repeat(width),
+    ...sale.items.flatMap((item) => [
+      item.product_name,
+      `${item.quantity} x ${money(item.unit_price)}`.padEnd(width - money(item.line_total).length) + money(item.line_total)
+    ]),
+    "-".repeat(width),
+    row(t.subtotal, money(sale.subtotal), width),
+    row(t.discount, money(sale.discount), width)
+  ];
+  if (sale.sale_type === "credit") {
+    lines.push(
+      row(t.customer, sale.customer_name, width),
+      row(t.paidCash, money(sale.paid_amount), width),
+      row(t.creditRemaining, money(sale.remaining_amount), width)
+    );
+  }
+  lines.push(
+    row(t.total, money(sale.total), width),
+    "-".repeat(width),
+    center(t.thankYou, width),
+    "",
+    ""
+  );
+  return lines.join("\n");
+}
+
+function center(value: string, width: number) {
+  const text = value.slice(0, width);
+  const left = Math.max(0, Math.floor((width - text.length) / 2));
+  return `${" ".repeat(left)}${text}`;
+}
+
+function row(label: string, value: string, width: number) {
+  const left = label.slice(0, Math.max(0, width - value.length - 1));
+  return `${left}${" ".repeat(Math.max(1, width - left.length - value.length))}${value}`;
 }

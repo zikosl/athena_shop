@@ -17,6 +17,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::auth::login,
+            commands::auth::update_profile,
             commands::credits::list_credits,
             commands::credits::add_credit_payment,
             commands::dashboard::get_dashboard,
@@ -30,12 +31,21 @@ pub fn run() {
             commands::products::list_products,
             commands::products::save_product,
             commands::products::delete_product,
+            commands::reports::get_report,
             commands::sales::checkout,
             commands::sales::list_sales,
+            commands::sales::update_sale,
+            commands::sales::return_sale_item,
+            commands::sales::delete_sale,
+            commands::shifts::current_shift,
+            commands::shifts::open_shift,
+            commands::shifts::close_shift,
             commands::system::configure_database,
             commands::system::is_database_configured,
+            commands::system::print_receipt_text,
+            commands::system::reset_with_dummy_data,
             commands::system::save_database,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Athena Shop POS");
+        .expect("error while running Anna Store POS");
 }
