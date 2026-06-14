@@ -11,6 +11,7 @@ import {
   Perfume,
   PerfumeInput,
   PostgresConfig,
+  PrinterSettings,
   Product,
   ProductFilters,
   ProductInput,
@@ -20,6 +21,7 @@ import {
 import { todayInputValue } from "./format";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
+const printerSettingsKey = "athena-shop-printer-settings";
 
 type Db = {
   products: Product[];
@@ -136,6 +138,25 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 
   if (command === "save_database") {
     writeDb(db);
+    return undefined as T;
+  }
+
+  if (command === "list_printers") {
+    return ["Imprimante tickets", "Imprimante codes-barres"] as T;
+  }
+
+  if (command === "get_printer_settings") {
+    const saved = localStorage.getItem(printerSettingsKey);
+    return (saved ? JSON.parse(saved) : { invoice_printer: "", barcode_printer: "" }) as T;
+  }
+
+  if (command === "save_printer_settings") {
+    localStorage.setItem(printerSettingsKey, JSON.stringify(args?.input ?? {}));
+    return args?.input as T;
+  }
+
+  if (command === "print_receipt_text") {
+    console.info(args?.content);
     return undefined as T;
   }
 
@@ -256,14 +277,15 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       const product = db.products.find((candidate) => candidate.id === item.product_id);
       if (!product) throw new Error("Produit introuvable");
       if (product.quantity < item.quantity) throw new Error(`Stock insuffisant pour ${product.name}`);
+      const unitPrice = item.unit_price > 0 ? item.unit_price : product.sale_price;
       product.quantity -= item.quantity;
       return {
         product_id: product.id,
         product_name: product.name,
         barcode: product.barcode,
         quantity: item.quantity,
-        unit_price: product.sale_price,
-        line_total: product.sale_price * item.quantity
+        unit_price: unitPrice,
+        line_total: unitPrice * item.quantity
       };
     });
     const perfumeItems = (input.perfume_items ?? []).map((item) => {
@@ -273,14 +295,15 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       if (!price) throw new Error("Flacon introuvable");
       const needed = price.volume_ml * item.quantity;
       if (perfume.remaining_volume_ml < needed) throw new Error(`Stock insuffisant pour ${perfume.name}`);
+      const unitPrice = item.unit_price > 0 ? item.unit_price : price.sale_price;
       perfume.remaining_volume_ml -= needed;
       return {
         product_id: -perfume.id,
         product_name: `${perfume.name} - ${price.flacon_name}`,
         barcode: `PF-${perfume.id}-${price.flacon_id}`,
         quantity: item.quantity,
-        unit_price: price.sale_price,
-        line_total: price.sale_price * item.quantity
+        unit_price: unitPrice,
+        line_total: unitPrice * item.quantity
       };
     });
     const subtotal = [...items, ...perfumeItems].reduce((sum, item) => sum + item.line_total, 0);
@@ -377,6 +400,10 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 export const api = {
   isDatabaseConfigured: () => isTauri ? call<boolean>("is_database_configured") : Promise.resolve(true),
   configureDatabase: (input: PostgresConfig) => call<void>("configure_database", { input }),
+  printers: () => call<string[]>("list_printers"),
+  printerSettings: () => call<PrinterSettings>("get_printer_settings"),
+  savePrinterSettings: (input: PrinterSettings) => call<PrinterSettings>("save_printer_settings", { input }),
+  printReceiptText: (content: string) => call<void>("print_receipt_text", { content }),
   login: (username: string, password: string) => call<UserSession>("login", { input: { username, password } }),
   saveNow: () => call<void>("save_database"),
   dashboard: () => call<DashboardStats>("get_dashboard"),

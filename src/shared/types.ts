@@ -16,6 +16,11 @@ export interface PostgresConfig {
   password: string;
 }
 
+export interface PrinterSettings {
+  invoice_printer: string;
+  barcode_printer: string;
+}
+
 export interface Product {
   id: number;
   name: string;
@@ -86,6 +91,7 @@ export interface DashboardStats {
 export interface CartItem {
   product: Product;
   quantity: number;
+  unit_price: number;
 }
 
 export interface Flacon {
@@ -143,11 +149,12 @@ export interface PerfumeCartItem {
   perfume: Perfume;
   price: PerfumePrice;
   quantity: number;
+  unit_price: number;
 }
 
 export interface CheckoutInput {
-  items: Array<{ product_id: number; quantity: number }>;
-  perfume_items: Array<{ perfume_id: number; flacon_id: number; quantity: number }>;
+  items: Array<{ product_id: number; quantity: number; unit_price: number }>;
+  perfume_items: Array<{ perfume_id: number; flacon_id: number; quantity: number; unit_price: number }>;
   discount: number;
   sale_type: "cash" | "credit";
   paid_amount: number;

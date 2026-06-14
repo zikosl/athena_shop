@@ -63,6 +63,8 @@ pub struct ExpenseInput {
 pub struct CheckoutItemInput {
     pub product_id: i64,
     pub quantity: i64,
+    #[serde(default)]
+    pub unit_price: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,6 +72,8 @@ pub struct PerfumeCheckoutItemInput {
     pub perfume_id: i64,
     pub flacon_id: i64,
     pub quantity: i64,
+    #[serde(default)]
+    pub unit_price: f64,
 }
 
 #[derive(Debug, Deserialize)]

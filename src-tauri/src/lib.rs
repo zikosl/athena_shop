@@ -33,8 +33,12 @@ pub fn run() {
             commands::sales::checkout,
             commands::sales::list_sales,
             commands::system::configure_database,
+            commands::system::get_printer_settings,
             commands::system::is_database_configured,
+            commands::system::list_printers,
+            commands::system::print_receipt_text,
             commands::system::save_database,
+            commands::system::save_printer_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Athena Shop POS");

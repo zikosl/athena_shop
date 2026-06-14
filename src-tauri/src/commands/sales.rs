@@ -66,16 +66,17 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                 )));
             }
 
-            let line_total = product.sale_price * item.quantity as f64;
+            let unit_price = normalize_unit_price(item.unit_price, product.sale_price)?;
+            let line_total = unit_price * item.quantity as f64;
             subtotal += line_total;
-            gross_profit += (product.sale_price - product.purchase_price) * item.quantity as f64;
+            gross_profit += (unit_price - product.purchase_price) * item.quantity as f64;
 
             tx.execute(
                 "UPDATE products SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2",
                 &[&item.quantity, &product.id],
             )?;
 
-            sale_lines.push((product, item.quantity, line_total));
+            sale_lines.push((product, item.quantity, unit_price, line_total));
         }
 
         for item in &input.perfume_items {
@@ -91,14 +92,15 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                     perfume.name, perfume.flacon_name
                 )));
             }
-            let line_total = perfume.sale_price * item.quantity as f64;
+            let unit_price = normalize_unit_price(item.unit_price, perfume.sale_price)?;
+            let line_total = unit_price * item.quantity as f64;
             subtotal += line_total;
-            gross_profit += (perfume.sale_price - perfume.cost_per_ml * perfume.volume_ml) * item.quantity as f64;
+            gross_profit += (unit_price - perfume.cost_per_ml * perfume.volume_ml) * item.quantity as f64;
             tx.execute(
                 "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml - $1, updated_at = NOW() WHERE id = $2",
                 &[&needed_ml, &perfume.id],
             )?;
-            perfume_lines.push((perfume, item.quantity, line_total));
+            perfume_lines.push((perfume, item.quantity, unit_price, line_total));
         }
 
         let total = (subtotal - input.discount).max(0.0);
@@ -148,7 +150,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
             .get(0);
 
         let mut response_items = Vec::new();
-        for (product, quantity, line_total) in sale_lines {
+        for (product, quantity, unit_price, line_total) in sale_lines {
             tx.execute(
                 "INSERT INTO sale_items
                  (sale_id, product_id, product_name, barcode, quantity, unit_price, purchase_price, line_total)
@@ -159,7 +161,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                     &product.name,
                     &product.barcode,
                     &quantity,
-                    &product.sale_price,
+                    &unit_price,
                     &product.purchase_price,
                     &line_total,
                 ],
@@ -169,11 +171,11 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                 product_name: product.name,
                 barcode: product.barcode,
                 quantity,
-                unit_price: product.sale_price,
+                unit_price,
                 line_total,
             });
         }
-        for (perfume, quantity, line_total) in perfume_lines {
+        for (perfume, quantity, unit_price, line_total) in perfume_lines {
             tx.execute(
                 "INSERT INTO perfume_sale_items
                  (sale_id, perfume_id, flacon_id, perfume_name, flacon_name, volume_ml, quantity, unit_price, cost_per_ml, line_total)
@@ -186,7 +188,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                     &perfume.flacon_name,
                     &perfume.volume_ml,
                     &quantity,
-                    &perfume.sale_price,
+                    &unit_price,
                     &perfume.cost_per_ml,
                     &line_total,
                 ],
@@ -196,7 +198,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                 product_name: format!("{} - {}", perfume.name, perfume.flacon_name),
                 barcode: format!("PF-{}-{}", perfume.id, perfume.flacon_id),
                 quantity,
-                unit_price: perfume.sale_price,
+                unit_price,
                 line_total,
             });
         }
@@ -264,6 +266,17 @@ fn get_product_for_sale(
         purchase_price: row.get(4),
         sale_price: row.get(5),
     }))
+}
+
+fn normalize_unit_price(requested_price: f64, default_price: f64) -> AppResult<f64> {
+    if requested_price < 0.0 {
+        return Err(AppError::Message("Prix de vente invalide".into()));
+    }
+    if requested_price > 0.0 {
+        Ok(requested_price)
+    } else {
+        Ok(default_price)
+    }
 }
 
 fn get_perfume_for_sale(

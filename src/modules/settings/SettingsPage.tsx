@@ -1,22 +1,45 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Languages, Plus, Save, SprayCan } from "lucide-react";
+import { Languages, Plus, Printer, Save, SprayCan } from "lucide-react";
 import { api } from "../../shared/api";
 import { useText } from "../../shared/i18n";
-import { Flacon, FlaconInput, Language } from "../../shared/types";
+import { Flacon, FlaconInput, Language, PrinterSettings } from "../../shared/types";
 
 const emptyFlacon: FlaconInput = { name: "", volume_ml: 0, active: true };
+const emptyPrinterSettings: PrinterSettings = { invoice_printer: "", barcode_printer: "" };
 
 export function SettingsPage({ language, setLanguage }: { language: Language; setLanguage: (language: Language) => void }) {
   const t = useText(language);
   const [flacons, setFlacons] = useState<Flacon[]>([]);
   const [flaconForm, setFlaconForm] = useState<FlaconInput>(emptyFlacon);
+  const [printers, setPrinters] = useState<string[]>([]);
+  const [printerSettings, setPrinterSettings] = useState<PrinterSettings>(emptyPrinterSettings);
+  const [printerMessage, setPrinterMessage] = useState("");
   const [error, setError] = useState("");
 
   const loadFlacons = () => api.flacons().then(setFlacons);
 
   useEffect(() => {
     loadFlacons().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    Promise.all([api.printers(), api.printerSettings()])
+      .then(([printerNames, settings]) => {
+        setPrinters(printerNames);
+        setPrinterSettings(settings);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
+
+  async function savePrinters() {
+    setError("");
+    setPrinterMessage("");
+    try {
+      const saved = await api.savePrinterSettings(printerSettings);
+      setPrinterSettings(saved);
+      setPrinterMessage("Imprimantes enregistrees.");
+      window.setTimeout(() => setPrinterMessage(""), 5000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   async function saveFlacon(event: FormEvent) {
     event.preventDefault();
@@ -38,6 +61,37 @@ export function SettingsPage({ language, setLanguage }: { language: Language; se
         <div className="segmented">
           <button className={language === "fr" ? "active" : ""} onClick={() => setLanguage("fr")}>FR</button>
           <button className={language === "ar" ? "active" : ""} onClick={() => setLanguage("ar")}>AR</button>
+        </div>
+      </article>
+
+      <article className="setting-row printer-settings">
+        <div>
+          <Printer size={22} />
+          <strong>Imprimantes</strong>
+          <span>Choisir une imprimante separee pour les tickets POS et les codes-barres.</span>
+        </div>
+        <div className="printer-settings-grid">
+          <label>
+            <span>Ticket de caisse</span>
+            <div className="field">
+              <select value={printerSettings.invoice_printer} onChange={(event) => setPrinterSettings({ ...printerSettings, invoice_printer: event.target.value })}>
+                <option value="">Imprimante par defaut</option>
+                {printers.map((printer) => <option key={printer} value={printer}>{printer}</option>)}
+              </select>
+            </div>
+          </label>
+          <label>
+            <span>Etiquettes code-barres</span>
+            <div className="field">
+              <select value={printerSettings.barcode_printer} onChange={(event) => setPrinterSettings({ ...printerSettings, barcode_printer: event.target.value })}>
+                <option value="">Imprimante par defaut</option>
+                {printers.map((printer) => <option key={printer} value={printer}>{printer}</option>)}
+              </select>
+            </div>
+          </label>
+          <button className="gold-button" type="button" onClick={() => void savePrinters()}><Save size={17} /> Enregistrer imprimantes</button>
+          {!printers.length && <p className="helper-text">Aucune imprimante detectee. Verifiez Windows puis revenez ici.</p>}
+          {printerMessage && <p className="success-text">{printerMessage}</p>}
         </div>
       </article>
 

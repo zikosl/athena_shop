@@ -49,8 +49,8 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   }, []);
 
   const subtotal = useMemo(
-    () => cart.reduce((sum, item) => sum + item.product.sale_price * item.quantity, 0)
-      + perfumeCart.reduce((sum, item) => sum + item.price.sale_price * item.quantity, 0),
+    () => cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)
+      + perfumeCart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0),
     [cart, perfumeCart]
   );
   const visiblePerfumes = useMemo(() => {
@@ -79,7 +79,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
             : item
         );
       }
-      return [...items, { product, quantity: 1 }];
+      return [...items, { product, quantity: 1, unit_price: product.sale_price }];
     });
   }
 
@@ -87,6 +87,12 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
     setCart((items) => items
       .map((item) => item.product.id === productId ? { ...item, quantity: Math.max(1, Math.min(quantity, item.product.quantity)) } : item)
       .filter((item) => item.quantity > 0));
+  }
+
+  function setProductPrice(productId: number, unitPrice: number) {
+    setCart((items) => items.map((item) =>
+      item.product.id === productId ? { ...item, unit_price: Math.max(0, unitPrice) } : item
+    ));
   }
 
   function addPerfume(perfume: Perfume, flaconId: number) {
@@ -101,7 +107,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
           ? { ...item, quantity: Math.min(item.quantity + 1, maxQty) }
           : item);
       }
-      return [...items, { perfume, price, quantity: 1 }];
+      return [...items, { perfume, price, quantity: 1, unit_price: price.sale_price }];
     });
   }
 
@@ -115,15 +121,24 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       .filter((item) => item.quantity > 0));
   }
 
+  function setPerfumePrice(perfumeId: number, flaconId: number, unitPrice: number) {
+    setPerfumeCart((items) => items.map((item) =>
+      item.perfume.id === perfumeId && item.price.flacon_id === flaconId
+        ? { ...item, unit_price: Math.max(0, unitPrice) }
+        : item
+    ));
+  }
+
   async function checkout() {
     setError("");
     try {
       const sale = await api.checkout({
-        items: cart.map((item) => ({ product_id: item.product.id, quantity: item.quantity })),
+        items: cart.map((item) => ({ product_id: item.product.id, quantity: item.quantity, unit_price: item.unit_price })),
         perfume_items: perfumeCart.map((item) => ({
           perfume_id: item.perfume.id,
           flacon_id: item.price.flacon_id,
-          quantity: item.quantity
+          quantity: item.quantity,
+          unit_price: item.unit_price
         })),
         discount,
         sale_type: saleType,
@@ -207,17 +222,30 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
         <div className="cart-lines">
           {cart.map((item) => (
             <article key={item.product.id} className="cart-line">
-              <div>
-                <strong>{item.product.name}</strong>
-                <span>{item.product.barcode}</span>
+              <div className="cart-line-head">
+                <div className="cart-line-info">
+                  <strong>{item.product.name}</strong>
+                  <span>{item.product.barcode}</span>
+                </div>
+                <button className="plain-icon cart-remove" onClick={() => setCart(cart.filter((line) => line.product.id !== item.product.id))}><Trash2 size={16} /></button>
               </div>
-              <div className="qty-control">
-                <button onClick={() => setQty(item.product.id, item.quantity - 1)}><Minus size={14} /></button>
-                <b>{item.quantity}</b>
-                <button onClick={() => setQty(item.product.id, item.quantity + 1)}><Plus size={14} /></button>
+              <div className="cart-line-body">
+                <div className="qty-control">
+                  <button onClick={() => setQty(item.product.id, item.quantity - 1)}><Minus size={14} /></button>
+                  <b>{item.quantity}</b>
+                  <button onClick={() => setQty(item.product.id, item.quantity + 1)}><Plus size={14} /></button>
+                </div>
+                <label className="cart-price-field">
+                  <span>{t.salePrice}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={item.unit_price === 0 ? "" : item.unit_price}
+                    onChange={(event) => setProductPrice(item.product.id, Number(event.target.value))}
+                  />
+                </label>
+                <strong className="cart-line-total">{money(item.unit_price * item.quantity)}</strong>
               </div>
-              <strong>{money(item.product.sale_price * item.quantity)}</strong>
-              <button className="plain-icon" onClick={() => setCart(cart.filter((line) => line.product.id !== item.product.id))}><Trash2 size={16} /></button>
             </article>
           ))}
           {perfumeCart.map((item) => (
@@ -231,7 +259,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
                 <b>{item.quantity}</b>
                 <button onClick={() => setPerfumeQty(item.perfume.id, item.price.flacon_id, item.quantity + 1)}><Plus size={14} /></button>
               </div>
-              <strong>{money(item.price.sale_price * item.quantity)}</strong>
+              <strong>{money(item.unit_price * item.quantity)}</strong>
               <button
                 className="plain-icon"
                 onClick={() => setPerfumeCart(perfumeCart.filter((line) =>
@@ -290,6 +318,18 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
 
 function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Language; onClose: () => void }) {
   const t = useText(language);
+  const [printMessage, setPrintMessage] = useState("");
+
+  async function printReceipt() {
+    setPrintMessage("");
+    try {
+      await api.printReceiptText(formatReceiptText(sale, t));
+      setPrintMessage("Ticket envoye a l'imprimante.");
+    } catch (err) {
+      setPrintMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return (
     <div className="modal-backdrop">
       <section className="receipt-modal">
@@ -317,11 +357,43 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
           <div className="receipt-line total"><span>{t.total}</span><strong>{money(sale.total)}</strong></div>
           <p className="thanks">{t.thankYou}</p>
         </div>
+        {printMessage && <p className="helper-text">{printMessage}</p>}
         <div className="modal-actions">
-          <button className="gold-button" onClick={() => window.print()}><Printer size={18} /> {t.print}</button>
+          <button className="gold-button" onClick={() => void printReceipt()}><Printer size={18} /> {t.print}</button>
           <button className="ghost-button" onClick={onClose}>{t.close}</button>
         </div>
       </section>
     </div>
   );
+}
+
+function formatReceiptText(sale: Sale, t: ReturnType<typeof useText>) {
+  const width = 38;
+  const line = "-".repeat(width);
+  const right = (label: string, value: string) => {
+    const leftWidth = Math.max(1, width - value.length);
+    return `${label} `.slice(0, leftWidth).padEnd(leftWidth, " ") + value;
+  };
+  const rows = sale.items.flatMap((item) => [
+    item.product_name,
+    `${item.quantity} x ${money(item.unit_price)}`.padEnd(width - money(item.line_total).length, " ") + money(item.line_total)
+  ]);
+  return [
+    "ATHENA SHOP".padStart(24),
+    "RETAIL ATELIER".padStart(25),
+    sale.receipt_no,
+    sale.created_at,
+    line,
+    ...rows,
+    line,
+    right(t.subtotal, money(sale.subtotal)),
+    right(t.discount, money(sale.discount)),
+    sale.sale_type === "credit" ? right(t.paidCash, money(sale.paid_amount)) : "",
+    sale.sale_type === "credit" ? right(t.creditRemaining, money(sale.remaining_amount)) : "",
+    right(t.total, money(sale.total)),
+    line,
+    t.thankYou,
+    "",
+    ""
+  ].filter(Boolean).join("\n");
 }

@@ -751,22 +751,79 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
 .cart-lines { display: grid; gap: 10px; max-height: 340px; overflow-x: hidden; overflow-y: auto; }
 .cart-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto 30px;
-  gap: 10px;
-  align-items: center;
-  padding: 12px;
+  gap: 12px;
+  padding: 13px;
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 13px;
   background: rgba(255,255,255,0.035);
 }
 .cart-line { font-size: 13px; }
 .cart-line span { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+.cart-line-head,
+.cart-line-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cart-line-head {
+  justify-content: space-between;
+}
+.cart-line-info {
+  min-width: 0;
+}
+.cart-line-info strong,
+.cart-line-info span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cart-line-body {
+  justify-content: space-between;
+}
+.cart-line-total {
+  min-width: 78px;
+  color: var(--gold-soft);
+  line-height: 1.35;
+  text-align: end;
+}
+.cart-remove {
+  flex: 0 0 auto;
+}
 .perfume-cart-line {
   border-color: rgba(212,175,55,0.18);
   background: linear-gradient(135deg, rgba(212,175,55,0.08), rgba(255,255,255,0.03));
 }
 .qty-control { display: flex; align-items: center; gap: 7px; }
 .qty-control button { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid rgba(212,175,55,0.34); border-radius: 8px; color: var(--gold-soft); background: transparent; }
+.cart-price-field {
+  display: grid;
+  gap: 4px;
+  min-width: 108px;
+}
+.cart-price-field span {
+  margin: 0;
+  font-size: 10px;
+}
+.cart-price-field input {
+  width: 108px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(212,175,55,0.22);
+  border-radius: 10px;
+  color: var(--white);
+  background: rgba(255,255,255,0.045);
+  font-weight: 800;
+  appearance: textfield;
+}
+.cart-price-field input::-webkit-outer-spin-button,
+.cart-price-field input::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+.cart-price-field input:focus {
+  border-color: rgba(212,175,55,0.58);
+  box-shadow: 0 0 0 3px rgba(212,175,55,0.10);
+}
 .totals { display: grid; gap: 8px; padding: 14px 0; border-top: 1px solid rgba(212,175,55,0.18); }
 .totals span { display: flex; justify-content: space-between; color: var(--muted); }
 .totals { font-size: 13px; }
@@ -814,6 +871,72 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
 .thanks { margin-top: 16px !important; }
 .modal-actions { display: flex; gap: 12px; }
 .modal-actions button { flex: 1; justify-content: center; }
+
+.barcode-modal {
+  display: grid;
+  gap: 16px;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+}
+
+.barcode-preview-card {
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  border: 1px solid rgba(212,175,55,0.18);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+}
+
+.barcode-label {
+  display: grid;
+  gap: 5px;
+  align-content: center;
+  justify-items: center;
+  width: 58mm;
+  min-height: 34mm;
+  padding: 3mm;
+  color: #111;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 3mm;
+  text-align: center;
+  break-inside: avoid;
+}
+
+.barcode-label strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: #111;
+  font-size: 11px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barcode-label span {
+  color: #111;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+}
+
+.barcode-label small {
+  color: #111;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.barcode-svg {
+  width: 48mm;
+  height: 14mm;
+  fill: #000;
+}
+
+.barcode-print-sheet {
+  display: none;
+}
 
 .price-grid {
   display: grid;
@@ -898,6 +1021,25 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
 .flacon-settings {
   align-items: flex-start;
   flex-wrap: wrap;
+}
+.printer-settings {
+  align-items: flex-start;
+}
+.printer-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 10px;
+  flex: 1 1 420px;
+}
+.printer-settings-grid button,
+.printer-settings-grid .helper-text,
+.printer-settings-grid .success-text {
+  grid-column: 1 / -1;
+}
+.success-text {
+  margin: 0;
+  color: var(--success);
+  font-size: 12px;
 }
 .flacon-form {
   display: grid;
@@ -1158,7 +1300,8 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
 
 @media print {
   body * { visibility: hidden; }
-  .receipt-paper, .receipt-paper * { visibility: visible; }
+  .receipt-paper, .receipt-paper *,
+  .barcode-print-sheet, .barcode-print-sheet * { visibility: visible; }
   .receipt-paper {
     position: fixed;
     inset: 0 auto auto 0;
@@ -1166,5 +1309,24 @@ td span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px;
     min-height: auto;
     border-radius: 0;
     box-shadow: none;
+  }
+  .barcode-print-sheet {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 58mm);
+    align-content: start;
+    gap: 3mm;
+    padding: 4mm;
+    background: #fff;
+  }
+  .barcode-print-sheet .barcode-label {
+    width: 58mm;
+    min-height: 34mm;
+    border: 0;
+    border-radius: 0;
+  }
+  .barcode-modal > :not(.barcode-print-sheet) {
+    display: none !important;
   }
 }
