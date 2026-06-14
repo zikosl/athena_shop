@@ -34,37 +34,37 @@ export function DatabaseSetupPage({ onConfigured }: { onConfigured: () => void }
       <div className="particles" />
       <form className="login-card setup-card" onSubmit={submit}>
         <div className="login-brand">
-          <img src={annaStoreLogo} alt="Anna Store" className="brand-logo" />
+          <img src={annaStoreLogo} alt="ياسين لافار لأقمصة والعطور" className="brand-logo" />
           <div>
-            <h1>ANNA STORE</h1>
-            <p>POSTGRESQL</p>
+            <h1>ياسين لافار لأقمصة والعطور</h1>
+            <p>إعداد قاعدة البيانات</p>
           </div>
         </div>
-        <h2>Database setup</h2>
-        <p className="helper-text">Enter a PostgreSQL server. The database will be created if your user has permission.</p>
+        <h2>إعداد قاعدة البيانات</h2>
+        <p className="helper-text">أدخل معلومات خادم PostgreSQL. سيتم إنشاء قاعدة البيانات إذا كان المستخدم يملك الصلاحية.</p>
         <label>
-          <span>Host</span>
+          <span>الخادم</span>
           <div className="field"><Server size={18} /><input value={form.host} onChange={(event) => setForm({ ...form, host: event.target.value })} /></div>
         </label>
         <label>
-          <span>Port</span>
+          <span>المنفذ</span>
           <div className="field"><input type="number" value={form.port} onChange={(event) => setForm({ ...form, port: Number(event.target.value) })} /></div>
         </label>
         <label>
-          <span>Database</span>
+          <span>قاعدة البيانات</span>
           <div className="field"><Database size={18} /><input value={form.database} onChange={(event) => setForm({ ...form, database: event.target.value })} /></div>
         </label>
         <label>
-          <span>User</span>
+          <span>المستخدم</span>
           <div className="field"><User size={18} /><input value={form.user} onChange={(event) => setForm({ ...form, user: event.target.value })} /></div>
         </label>
         <label>
-          <span>Password</span>
+          <span>كلمة المرور</span>
           <div className="field"><input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></div>
         </label>
         {error && <p className="error">{error}</p>}
         <button className="gold-button" type="submit" disabled={saving}>
-          {saving ? "Connecting..." : "Save setup"}
+          {saving ? "جاري الاتصال..." : "حفظ الإعداد"}
         </button>
       </form>
     </main>

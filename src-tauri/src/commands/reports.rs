@@ -203,24 +203,24 @@ fn top_products(client: &mut Client, from_date: NaiveDate, to_date: NaiveDate) -
 fn build_advice(summary: &ReportSummary) -> Vec<String> {
     let mut advice = Vec::new();
     if summary.entry <= 0.0 {
-        advice.push("Aucune vente sur cette periode. Verifiez les bons ou choisissez une autre date.".into());
+        advice.push("لا توجد مبيعات في هذه الفترة. تحقق من التذاكر أو اختر تاريخا آخر.".into());
     }
     if summary.profit < 0.0 {
-        advice.push("Attention: le benefice est negatif. Verifiez les depenses, les prix d'achat et les prix de vente.".into());
+        advice.push("تنبيه: الفائدة سالبة. راجع المصاريف وأسعار الشراء وأسعار البيع.".into());
     } else if summary.profit > 0.0 {
-        advice.push("La periode est positive: les ventes couvrent les achats et les depenses.".into());
+        advice.push("الفترة إيجابية: المبيعات تغطي الشراء والمصاريف.".into());
     }
     if summary.selling_total > 0.0 && summary.buying_total / summary.selling_total > 0.75 {
-        advice.push("Le cout d'achat est eleve par rapport aux ventes. Verifiez les prix d'achat et les marges.".into());
+        advice.push("تكلفة الشراء مرتفعة مقارنة بالمبيعات. راجع أسعار الشراء والهامش.".into());
     }
     if summary.sortie > 0.0 && summary.entry > 0.0 && summary.sortie / summary.entry > 0.6 {
-        advice.push("Les sorties sont elevees par rapport aux entrees. Regardez le detail des depenses.".into());
+        advice.push("المصاريف مرتفعة مقارنة بالمداخيل. راجع تفاصيل المصاريف.".into());
     }
     if summary.credit_remaining > 0.0 {
-        advice.push("Il reste du credit a recuperer. Les versements clients peuvent ameliorer la tresorerie.".into());
+        advice.push("يوجد دين متبق يجب تحصيله. دفعات الزبائن تحسن الصندوق.".into());
     }
     if summary.sales_count == 0 {
-        advice.push("Aucune vente trouvee dans ce filtre.".into());
+        advice.push("لم يتم العثور على مبيعات في هذا الفلتر.".into());
     }
     advice
 }

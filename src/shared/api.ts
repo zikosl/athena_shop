@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
+  AppSettings,
   CashShift,
   CheckoutInput,
   CloseShiftInput,
@@ -17,6 +18,8 @@ import {
   Product,
   ProductFilters,
   ProductInput,
+  StockMovement,
+  StockMovementInput,
   OpenShiftInput,
   ReportData,
   ReportFilter,
@@ -37,14 +40,16 @@ type Db = {
   flacons: Flacon[];
   perfumes: Perfume[];
   shifts: CashShift[];
+  stockMovements: StockMovement[];
+  settings: AppSettings;
 };
 
 const seed: Db = {
   products: [
-    sampleProduct(1, "Robe Anna drapee", "AS100001", "Home Wear", "M", "Ivoire", 18, 4, 1800, 3450),
-    sampleProduct(2, "Robe de chambre dorée", "AS100002", "Loungewear", "L", "Gold", 7, 3, 2600, 5200),
-    sampleProduct(3, "Ensemble olive doux", "AS100003", "Home Wear", "S", "Olive", 24, 5, 1400, 2900),
-    sampleProduct(4, "Pantoufles premium", "AS100004", "Accessoires", "38", "Beige", 3, 4, 900, 1850)
+    sampleProduct(1, "قميص رجالي كلاسيكي", "AS100001", "أقمصة", "M", "أبيض", 18, 4, 1800, 3450),
+    sampleProduct(2, "قميص فاخر", "AS100002", "أقمصة", "L", "أخضر", 7, 3, 2600, 5200),
+    sampleProduct(3, "عطر مسك", "AS100003", "عطور", "12ml", "أبيض", 24, 5, 1400, 2900),
+    sampleProduct(4, "قارورة عطر", "AS100004", "إكسسوارات", "30ml", "شفاف", 3, 4, 900, 1850)
   ],
   expenses: [],
   sales: [],
@@ -55,7 +60,9 @@ const seed: Db = {
     { id: 3, name: "30ml", volume_ml: 30, active: true, created_at: new Date().toISOString() }
   ],
   perfumes: [],
-  shifts: []
+  shifts: [],
+  stockMovements: [],
+  settings: { allow_negative_stock: true, cash_register_auto_close_time: "23:59", max_discount_amount: 200 }
 };
 
 function sampleProduct(
@@ -102,7 +109,13 @@ function readDb(): Db {
     creditPayments: parsed.creditPayments ?? [],
     flacons: parsed.flacons ?? seed.flacons,
     perfumes: parsed.perfumes ?? [],
-    shifts: parsed.shifts ?? []
+    shifts: parsed.shifts ?? [],
+    stockMovements: parsed.stockMovements ?? [],
+    settings: {
+      allow_negative_stock: parsed.settings?.allow_negative_stock ?? true,
+      cash_register_auto_close_time: parsed.settings?.cash_register_auto_close_time ?? "23:59",
+      max_discount_amount: parsed.settings?.max_discount_amount ?? 200
+    }
   };
 }
 
@@ -130,6 +143,20 @@ function normalizeSale(sale: Sale): Sale {
 
 function writeDb(db: Db) {
   localStorage.setItem("athena-shop-demo-db", JSON.stringify(db));
+}
+
+function makeEmptyDb(): Db {
+  return {
+    products: [],
+    expenses: [],
+    sales: [],
+    creditPayments: [],
+    flacons: [],
+    perfumes: [],
+    shifts: [],
+    stockMovements: [],
+    settings: { allow_negative_stock: true, cash_register_auto_close_time: "23:59", max_discount_amount: 200 }
+  };
 }
 
 function makeDummyDb(): Db {
@@ -187,7 +214,9 @@ function makeDummyDb(): Db {
     ],
     flacons: seed.flacons,
     perfumes: [],
-    shifts: []
+    shifts: [],
+    stockMovements: [],
+    settings: { allow_negative_stock: true, cash_register_auto_close_time: "23:59", max_discount_amount: 200 }
   };
 }
 
@@ -279,6 +308,21 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     return undefined as T;
   }
 
+  if (command === "get_app_settings") {
+    return db.settings as T;
+  }
+
+  if (command === "save_app_settings") {
+    const input = args?.input as AppSettings;
+    db.settings = {
+      allow_negative_stock: Boolean(input.allow_negative_stock),
+      cash_register_auto_close_time: input.cash_register_auto_close_time || "23:59",
+      max_discount_amount: Math.max(0, Number(input.max_discount_amount || 0))
+    };
+    writeDb(db);
+    return db.settings as T;
+  }
+
   if (command === "list_flacons") return db.flacons as T;
 
   if (command === "save_flacon") {
@@ -334,8 +378,18 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     return undefined as T;
   }
 
+  if (command === "empty_database") {
+    writeDb(makeEmptyDb());
+    return undefined as T;
+  }
+
   if (command === "print_receipt_text") {
     console.info(args?.content);
+    return undefined as T;
+  }
+
+  if (command === "open_cash_drawer") {
+    console.info("open_cash_drawer");
     return undefined as T;
   }
 
@@ -350,7 +404,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     if (activeDemoShift(db)) throw new Error("Une caisse est deja ouverte");
     const input = args?.input as OpenShiftInput;
     const now = new Date();
-    const [hours, minutes] = input.auto_close_time.split(":").map(Number);
+    const [hours, minutes] = (db.settings.cash_register_auto_close_time || "23:59").split(":").map(Number);
     const autoClose = new Date(now);
     autoClose.setHours(hours || 0, minutes || 0, 0, 0);
     if (autoClose <= now) autoClose.setDate(autoClose.getDate() + 1);
@@ -376,11 +430,11 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "close_shift") {
     const input = args?.input as CloseShiftInput;
     const shift = db.shifts.find((item) => item.id === input.id);
-    if (!shift) throw new Error("Caisse introuvable");
+    if (!shift) throw new Error("الصندوق غير موجود");
     Object.assign(shift, buildDemoShift(db, shift), {
       status: "closed",
       closed_at: new Date().toISOString(),
-      closing_amount: input.closing_amount
+      closing_amount: buildDemoShift(db, shift).expected_amount
     });
     writeDb(db);
     return shift as T;
@@ -406,17 +460,70 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "save_product") {
     const input = args?.input as ProductInput;
     const now = new Date().toISOString();
+    if (input.quantity < 0 && !db.settings.allow_negative_stock) throw new Error("المخزون السالب غير مفعل في الإعدادات");
     if (input.id) {
+      const existing = db.products.find((product) => product.id === input.id);
       db.products = db.products.map((product) =>
         product.id === input.id ? { ...product, ...input, updated_at: now } as Product : product
       );
+      if (existing && existing.quantity !== input.quantity) {
+        db.stockMovements.unshift(makeDemoStockMovement(
+          { ...existing, ...input, updated_at: now } as Product,
+          "adjustment",
+          input.quantity - existing.quantity,
+          existing.quantity,
+          input.quantity,
+          input.purchase_price,
+          "تعديل مباشر من بطاقة المنتج"
+        ));
+      }
       writeDb(db);
       return db.products.find((product) => product.id === input.id) as T;
     }
     const product = { ...input, id: Date.now(), created_at: now, updated_at: now } as Product;
     db.products.unshift(product);
+    if (product.quantity > 0) {
+      db.stockMovements.unshift(makeDemoStockMovement(product, "initial", product.quantity, 0, product.quantity, product.purchase_price, "مخزون أولي"));
+    }
     writeDb(db);
     return product as T;
+  }
+
+  if (command === "adjust_product_stock") {
+    const input = args?.input as StockMovementInput;
+    const product = db.products.find((item) => item.id === input.product_id);
+    if (!product) throw new Error("Produit introuvable");
+    if (input.quantity <= 0) throw new Error("الكمية يجب أن تكون أكبر من صفر");
+    const before = product.quantity;
+    const delta = input.movement_type === "entry" ? input.quantity : -input.quantity;
+    const after = before + delta;
+    if (after < 0 && !db.settings.allow_negative_stock) throw new Error("لا يمكن إخراج كمية أكبر من المخزون الحالي");
+    if (input.movement_type === "entry" && input.purchase_price > 0) {
+      const oldValue = product.purchase_price * Math.max(0, before);
+      const addedValue = input.purchase_price * input.quantity;
+      product.purchase_price = after > 0 ? (oldValue + addedValue) / after : input.purchase_price;
+    }
+    product.quantity = after;
+    product.updated_at = new Date().toISOString();
+    db.stockMovements.unshift(makeDemoStockMovement(
+      product,
+      input.movement_type,
+      delta,
+      before,
+      after,
+      input.purchase_price > 0 ? input.purchase_price : product.purchase_price,
+      input.note
+    ));
+    writeDb(db);
+    return product as T;
+  }
+
+  if (command === "list_stock_movements") {
+    const productId = args?.product_id as number;
+    return db.stockMovements
+      .filter((movement) => movement.product_id === productId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id)
+      .slice(0, 80) as T;
   }
 
   if (command === "delete_product") {
@@ -456,7 +563,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     const items = input.items.map((item) => {
       const product = db.products.find((candidate) => candidate.id === item.product_id);
       if (!product) throw new Error("Produit introuvable");
-      if (product.quantity < item.quantity) throw new Error(`Stock insuffisant pour ${product.name}`);
+      if (product.quantity < item.quantity && !db.settings.allow_negative_stock) throw new Error(`Stock insuffisant pour ${product.name}`);
       product.quantity -= item.quantity;
       return {
         product_id: product.id,
@@ -485,6 +592,8 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       };
     });
     const subtotal = [...items, ...perfumeItems].reduce((sum, item) => sum + item.line_total, 0);
+    if (input.discount < 0) throw new Error("Remise invalide");
+    if (input.discount > db.settings.max_discount_amount) throw new Error(`La remise maximale est ${db.settings.max_discount_amount}`);
     const total = Math.max(0, subtotal - input.discount);
     if (input.sale_type === "credit" && !input.customer_name.trim()) throw new Error("Nom client obligatoire pour un crédit");
     if (input.paid_amount > total) throw new Error("Le montant payé dépasse le total");
@@ -816,11 +925,11 @@ function between(value: string, from: string, to: string) {
 
 function buildDemoAdvice(summary: ReportData["summary"]) {
   const advice: string[] = [];
-  if (summary.selling_total <= 0) advice.push("Aucune vente sur cette periode. Verifiez les bons ou choisissez une autre date.");
-  if (summary.gain_total < 0) advice.push("Attention: le benefice est negatif. Verifiez les depenses, les prix d'achat et les prix de vente.");
-  else if (summary.gain_total > 0) advice.push("La periode est positive: les ventes couvrent les achats et les depenses.");
-  if (summary.credit_remaining > 0) advice.push("Il reste du credit a recuperer. Les versements clients peuvent ameliorer la tresorerie.");
-  if (summary.sales_count === 0) advice.push("Aucune vente trouvee dans ce filtre.");
+  if (summary.selling_total <= 0) advice.push("لا توجد مبيعات في هذه الفترة. تحقق من التذاكر أو اختر تاريخا آخر.");
+  if (summary.gain_total < 0) advice.push("تنبيه: الفائدة سالبة. راجع المصاريف وأسعار الشراء وأسعار البيع.");
+  else if (summary.gain_total > 0) advice.push("الفترة إيجابية: المبيعات تغطي الشراء والمصاريف.");
+  if (summary.credit_remaining > 0) advice.push("يوجد دين متبق يجب تحصيله. دفعات الزبائن تحسن الصندوق.");
+  if (summary.sales_count === 0) advice.push("لم يتم العثور على مبيعات في هذا الفلتر.");
   return advice;
 }
 
@@ -844,7 +953,7 @@ function replaceDemoSaleItems(db: Db, saleId: number, items: Array<{ product_id:
     if (!oldItem) throw new Error("Modification limitee aux articles du bon");
     const product = db.products.find((product) => product.id === input.product_id);
     if (!product) throw new Error("Produit introuvable");
-    if (product.quantity < input.quantity) throw new Error(`Stock insuffisant pour ${oldItem.product_name}`);
+    if (product.quantity < input.quantity && !db.settings.allow_negative_stock) throw new Error(`Stock insuffisant pour ${oldItem.product_name}`);
     product.quantity -= input.quantity;
     return {
       ...oldItem,
@@ -869,13 +978,42 @@ function replaceDemoSaleItems(db: Db, saleId: number, items: Array<{ product_id:
   return sale;
 }
 
+function makeDemoStockMovement(
+  product: Product,
+  movementType: StockMovement["movement_type"],
+  quantity: number,
+  beforeQuantity: number,
+  afterQuantity: number,
+  unitPurchasePrice: number,
+  note: string
+): StockMovement {
+  return {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    product_id: product.id,
+    product_name: product.name,
+    barcode: product.barcode,
+    movement_type: movementType,
+    quantity,
+    before_quantity: beforeQuantity,
+    after_quantity: afterQuantity,
+    unit_purchase_price: unitPurchasePrice,
+    note,
+    created_at: new Date().toISOString()
+  };
+}
+
 export const api = {
   isDatabaseConfigured: () => isTauri ? call<boolean>("is_database_configured") : Promise.resolve(true),
   configureDatabase: (input: PostgresConfig) => call<void>("configure_database", { input }),
   login: (username: string, password: string) => call<UserSession>("login", { input: { username, password } }),
   updateProfile: (input: ProfileInput) => call<UserSession>("update_profile", { input }),
+  appSettings: () => call<AppSettings>("get_app_settings"),
+  saveAppSettings: (input: AppSettings) => call<AppSettings>("save_app_settings", { input }),
   saveNow: () => call<void>("save_database"),
   resetWithDummyData: () => call<void>("reset_with_dummy_data"),
+  emptyDatabase: () => call<void>("empty_database"),
+  openCashDrawer: () => call<void>("open_cash_drawer"),
+  openExternalUrl: (url: string) => call<void>("open_external_url", { url }),
   printReceiptText: (content: string) => call<void>("print_receipt_text", { content }),
   currentShift: () => call<CashShift | null>("current_shift"),
   openShift: (input: OpenShiftInput) => call<CashShift>("open_shift", { input }),
@@ -891,6 +1029,8 @@ export const api = {
     });
   },
   saveProduct: (input: ProductInput) => call<Product>("save_product", { input }),
+  adjustProductStock: (input: StockMovementInput) => call<Product>("adjust_product_stock", { input }),
+  stockMovements: (productId: number) => call<StockMovement[]>("list_stock_movements", { product_id: productId }),
   deleteProduct: (id: number) => call<void>("delete_product", { id }),
   expenses: () => call<Expense[]>("list_expenses"),
   saveExpense: (input: ExpenseInput) => call<Expense>("save_expense", { input }),

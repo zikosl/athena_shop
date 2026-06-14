@@ -1,5 +1,5 @@
 export type Language = "fr" | "ar";
-export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "revenue" | "reports" | "expenses" | "credits" | "settings";
+export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "revenue" | "reports" | "expenses" | "credits" | "zakat" | "settings";
 
 export interface UserSession {
   id: number;
@@ -21,6 +21,12 @@ export interface PostgresConfig {
   database: string;
   user: string;
   password: string;
+}
+
+export interface AppSettings {
+  allow_negative_stock: boolean;
+  cash_register_auto_close_time: string;
+  max_discount_amount: number;
 }
 
 export interface Product {
@@ -51,6 +57,30 @@ export interface ProductInput {
   purchase_price: number;
   sale_price: number;
   image_data: string;
+}
+
+export type StockMovementType = "entry" | "destock" | "adjustment" | "initial";
+
+export interface StockMovementInput {
+  product_id: number;
+  movement_type: "entry" | "destock";
+  quantity: number;
+  purchase_price: number;
+  note: string;
+}
+
+export interface StockMovement {
+  id: number;
+  product_id: number;
+  product_name: string;
+  barcode: string;
+  movement_type: StockMovementType;
+  quantity: number;
+  before_quantity: number;
+  after_quantity: number;
+  unit_purchase_price: number;
+  note: string;
+  created_at: string;
 }
 
 export type ProductStockFilter = "all" | "available" | "low" | "out";
@@ -312,11 +342,9 @@ export interface CashShift {
 
 export interface OpenShiftInput {
   opening_amount: number;
-  auto_close_time: string;
   cashier: string;
 }
 
 export interface CloseShiftInput {
   id: number;
-  closing_amount: number;
 }

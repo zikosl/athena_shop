@@ -71,10 +71,11 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
     }
   }
 
-  async function remove(id: number) {
+  async function remove(expense: Expense) {
     setError("");
+    if (!window.confirm(`هل تريد حذف المصروف "${expense.label}"؟ سيتم إنقاصه من سجلات المصاريف.`)) return;
     try {
-      await api.deleteExpense(id);
+      await api.deleteExpense(expense.id);
       await load();
       onChanged();
     } catch (err) {
@@ -125,7 +126,7 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
                   <td>{expense.category}</td>
                   <td>{expense.expense_date}</td>
                   <td>{money(expense.amount)}</td>
-                  <td className="row-actions"><button onClick={() => remove(expense.id)}><Trash2 size={16} /></button></td>
+                  <td className="row-actions"><button className="danger-action" onClick={() => remove(expense)}><Trash2 size={16} /></button></td>
                 </tr>
               ))}
             </tbody>

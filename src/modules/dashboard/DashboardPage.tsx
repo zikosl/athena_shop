@@ -120,7 +120,7 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
 }
 
 function trendLabel(current: number, previous: number) {
-  if (previous === 0) return current === 0 ? "0" : "Nouveau";
+  if (previous === 0) return current === 0 ? "0" : "جديد";
   const diff = current - previous;
   const percent = Math.round((diff / Math.abs(previous)) * 100);
   return `${diff >= 0 ? "+" : ""}${percent}%`;

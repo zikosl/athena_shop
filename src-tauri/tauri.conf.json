@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Anna Store - Home Wear",
+  "productName": "Yassine Shop",
   "version": "0.1.0",
-  "identifier": "com.annastore.pos",
+  "identifier": "com.openzey.yassineshop",
   "build": {
     "beforeDevCommand": "yarn dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Anna Store - Home Wear",
+        "title": "Yassine Shop",
         "width": 1440,
         "height": 900,
         "minWidth": 1180,
@@ -27,7 +27,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "publisher": "Openzey",
     "icon": [
       "icons/icon.ico",
       "icons/icon.png"

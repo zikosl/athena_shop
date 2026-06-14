@@ -38,6 +38,13 @@ struct StoredSaleItem {
     purchase_price: f64,
 }
 
+#[derive(Debug, Clone)]
+struct StoredPerfumeSaleItem {
+    perfume_id: i64,
+    quantity: i64,
+    volume_ml: f64,
+}
+
 #[derive(Debug)]
 struct SaleTotals {
     subtotal: f64,
@@ -57,9 +64,6 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
     if input.discount < 0.0 {
         return Err(AppError::Message("Remise invalide".into()));
     }
-    if input.discount > 200.0 {
-        return Err(AppError::Message("La remise maximale est 200".into()));
-    }
     if input.paid_amount < 0.0 {
         return Err(AppError::Message("Montant paye invalide".into()));
     }
@@ -67,11 +71,19 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
     db.with_client(|client| {
         let shift_id = super::shifts::require_open_shift(client)?;
         let mut tx = client.transaction()?;
+        let max_discount_amount = max_discount_amount(&mut tx)?;
+        if input.discount > max_discount_amount {
+            return Err(AppError::Message(format!(
+                "La remise maximale est {}",
+                max_discount_amount
+            )));
+        }
         let receipt_no = format!("AS-{}", Local::now().format("%Y%m%d-%H%M%S"));
         let mut subtotal = 0.0;
         let mut gross_profit = 0.0;
         let mut sale_lines = Vec::new();
         let mut perfume_lines = Vec::new();
+        let allow_negative_stock = allow_negative_stock(&mut tx)?;
 
         for item in &input.items {
             if item.quantity <= 0 {
@@ -81,7 +93,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
             let product = get_product_for_sale(&mut tx, item.product_id)?
                 .ok_or_else(|| AppError::Message("Produit introuvable".into()))?;
 
-            if product.quantity < item.quantity {
+            if product.quantity < item.quantity && !allow_negative_stock {
                 return Err(AppError::Message(format!(
                     "Stock insuffisant pour {}",
                     product.name
@@ -274,7 +286,9 @@ pub fn list_sales(db: State<Database>) -> AppResult<Vec<Sale>> {
 pub fn update_sale(db: State<Database>, input: SaleUpdateInput) -> AppResult<Sale> {
     db.with_client(|client| {
         let mut tx = client.transaction()?;
+        let shift_id = sale_shift_id(&mut tx, input.sale_id)?;
         replace_sale_items(&mut tx, input.sale_id, input.items)?;
+        refresh_closed_shift_closing_amount(&mut tx, shift_id)?;
         tx.commit()?;
         load_sale(client, input.sale_id)
     })
@@ -319,7 +333,9 @@ pub fn return_sale_item(db: State<Database>, input: SaleReturnInput) -> AppResul
             ));
         }
 
+        let shift_id = sale_shift_id(&mut tx, input.sale_id)?;
         replace_sale_items(&mut tx, input.sale_id, updated_items)?;
+        refresh_closed_shift_closing_amount(&mut tx, shift_id)?;
         tx.commit()?;
         load_sale(client, input.sale_id)
     })
@@ -330,16 +346,26 @@ pub fn delete_sale(db: State<Database>, id: i64) -> AppResult<()> {
     db.with_client(|client| {
         let mut tx = client.transaction()?;
         let items = stored_sale_items(&mut tx, id)?;
-        if items.is_empty() {
+        let perfume_items = stored_perfume_sale_items(&mut tx, id)?;
+        if items.is_empty() && perfume_items.is_empty() {
             return Err(AppError::Message("Bon introuvable".into()));
         }
+        let shift_id = sale_shift_id(&mut tx, id)?;
         for item in items {
             tx.execute(
                 "UPDATE products SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2",
                 &[&item.quantity, &item.product_id],
             )?;
         }
+        for item in perfume_items {
+            let returned_volume = item.volume_ml * item.quantity as f64;
+            tx.execute(
+                "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml + $1, updated_at = NOW() WHERE id = $2",
+                &[&returned_volume, &item.perfume_id],
+            )?;
+        }
         tx.execute("DELETE FROM sales WHERE id = $1", &[&id])?;
+        refresh_closed_shift_closing_amount(&mut tx, shift_id)?;
         tx.commit()?;
         Ok(())
     })
@@ -434,6 +460,7 @@ fn replace_sale_items(
         }
     }
     let old_items = stored_sale_items(tx, sale_id)?;
+    let allow_negative_stock = allow_negative_stock(tx)?;
 
     if old_items.is_empty() {
         return Err(AppError::Message("Bon introuvable".into()));
@@ -462,7 +489,7 @@ fn replace_sale_items(
                 &[&input.product_id],
             )?
             .get(0);
-        if available < input.quantity {
+        if available < input.quantity && !allow_negative_stock {
             return Err(AppError::Message(format!(
                 "Stock insuffisant pour {}",
                 old_item.product_name
@@ -512,6 +539,27 @@ fn replace_sale_items(
         ],
     )?;
     Ok(())
+}
+
+fn allow_negative_stock(client: &mut postgres::Transaction<'_>) -> AppResult<bool> {
+    Ok(client
+        .query_opt(
+            "SELECT value FROM app_meta WHERE key = 'allow_negative_stock'",
+            &[],
+        )?
+        .map(|row| row.get::<_, String>(0) != "false")
+        .unwrap_or(true))
+}
+
+fn max_discount_amount(client: &mut postgres::Transaction<'_>) -> AppResult<f64> {
+    Ok(client
+        .query_opt(
+            "SELECT value FROM app_meta WHERE key = 'max_discount_amount'",
+            &[],
+        )?
+        .and_then(|row| row.get::<_, String>(0).parse::<f64>().ok())
+        .unwrap_or(200.0)
+        .max(0.0))
 }
 
 fn calculate_sale_totals(
@@ -570,6 +618,82 @@ fn stored_sale_items(
             purchase_price: row.get(5),
         })
         .collect())
+}
+
+fn stored_perfume_sale_items(
+    client: &mut postgres::Transaction<'_>,
+    sale_id: i64,
+) -> AppResult<Vec<StoredPerfumeSaleItem>> {
+    let rows = client.query(
+        "SELECT perfume_id, quantity, volume_ml
+         FROM perfume_sale_items WHERE sale_id = $1 ORDER BY id",
+        &[&sale_id],
+    )?;
+    Ok(rows
+        .iter()
+        .map(|row| StoredPerfumeSaleItem {
+            perfume_id: row.get(0),
+            quantity: row.get(1),
+            volume_ml: row.get(2),
+        })
+        .collect())
+}
+
+fn sale_shift_id(client: &mut postgres::Transaction<'_>, sale_id: i64) -> AppResult<Option<i64>> {
+    Ok(client
+        .query_one("SELECT shift_id FROM sales WHERE id = $1", &[&sale_id])?
+        .get(0))
+}
+
+fn refresh_closed_shift_closing_amount(
+    client: &mut postgres::Transaction<'_>,
+    shift_id: Option<i64>,
+) -> AppResult<()> {
+    let Some(shift_id) = shift_id else {
+        return Ok(());
+    };
+    let row = client.query_opt(
+        "WITH sale_payment_totals AS (
+           SELECT sale_id, COALESCE(SUM(amount), 0)::float8 AS amount
+           FROM credit_payments GROUP BY sale_id
+         ),
+         sales_totals AS (
+           SELECT shift_id,
+                  COALESCE(SUM(CASE WHEN sale_type = 'cash' THEN total ELSE GREATEST(paid_amount - COALESCE(spt.amount, 0), 0) END), 0)::float8 AS amount
+           FROM sales s
+           LEFT JOIN sale_payment_totals spt ON spt.sale_id = s.id
+           WHERE s.shift_id = $1
+           GROUP BY shift_id
+         ),
+         payment_totals AS (
+           SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount
+           FROM credit_payments WHERE shift_id = $1 GROUP BY shift_id
+         ),
+         expense_totals AS (
+           SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount
+           FROM expenses WHERE shift_id = $1 GROUP BY shift_id
+         )
+         SELECT cs.status,
+                cs.opening_amount + COALESCE(st.amount, 0) + COALESCE(pt.amount, 0) - COALESCE(et.amount, 0)
+         FROM cash_shifts cs
+         LEFT JOIN sales_totals st ON st.shift_id = cs.id
+         LEFT JOIN payment_totals pt ON pt.shift_id = cs.id
+         LEFT JOIN expense_totals et ON et.shift_id = cs.id
+         WHERE cs.id = $1",
+        &[&shift_id],
+    )?;
+    let Some(row) = row else {
+        return Ok(());
+    };
+    let status: String = row.get(0);
+    if status == "closed" {
+        let expected: f64 = row.get(1);
+        client.execute(
+            "UPDATE cash_shifts SET closing_amount = $1 WHERE id = $2 AND status = 'closed'",
+            &[&expected, &shift_id],
+        )?;
+    }
+    Ok(())
 }
 
 pub fn list_sale_items(client: &mut Client, sale_id: i64) -> AppResult<Vec<SaleItem>> {

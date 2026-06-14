@@ -3,9 +3,14 @@ import { Barcode, Minus, Plus, Printer, Search, ShoppingBag, SprayCan, Trash2 } 
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
+import { showToast } from "../../shared/toast";
 import { CartItem, Language, Perfume, PerfumeCartItem, Product, Sale, UserSession } from "../../shared/types";
 
-const maxDiscount = 200;
+function displayCategory(category: string) {
+  if (category === "Products") return "المنتجات";
+  if (category === "Perfumerie") return "العطور";
+  return category;
+}
 
 export function PosPage({ language, user, onSale }: { language: Language; user: UserSession; onSale: () => void }) {
   const t = useText(language);
@@ -26,15 +31,29 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const [creditNote, setCreditNote] = useState("");
   const [receipt, setReceipt] = useState<Sale | null>(null);
   const [error, setError] = useState("");
+  const [allowNegativeStock, setAllowNegativeStock] = useState(true);
+  const [maxDiscount, setMaxDiscount] = useState(200);
 
   useEffect(() => {
     const effectiveCategory = assortment === "perfumery" ? "Perfumerie" : category;
     api.products({ query, category: effectiveCategory, stock: "all" })
       .then((items) => setProducts(items.filter((product) =>
-        product.quantity > 0 && assortment !== "perfumery" && (assortment !== "home" || product.category !== "Perfumerie")
+        (allowNegativeStock || product.quantity > 0) && assortment !== "perfumery" && (assortment !== "home" || product.category !== "Perfumerie")
       )))
       .catch((err) => setError(String(err)));
-  }, [query, category, assortment]);
+  }, [query, category, assortment, allowNegativeStock]);
+
+  useEffect(() => {
+    api.appSettings()
+      .then((settings) => {
+        setAllowNegativeStock(settings.allow_negative_stock);
+        setMaxDiscount(settings.max_discount_amount);
+      })
+      .catch(() => {
+        setAllowNegativeStock(true);
+        setMaxDiscount(200);
+      });
+  }, []);
 
   useEffect(() => {
     api.perfumes()
@@ -69,13 +88,13 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
     (saleType === "credit" && (!customerName.trim() || paidAmount < 0 || paidAmount > total));
 
   function addProduct(product: Product) {
-    if (product.quantity <= 0) return;
+    if (!allowNegativeStock && product.quantity <= 0) return;
     setCart((items) => {
       const existing = items.find((item) => item.product.id === product.id);
       if (existing) {
         return items.map((item) =>
           item.product.id === product.id
-            ? { ...item, quantity: Math.min(item.quantity + 1, product.quantity) }
+            ? { ...item, quantity: allowNegativeStock ? item.quantity + 1 : Math.min(item.quantity + 1, product.quantity) }
             : item
         );
       }
@@ -85,7 +104,9 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
 
   function setQty(productId: number, quantity: number) {
     setCart((items) => items
-      .map((item) => item.product.id === productId ? { ...item, quantity: Math.max(1, Math.min(quantity, item.product.quantity)) } : item)
+      .map((item) => item.product.id === productId
+        ? { ...item, quantity: allowNegativeStock ? Math.max(1, quantity) : Math.max(1, Math.min(quantity, item.product.quantity)) }
+        : item)
       .filter((item) => item.quantity > 0));
   }
 
@@ -146,7 +167,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       setCreditNote("");
       const nextProducts = await api.products({ query, category, stock: "all" });
       setProducts(nextProducts.filter((product) =>
-        product.quantity > 0 && assortment !== "perfumery" && (assortment !== "home" || product.category !== "Perfumerie")
+        (allowNegativeStock || product.quantity > 0) && assortment !== "perfumery" && (assortment !== "home" || product.category !== "Perfumerie")
       ));
       const nextPerfumes = await api.perfumes();
       setPerfumes(nextPerfumes.filter((perfume) => perfume.remaining_volume_ml > 0));
@@ -160,9 +181,9 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
     <section className="pos-grid">
       <section className="panel table-panel">
         <div className="segmented pos-mode-tabs">
-          <button className={assortment === "all" ? "active" : ""} type="button" onClick={() => setAssortment("all")}>Tout</button>
-          <button className={assortment === "home" ? "active" : ""} type="button" onClick={() => setAssortment("home")}>Products</button>
-          <button className={assortment === "perfumery" ? "active" : ""} type="button" onClick={() => setAssortment("perfumery")}>Perfumerie</button>
+          <button className={assortment === "all" ? "active" : ""} type="button" onClick={() => setAssortment("all")}>الكل</button>
+          <button className={assortment === "home" ? "active" : ""} type="button" onClick={() => setAssortment("home")}>المنتجات</button>
+          <button className={assortment === "perfumery" ? "active" : ""} type="button" onClick={() => setAssortment("perfumery")}>العطور</button>
         </div>
         <div className="filter-row">
           <div className="searchbar"><Search size={18} /><input autoFocus placeholder={t.search} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
@@ -170,7 +191,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
             <option value="">{t.allCategories}</option>
             {categories
               .filter((item) => assortment !== "home" || item !== "Perfumerie")
-              .map((item) => <option value={item} key={item}>{item}</option>)}
+              .map((item) => <option value={item} key={item}>{displayCategory(item)}</option>)}
           </select>
         </div>
         <div className="product-picker">
@@ -256,6 +277,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
               onChange={(event) => setDiscount(Math.max(0, Math.min(maxDiscount, Number(event.target.value))))}
             />
           </div>
+          <small>{`${t.discountMax.replace("200", String(maxDiscount))}`}</small>
         </label>
         <label>
           <span>{t.payment}</span>
@@ -279,7 +301,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
           <span>{t.total} <strong>{money(total)}</strong></span>
         </div>
         {saleType === "credit" && !customerName.trim() && <p className="helper-text">{t.requiredCreditCustomer}</p>}
-        {discount > maxDiscount && <p className="error">{t.discountMax}</p>}
+        {discount > maxDiscount && <p className="error">{t.discountMax.replace("200", String(maxDiscount))}</p>}
         {discount > subtotal && <p className="error">{t.discountTooHigh}</p>}
         {error && <p className="error">{error}</p>}
         <button className="gold-button" disabled={checkoutBlocked} onClick={checkout}>{t.checkout}</button>
@@ -298,20 +320,20 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
   async function printReceipt() {
     setPrintStatus("");
     setPrintError("");
-    try {
-      await api.printReceiptText(formatReceiptText(sale, t));
-      setPrintStatus("Ticket envoye a l'imprimante");
-    } catch (err) {
-      setPrintError(err instanceof Error ? err.message : String(err));
-    }
+    showToast("\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629 \u0644\u0644\u0637\u0628\u0627\u0639\u0629", "success");
+    void api.printReceiptText(formatReceiptText(sale, t)).catch(() => {
+      const message = "\u0644\u0627 \u064a\u0645\u0643\u0646 \u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629. \u062a\u0623\u0643\u062f \u0645\u0646 \u0648\u062c\u0648\u062f \u0637\u0627\u0628\u0639\u0629.";
+      setPrintError(message);
+      showToast(message, "error");
+    });
   }
 
   return (
     <div className="modal-backdrop">
       <section className="receipt-modal">
         <div className="receipt-paper" id="receipt">
-          <h2>ANNA STORE</h2>
-          <p>HOME WEAR</p>
+          <h2>ياسين لافار</h2>
+          <p>متجر الأقمصة والعطور</p>
           <small>{sale.receipt_no} · {sale.created_at}</small>
           <hr />
           {sale.items.map((item, index) => (
@@ -347,8 +369,8 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
 function formatReceiptText(sale: Sale, t: ReturnType<typeof useText>) {
   const width = 36;
   const lines = [
-    center("ANNA STORE", width),
-    center("HOME WEAR", width),
+    center("ياسين لافار", width),
+    center("متجر الأقمصة والعطور", width),
     "-".repeat(width),
     sale.receipt_no,
     sale.created_at,

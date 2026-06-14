@@ -34,17 +34,17 @@ export function ReportsPage({ language }: { language: Language }) {
 
   const health = useMemo(() => {
     const summary = report?.summary;
-    if (!summary) return { label: "Chargement", tone: "warning", text: "Lecture des chiffres..." };
+    if (!summary) return { label: "جاري التحميل", tone: "warning", text: "قراءة الأرقام..." };
     if (summary.entry <= 0) {
-      return { label: "Aucune entree", tone: "warning", text: "Aucune vente ou versement dans cette periode." };
+      return { label: "لا توجد مداخيل", tone: "warning", text: "لا توجد مبيعات أو دفعات في هذه الفترة." };
     }
     if (summary.profit < 0) {
-      return { label: "Perte", tone: "danger", text: "Les sorties sont plus fortes que le benefice realise." };
+      return { label: "خسارة", tone: "danger", text: "المصاريف أكبر من الفائدة المحققة." };
     }
     if (summary.sortie / summary.entry > 0.6) {
-      return { label: "A surveiller", tone: "warning", text: "Les depenses prennent une grande partie des entrees." };
+      return { label: "يحتاج متابعة", tone: "warning", text: "المصاريف تأخذ جزءا كبيرا من المداخيل." };
     }
-    return { label: "Bonne periode", tone: "ok", text: "Les entrees couvrent les sorties." };
+    return { label: "فترة جيدة", tone: "ok", text: "المداخيل تغطي المصاريف." };
   }, [report]);
 
   const summary = report?.summary;
@@ -60,11 +60,11 @@ export function ReportsPage({ language }: { language: Language }) {
       <section className="panel report-hero">
         <div>
           <div className="section-title">
-            <h2><ReceiptText size={18} /> Rapports</h2>
+            <h2><ReceiptText size={18} /> التقارير</h2>
             <span />
           </div>
-          <h3>Comprendre l'argent du magasin</h3>
-          <p>Achat = cout vendu. Vente = chiffre vendu. Benefice = vente - achat - depenses.</p>
+          <h3>فهم أموال المتجر</h3>
+          <p>الشراء = تكلفة السلع المباعة. البيع = مجموع التذاكر. الفائدة = البيع - الشراء - المصاريف.</p>
         </div>
         <article className={`report-health ${health.tone}`}>
           <strong>{health.label}</strong>
@@ -74,59 +74,59 @@ export function ReportsPage({ language }: { language: Language }) {
 
       <section className="panel report-filters">
         <div className="segmented report-presets">
-          <button className={preset === "daily" ? "active" : ""} type="button" onClick={() => setPreset("daily")}>Jour</button>
-          <button className={preset === "weekly" ? "active" : ""} type="button" onClick={() => setPreset("weekly")}>Semaine</button>
-          <button className={preset === "monthly" ? "active" : ""} type="button" onClick={() => setPreset("monthly")}>Mois</button>
-          <button className={preset === "custom" ? "active" : ""} type="button" onClick={() => setPreset("custom")}>Custom</button>
+          <button className={preset === "daily" ? "active" : ""} type="button" onClick={() => setPreset("daily")}>يوم</button>
+          <button className={preset === "weekly" ? "active" : ""} type="button" onClick={() => setPreset("weekly")}>أسبوع</button>
+          <button className={preset === "monthly" ? "active" : ""} type="button" onClick={() => setPreset("monthly")}>شهر</button>
+          <button className={preset === "custom" ? "active" : ""} type="button" onClick={() => setPreset("custom")}>مخصص</button>
         </div>
         <select aria-label="Graph" value={period} onChange={(event) => {
           setPreset("custom");
           setPeriod(event.target.value as ReportPeriod);
         }}>
-          <option value="daily">Graph daily</option>
-          <option value="weekly">Graph weekly</option>
-          <option value="monthly">Graph monthly</option>
+          <option value="daily">رسم يومي</option>
+          <option value="weekly">رسم أسبوعي</option>
+          <option value="monthly">رسم شهري</option>
         </select>
-        <label><span>De</span><input className="filter-input" type="date" value={fromDate} onChange={(event) => setCustomDate("from", event.target.value)} /></label>
-        <label><span>A</span><input className="filter-input" type="date" value={toDate} onChange={(event) => setCustomDate("to", event.target.value)} /></label>
+        <label><span>من</span><input className="filter-input" type="date" value={fromDate} onChange={(event) => setCustomDate("from", event.target.value)} /></label>
+        <label><span>إلى</span><input className="filter-input" type="date" value={toDate} onChange={(event) => setCustomDate("to", event.target.value)} /></label>
       </section>
 
       {error && <p className="error">{error}</p>}
 
       <section className="stats-grid report-stat-grid business-stat-grid">
-        <ReportCard icon={PackageSearch} label="Achat" value={money(summary?.buying_total ?? 0)} helper="Cout des articles vendus" tone="danger" />
-        <ReportCard icon={ShoppingCart} label="Vente" value={money(summary?.selling_total ?? 0)} helper="Total des bons" tone="success" />
-        <ReportCard icon={ArrowDownCircle} label="Depenses" value={money(summary?.sortie ?? 0)} helper="Charges payees" tone="danger" />
-        <ReportCard icon={ChartColumnIncreasing} label="Benefice" value={money(summary?.gain_total ?? 0)} helper="Vente - achat - depenses" tone={(summary?.gain_total ?? 0) < 0 ? "danger" : "success"} />
-        <ReportCard icon={ReceiptText} label="Ventes" value={String(summary?.sales_count ?? 0)} helper={`Ticket moyen ${money(summary?.average_ticket ?? 0)}`} />
-        <ReportCard icon={HandCoins} label="Credit recupere" value={money(summary?.credit_collected ?? 0)} helper={`Reste ${money(summary?.credit_remaining ?? 0)}`} />
-        <ReportCard icon={PackageSearch} label="Valeur stock" value={money(summary?.stock_sale_value ?? 0)} helper={`Achat ${money(summary?.stock_purchase_value ?? 0)}`} />
+        <ReportCard icon={PackageSearch} label="الشراء" value={money(summary?.buying_total ?? 0)} helper="تكلفة السلع المباعة" tone="danger" />
+        <ReportCard icon={ShoppingCart} label="البيع" value={money(summary?.selling_total ?? 0)} helper="مجموع التذاكر" tone="success" />
+        <ReportCard icon={ArrowDownCircle} label="المصاريف" value={money(summary?.sortie ?? 0)} helper="المبالغ المدفوعة" tone="danger" />
+        <ReportCard icon={ChartColumnIncreasing} label="الفائدة" value={money(summary?.gain_total ?? 0)} helper="البيع - الشراء - المصاريف" tone={(summary?.gain_total ?? 0) < 0 ? "danger" : "success"} />
+        <ReportCard icon={ReceiptText} label="المبيعات" value={String(summary?.sales_count ?? 0)} helper={`متوسط التذكرة ${money(summary?.average_ticket ?? 0)}`} />
+        <ReportCard icon={HandCoins} label="الدين المسترجع" value={money(summary?.credit_collected ?? 0)} helper={`المتبقي ${money(summary?.credit_remaining ?? 0)}`} />
+        <ReportCard icon={PackageSearch} label="قيمة المخزون" value={money(summary?.stock_sale_value ?? 0)} helper={`شراء ${money(summary?.stock_purchase_value ?? 0)}`} />
       </section>
 
       <section className="report-grid">
         <article className="panel report-chart-panel">
-          <div className="section-title"><h2><Activity size={18} /> Vente / Depenses / Benefice</h2><span /></div>
+          <div className="section-title"><h2><Activity size={18} /> البيع / المصاريف / الفائدة</h2><span /></div>
           <LineChart buckets={report?.buckets ?? []} />
         </article>
 
         <article className="panel advice-panel">
-          <div className="section-title"><h2><CalendarDays size={18} /> Lecture rapide</h2><span /></div>
+          <div className="section-title"><h2><CalendarDays size={18} /> قراءة سريعة</h2><span /></div>
           <div className="advice-list">
             {(report?.advice ?? []).map((item) => <p key={item}>{item}</p>)}
           </div>
           <div className="report-legend">
-            <span><b className="entry-dot" /> Vente</span>
-            <span><b className="sortie-dot" /> Depenses</span>
-            <span><b className="profit-dot" /> Benefice</span>
+            <span><b className="entry-dot" /> البيع</span>
+            <span><b className="sortie-dot" /> المصاريف</span>
+            <span><b className="profit-dot" /> الفائدة</span>
           </div>
         </article>
       </section>
 
       <section className="panel table-panel">
-        <div className="section-title"><h2><Wallet size={18} /> Detail par periode</h2><span /></div>
+        <div className="section-title"><h2><Wallet size={18} /> التفاصيل حسب الفترة</h2><span /></div>
         <div className="data-table report-table">
           <table>
-            <thead><tr><th>Periode</th><th>Achat</th><th>Vente</th><th>Depenses</th><th>Benefice</th><th>Bons</th></tr></thead>
+            <thead><tr><th>الفترة</th><th>الشراء</th><th>البيع</th><th>المصاريف</th><th>الفائدة</th><th>التذاكر</th></tr></thead>
             <tbody>
               {(report?.buckets ?? []).map((bucket) => (
                 <tr key={`${bucket.start_date}-row`}>
@@ -144,16 +144,16 @@ export function ReportsPage({ language }: { language: Language }) {
       </section>
 
       <section className="panel">
-        <div className="section-title"><h2><PackageSearch size={18} /> Produits qui vendent le plus</h2><span /></div>
+        <div className="section-title"><h2><PackageSearch size={18} /> أكثر المنتجات مبيعا</h2><span /></div>
         <div className="top-products">
           {(report?.top_products ?? []).map((item, index) => (
             <article key={item.name}>
               <b>{index + 1}</b>
-              <span><strong>{item.name}</strong><small>{item.quantity} pieces</small></span>
+              <span><strong>{item.name}</strong><small>{item.quantity} قطعة</small></span>
               <em>{money(item.total)}</em>
             </article>
           ))}
-          {!report?.top_products.length && <p className="empty-state">Aucun produit vendu dans ce filtre.</p>}
+          {!report?.top_products.length && <p className="empty-state">لا يوجد منتج مباع في هذا الفلتر.</p>}
         </div>
       </section>
     </section>
@@ -190,7 +190,7 @@ function inputDate(date: Date) {
 }
 
 function LineChart({ buckets }: { buckets: ReportBucket[] }) {
-  if (!buckets.length) return <p className="empty-state">Aucune donnee pour ce filtre.</p>;
+  if (!buckets.length) return <p className="empty-state">لا توجد بيانات لهذا الفلتر.</p>;
 
   const width = 720;
   const height = 260;
@@ -213,7 +213,7 @@ function LineChart({ buckets }: { buckets: ReportBucket[] }) {
 
   return (
     <div className="line-chart-wrap">
-      <svg className="line-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Courbe des ventes, depenses et benefices">
+      <svg className="line-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="منحنى البيع والمصاريف والفائدة">
         <line className="chart-grid-line" x1={padding.left} x2={width - padding.right} y1={padding.top} y2={padding.top} />
         <line className="chart-grid-line" x1={padding.left} x2={width - padding.right} y1={padding.top + plotHeight / 2} y2={padding.top + plotHeight / 2} />
         <line className="chart-zero-line" x1={padding.left} x2={width - padding.right} y1={zeroY} y2={zeroY} />

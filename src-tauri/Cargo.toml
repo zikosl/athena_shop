@@ -1,8 +1,8 @@
 [package]
 name = "anna_store_pos"
 version = "0.1.0"
-description = "Anna Store Home Wear desktop POS"
-authors = ["Anna Store"]
+description = "Yassine Arabic shop desktop POS"
+authors = ["Yassine Shop"]
 edition = "2021"
 
 [lib]

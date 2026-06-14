@@ -177,6 +177,18 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
+        CREATE TABLE IF NOT EXISTS stock_movements (
+          id BIGSERIAL PRIMARY KEY,
+          product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+          movement_type TEXT NOT NULL,
+          quantity BIGINT NOT NULL,
+          before_quantity BIGINT NOT NULL,
+          after_quantity BIGINT NOT NULL,
+          unit_purchase_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+          note TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
         CREATE TABLE IF NOT EXISTS expenses (
           id BIGSERIAL PRIMARY KEY,
           shift_id BIGINT,

@@ -30,6 +30,8 @@ pub fn run() {
             commands::perfumery::save_perfume,
             commands::products::list_products,
             commands::products::save_product,
+            commands::products::adjust_product_stock,
+            commands::products::list_stock_movements,
             commands::products::delete_product,
             commands::reports::get_report,
             commands::sales::checkout,
@@ -41,11 +43,16 @@ pub fn run() {
             commands::shifts::open_shift,
             commands::shifts::close_shift,
             commands::system::configure_database,
+            commands::system::get_app_settings,
             commands::system::is_database_configured,
+            commands::system::empty_database,
+            commands::system::open_cash_drawer,
+            commands::system::open_external_url,
             commands::system::print_receipt_text,
             commands::system::reset_with_dummy_data,
+            commands::system::save_app_settings,
             commands::system::save_database,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Anna Store POS");
+        .expect("error while running Yassine POS");
 }

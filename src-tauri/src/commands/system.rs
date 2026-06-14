@@ -6,6 +6,7 @@ use tauri::{AppHandle, State};
 
 use crate::db::{Database, PostgresConfig};
 use crate::error::{AppError, AppResult};
+use crate::models::AppSettings;
 
 #[tauri::command]
 pub fn save_database(db: State<Database>) -> AppResult<()> {
@@ -27,6 +28,72 @@ pub fn configure_database(
 }
 
 #[tauri::command]
+pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
+    db.with_client(|client| {
+        let allow_negative_stock = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'allow_negative_stock'",
+                &[],
+            )?
+            .map(|row| row.get::<_, String>(0) != "false")
+            .unwrap_or(true);
+        let cash_register_auto_close_time = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'cash_register_auto_close_time'",
+                &[],
+            )?
+            .map(|row| row.get::<_, String>(0))
+            .unwrap_or_else(|| "23:59".into());
+        let max_discount_amount = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'max_discount_amount'",
+                &[],
+            )?
+            .and_then(|row| row.get::<_, String>(0).parse::<f64>().ok())
+            .unwrap_or(200.0)
+            .max(0.0);
+        Ok(AppSettings {
+            allow_negative_stock,
+            cash_register_auto_close_time,
+            max_discount_amount,
+        })
+    })
+}
+
+#[tauri::command]
+pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<AppSettings> {
+    if chrono::NaiveTime::parse_from_str(input.cash_register_auto_close_time.trim(), "%H:%M").is_err() {
+        return Err(AppError::Message("Heure fermeture invalide".into()));
+    }
+    if input.max_discount_amount < 0.0 {
+        return Err(AppError::Message("Remise maximale invalide".into()));
+    }
+    db.with_client(|client| {
+        let value = if input.allow_negative_stock { "true" } else { "false" };
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('allow_negative_stock', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&value],
+        )?;
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('cash_register_auto_close_time', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&input.cash_register_auto_close_time.trim()],
+        )?;
+        let max_discount_amount = input.max_discount_amount.to_string();
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('max_discount_amount', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&max_discount_amount],
+        )?;
+        Ok(input)
+    })
+}
+
+#[tauri::command]
 pub fn print_receipt_text(content: String) -> AppResult<()> {
     if content.trim().is_empty() {
         return Err(AppError::Message("Ticket vide".into()));
@@ -39,34 +106,51 @@ pub fn print_receipt_text(content: String) -> AppResult<()> {
     let path = std::env::temp_dir().join(format!("athena-shop-ticket-{timestamp}.txt"));
     fs::write(&path, content)?;
 
-    let status = print_file(&path)?;
-    let _ = fs::remove_file(&path);
-    if status {
-        Ok(())
-    } else {
-        Err(AppError::Message("Impression impossible".into()))
+    if let Err(error) = print_file(&path) {
+        let _ = fs::remove_file(&path);
+        return Err(error);
     }
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
-fn print_file(path: &std::path::Path) -> AppResult<bool> {
+fn print_file(path: &std::path::Path) -> AppResult<()> {
+    ensure_printer_available()?;
+    Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "try { Get-Content -LiteralPath $args[0] | Out-Printer } finally { Remove-Item -LiteralPath $args[0] -ErrorAction SilentlyContinue }",
+        ])
+        .arg(path)
+        .spawn()?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn print_file(path: &std::path::Path) -> AppResult<()> {
+    Command::new("lp").arg(path).spawn()?;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_printer_available() -> AppResult<()> {
     let status = Command::new("powershell.exe")
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            "Get-Content -LiteralPath $args[0] | Out-Printer",
+            "if ((Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Select-Object -First 1) -ne $null) { exit 0 } else { exit 1 }",
         ])
-        .arg(path)
         .status()?;
-    Ok(status.success())
-}
-
-#[cfg(not(target_os = "windows"))]
-fn print_file(path: &std::path::Path) -> AppResult<bool> {
-    let status = Command::new("lp").arg(path).status()?;
-    Ok(status.success())
+    if status.success() {
+        Ok(())
+    } else {
+        Err(AppError::Message("Aucune imprimante disponible".into()))
+    }
 }
 
 #[tauri::command]
@@ -74,7 +158,7 @@ pub fn reset_with_dummy_data(db: State<Database>) -> AppResult<()> {
     db.with_client(|client| {
         client.batch_execute(
             "
-            TRUNCATE TABLE credit_payments, sale_items, sales, expenses, products, cash_shifts RESTART IDENTITY CASCADE;
+            TRUNCATE TABLE stock_movements, credit_payments, sale_items, sales, expenses, products, cash_shifts RESTART IDENTITY CASCADE;
 
             INSERT INTO products
               (id, name, barcode, category, size, color, quantity, low_stock_threshold, purchase_price, sale_price, image_data)
@@ -133,6 +217,77 @@ pub fn reset_with_dummy_data(db: State<Database>) -> AppResult<()> {
             SELECT setval('sales_id_seq', (SELECT MAX(id) FROM sales));
             SELECT setval('sale_items_id_seq', (SELECT MAX(id) FROM sale_items));
             SELECT setval('credit_payments_id_seq', (SELECT MAX(id) FROM credit_payments));
+            ",
+        )?;
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub fn open_cash_drawer() -> AppResult<()> {
+    // ESC/POS cash drawer pulse: ESC p m t1 t2.
+    let pulse = [0x1B_u8, 0x70, 0x00, 0x19, 0xFA];
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| AppError::Message(error.to_string()))?
+        .as_millis();
+    let path = std::env::temp_dir().join(format!("athena-shop-drawer-{timestamp}.bin"));
+    fs::write(&path, pulse)?;
+
+    if let Err(error) = print_file(&path) {
+        let _ = fs::remove_file(&path);
+        return Err(error);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_external_url(url: String) -> AppResult<()> {
+    let allowed = ["https://openzey.com", "https://www.openzey.com"];
+    if !allowed.contains(&url.as_str()) {
+        return Err(AppError::Message("Lien externe non autorise".into()));
+    }
+    open_url(&url)
+}
+
+#[cfg(target_os = "windows")]
+fn open_url(url: &str) -> AppResult<()> {
+    Command::new("cmd.exe")
+        .args(["/C", "start", "", url])
+        .spawn()?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn open_url(url: &str) -> AppResult<()> {
+    Command::new("open").arg(url).spawn()?;
+    Ok(())
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn open_url(url: &str) -> AppResult<()> {
+    Command::new("xdg-open").arg(url).spawn()?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn empty_database(db: State<Database>) -> AppResult<()> {
+    db.with_client(|client| {
+        client.batch_execute(
+            "
+            TRUNCATE TABLE
+              perfume_sale_items,
+              perfume_prices,
+              perfumes,
+              flacons,
+              credit_payments,
+              sale_items,
+              sales,
+              expenses,
+              products,
+              cash_shifts,
+              stock_movements
+            RESTART IDENTITY CASCADE;
             ",
         )?;
         Ok(())

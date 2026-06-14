@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Languages, LockKeyhole, User } from "lucide-react";
+import { LockKeyhole, User } from "lucide-react";
 import { api } from "../../shared/api";
 import { useText } from "../../shared/i18n";
 import { Language, UserSession } from "../../shared/types";
@@ -7,11 +7,10 @@ import annaStoreLogo from "../../assets/anna-store-logo.png";
 
 interface Props {
   language: Language;
-  setLanguage: (language: Language) => void;
   onLogin: (session: UserSession) => void;
 }
 
-export function LoginPage({ language, setLanguage, onLogin }: Props) {
+export function LoginPage({ language, onLogin }: Props) {
   const t = useText(language);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -30,16 +29,12 @@ export function LoginPage({ language, setLanguage, onLogin }: Props) {
   return (
     <main className="login-shell">
       <div className="particles" />
-      <button type="button" className="language-switch" onClick={() => setLanguage(language === "fr" ? "ar" : "fr")}>
-        <Languages size={17} />
-        {language === "fr" ? "AR" : "FR"}
-      </button>
       <form className="login-card" onSubmit={submit}>
         <div className="login-brand">
-          <img src={annaStoreLogo} alt="Anna Store" className="brand-logo" />
+          <img src={annaStoreLogo} alt="ياسين لافار لأقمصة والعطور" className="brand-logo" />
           <div>
-            <h1>ANNA STORE</h1>
-            <p>HOME WEAR</p>
+            <h1>ياسين لافار لأقمصة والعطور</h1>
+            <p>متجر الأقمصة والعطور</p>
           </div>
         </div>
         <h2>{t.login}</h2>

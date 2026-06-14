@@ -3,7 +3,7 @@ use tauri::State;
 
 use crate::db::Database;
 use crate::error::{AppError, AppResult};
-use crate::models::{Product, ProductInput};
+use crate::models::{Product, ProductInput, StockMovement, StockMovementInput};
 
 #[tauri::command]
 pub fn list_products(
@@ -39,10 +39,12 @@ pub fn list_products(
 
 #[tauri::command]
 pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Product> {
-    validate_product(&input)?;
-
     db.with_client(|client| {
+        validate_product(client, &input)?;
         let id: i64 = if let Some(id) = input.id {
+            let old_quantity: i64 = client
+                .query_one("SELECT quantity FROM products WHERE id = $1", &[&id])?
+                .get(0);
             client.execute(
                 "UPDATE products
                  SET name = $1, barcode = $2, category = $3, size = $4, color = $5,
@@ -63,9 +65,21 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
                     &id,
                 ],
             )?;
+            if input.quantity != old_quantity {
+                insert_stock_movement(
+                    client,
+                    id,
+                    "adjustment",
+                    input.quantity - old_quantity,
+                    old_quantity,
+                    input.quantity,
+                    input.purchase_price,
+                    "تعديل مباشر من بطاقة المنتج",
+                )?;
+            }
             id
         } else {
-            client
+            let id = client
                 .query_one(
                     "INSERT INTO products
                      (name, barcode, category, size, color, quantity, low_stock_threshold, purchase_price, sale_price, image_data)
@@ -84,9 +98,93 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
                         &input.image_data,
                     ],
                 )?
-                .get(0)
+                .get(0);
+            if input.quantity > 0 {
+                insert_stock_movement(
+                    client,
+                    id,
+                    "initial",
+                    input.quantity,
+                    0,
+                    input.quantity,
+                    input.purchase_price,
+                    "مخزون أولي",
+                )?;
+            }
+            id
         };
         get_product(client, id)
+    })
+}
+
+#[tauri::command]
+pub fn adjust_product_stock(db: State<Database>, input: StockMovementInput) -> AppResult<Product> {
+    if input.quantity <= 0 {
+        return Err(AppError::Message("الكمية يجب أن تكون أكبر من صفر".into()));
+    }
+    if input.purchase_price < 0.0 {
+        return Err(AppError::Message("سعر الشراء يجب أن يكون موجبا".into()));
+    }
+
+    db.with_client(|client| {
+        let product = get_product(client, input.product_id)?;
+        let movement_type = input.movement_type.trim();
+        let delta = match movement_type {
+            "entry" => input.quantity,
+            "destock" => -input.quantity,
+            _ => return Err(AppError::Message("نوع حركة المخزون غير صالح".into())),
+        };
+        let next_quantity = product.quantity + delta;
+        if next_quantity < 0 && !allow_negative_stock(client)? {
+            return Err(AppError::Message("لا يمكن إخراج كمية أكبر من المخزون الحالي".into()));
+        }
+
+        let next_purchase_price = if movement_type == "entry" && input.purchase_price > 0.0 {
+            let old_value = product.purchase_price * product.quantity.max(0) as f64;
+            let added_value = input.purchase_price * input.quantity as f64;
+            if next_quantity > 0 {
+                (old_value + added_value) / next_quantity as f64
+            } else {
+                input.purchase_price
+            }
+        } else {
+            product.purchase_price
+        };
+
+        client.execute(
+            "UPDATE products
+             SET quantity = $1, purchase_price = $2, updated_at = NOW()
+             WHERE id = $3",
+            &[&next_quantity, &next_purchase_price, &input.product_id],
+        )?;
+        insert_stock_movement(
+            client,
+            input.product_id,
+            movement_type,
+            delta,
+            product.quantity,
+            next_quantity,
+            if input.purchase_price > 0.0 { input.purchase_price } else { product.purchase_price },
+            input.note.trim(),
+        )?;
+        get_product(client, input.product_id)
+    })
+}
+
+#[tauri::command]
+pub fn list_stock_movements(db: State<Database>, product_id: i64) -> AppResult<Vec<StockMovement>> {
+    db.with_client(|client| {
+        let rows = client.query(
+            "SELECT sm.id, sm.product_id, p.name, p.barcode, sm.movement_type, sm.quantity,
+                    sm.before_quantity, sm.after_quantity, sm.unit_purchase_price, sm.note, sm.created_at::text
+             FROM stock_movements sm
+             JOIN products p ON p.id = sm.product_id
+             WHERE sm.product_id = $1
+             ORDER BY sm.created_at DESC, sm.id DESC
+             LIMIT 80",
+            &[&product_id],
+        )?;
+        Ok(rows.iter().map(stock_movement_from_row).collect())
     })
 }
 
@@ -107,17 +205,57 @@ pub fn delete_product(db: State<Database>, id: i64) -> AppResult<()> {
     })
 }
 
-fn validate_product(input: &ProductInput) -> AppResult<()> {
+fn insert_stock_movement(
+    client: &mut postgres::Client,
+    product_id: i64,
+    movement_type: &str,
+    quantity: i64,
+    before_quantity: i64,
+    after_quantity: i64,
+    unit_purchase_price: f64,
+    note: &str,
+) -> AppResult<()> {
+    client.execute(
+        "INSERT INTO stock_movements
+         (product_id, movement_type, quantity, before_quantity, after_quantity, unit_purchase_price, note)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        &[
+            &product_id,
+            &movement_type,
+            &quantity,
+            &before_quantity,
+            &after_quantity,
+            &unit_purchase_price,
+            &note,
+        ],
+    )?;
+    Ok(())
+}
+
+fn validate_product(client: &mut postgres::Client, input: &ProductInput) -> AppResult<()> {
     if input.name.trim().is_empty() || input.barcode.trim().is_empty() {
         return Err(AppError::Message("Nom et code-barres obligatoires".into()));
     }
-    if input.quantity < 0 || input.low_stock_threshold < 0 {
+    if input.quantity < 0 && !allow_negative_stock(client)? {
+        return Err(AppError::Message("المخزون السالب غير مفعل في الإعدادات".into()));
+    }
+    if input.low_stock_threshold < 0 {
         return Err(AppError::Message("Les quantites doivent etre positives".into()));
     }
     if input.purchase_price < 0.0 || input.sale_price < 0.0 {
         return Err(AppError::Message("Les prix doivent etre positifs".into()));
     }
     Ok(())
+}
+
+fn allow_negative_stock(client: &mut postgres::Client) -> AppResult<bool> {
+    Ok(client
+        .query_opt(
+            "SELECT value FROM app_meta WHERE key = 'allow_negative_stock'",
+            &[],
+        )?
+        .map(|row| row.get::<_, String>(0) != "false")
+        .unwrap_or(true))
 }
 
 fn get_product(client: &mut postgres::Client, id: i64) -> AppResult<Product> {
@@ -145,5 +283,21 @@ pub fn product_from_row(row: &Row) -> Product {
         image_data: row.get(10),
         created_at: row.get(11),
         updated_at: row.get(12),
+    }
+}
+
+fn stock_movement_from_row(row: &Row) -> StockMovement {
+    StockMovement {
+        id: row.get(0),
+        product_id: row.get(1),
+        product_name: row.get(2),
+        barcode: row.get(3),
+        movement_type: row.get(4),
+        quantity: row.get(5),
+        before_quantity: row.get(6),
+        after_quantity: row.get(7),
+        unit_purchase_price: row.get(8),
+        note: row.get(9),
+        created_at: row.get(10),
     }
 }

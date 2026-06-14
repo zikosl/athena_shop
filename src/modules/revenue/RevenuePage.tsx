@@ -5,7 +5,7 @@ import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";
 import { CreditAccount, Expense, Language, Sale } from "../../shared/types";
 
-export function RevenuePage({ language }: { language: Language }) {
+export function RevenuePage({ language, onChanged }: { language: Language; onChanged?: () => void }) {
   const t = useText(language);
   const [sales, setSales] = useState<Sale[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -35,11 +35,13 @@ export function RevenuePage({ language }: { language: Language }) {
   async function handleSaleChanged(sale?: Sale) {
     await load();
     setSelectedSale(sale ?? null);
+    onChanged?.();
   }
 
   async function handleSaleDeleted() {
     await load();
     setSelectedSale(null);
+    onChanged?.();
   }
 
   const creditPaymentsBySale = useMemo(() => {
@@ -119,50 +121,52 @@ export function RevenuePage({ language }: { language: Language }) {
   }
 
   return (
-    <section className="panel table-panel full">
-      <div className="section-title"><h2>{t.revenue}</h2><span /></div>
-      <div className="summary-strip">
-        <article><span>{t.dailyRevenue}</span><strong>{money(totals.revenue)}</strong></article>
-        <article><span>{t.totalToCollect}</span><strong>{money(totals.remaining)}</strong></article>
-        <article><span>{t.paymentsToday}</span><strong>{money(totals.payments)}</strong></article>
-        <article><span>{t.dailyExpenses}</span><strong>{money(totals.expenses)}</strong></article>
-        <article><span>{t.dailyProfit}</span><strong>{money(totals.profit)}</strong></article>
-        <article><span>{t.salesCount}</span><strong>{totals.count}</strong></article>
-      </div>
-      {error && <p className="error">{error}</p>}
-      <div className="filter-row">
-        <div className="searchbar"><Search size={18} /><input placeholder={t.search} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
-        <select aria-label={t.type} value={saleType} onChange={(event) => setSaleType(event.target.value as "all" | "cash" | "credit")}>
-          <option value="all">{t.allTypes}</option>
-          <option value="cash">{t.cash}</option>
-          <option value="credit">{t.credit}</option>
-        </select>
-        <input className="filter-input" aria-label={t.fromDate} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
-        <input className="filter-input" aria-label={t.toDate} type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
-        <button className="ghost-button compact-button" type="button" onClick={filterToday}>{t.today}</button>
-      </div>
-      <div className="data-table">
-        <table>
-          <thead><tr><th>{t.ticket}</th><th>{t.date}</th><th>{t.type}</th><th>{t.collected}</th><th>{t.remaining}</th><th>{t.total}</th><th>{t.items}</th></tr></thead>
-          <tbody>
-            {filteredSales.map((sale) => (
-              <tr key={sale.id}>
-                <td>
-                  <button className="ticket-link" onClick={() => setSelectedSale(sale)}>
-                    <ReceiptText size={15} /> {sale.receipt_no}
-                  </button>
-                </td>
-                <td>{sale.created_at}</td>
-                <td><span className={`status-pill ${sale.sale_type === "credit" ? "warning" : "ok"}`}>{sale.sale_type === "credit" ? t.credit : t.cash}</span></td>
-                <td>{money(sale.paid_amount)}</td>
-                <td>{money(sale.remaining_amount)}</td>
-                <td>{money(sale.total)}</td>
-                <td>{sale.items.length}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <>
+      <section className="panel table-panel full">
+        <div className="section-title"><h2>{t.revenue}</h2><span /></div>
+        <div className="summary-strip">
+          <article><span>{t.dailyRevenue}</span><strong>{money(totals.revenue)}</strong></article>
+          <article><span>{t.totalToCollect}</span><strong>{money(totals.remaining)}</strong></article>
+          <article><span>{t.paymentsToday}</span><strong>{money(totals.payments)}</strong></article>
+          <article><span>{t.dailyExpenses}</span><strong>{money(totals.expenses)}</strong></article>
+          <article><span>{t.dailyProfit}</span><strong>{money(totals.profit)}</strong></article>
+          <article><span>{t.salesCount}</span><strong>{totals.count}</strong></article>
+        </div>
+        {error && <p className="error">{error}</p>}
+        <div className="filter-row">
+          <div className="searchbar"><Search size={18} /><input placeholder={t.search} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
+          <select aria-label={t.type} value={saleType} onChange={(event) => setSaleType(event.target.value as "all" | "cash" | "credit")}>
+            <option value="all">{t.allTypes}</option>
+            <option value="cash">{t.cash}</option>
+            <option value="credit">{t.credit}</option>
+          </select>
+          <input className="filter-input" aria-label={t.fromDate} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+          <input className="filter-input" aria-label={t.toDate} type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
+          <button className="ghost-button compact-button" type="button" onClick={filterToday}>{t.today}</button>
+        </div>
+        <div className="data-table">
+          <table>
+            <thead><tr><th>{t.ticket}</th><th>{t.date}</th><th>{t.type}</th><th>{t.collected}</th><th>{t.remaining}</th><th>{t.total}</th><th>{t.items}</th></tr></thead>
+            <tbody>
+              {filteredSales.map((sale) => (
+                <tr key={sale.id}>
+                  <td>
+                    <button className="ticket-link" onClick={() => setSelectedSale(sale)}>
+                      <ReceiptText size={15} /> {sale.receipt_no}
+                    </button>
+                  </td>
+                  <td>{sale.created_at}</td>
+                  <td><span className={`status-pill ${sale.sale_type === "credit" ? "warning" : "ok"}`}>{sale.sale_type === "credit" ? t.credit : t.cash}</span></td>
+                  <td>{money(sale.paid_amount)}</td>
+                  <td>{money(sale.remaining_amount)}</td>
+                  <td>{money(sale.total)}</td>
+                  <td>{sale.items.length}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
       {selectedSale && (
         <TicketDetails
           sale={selectedSale}
@@ -172,7 +176,7 @@ export function RevenuePage({ language }: { language: Language }) {
           onDeleted={handleSaleDeleted}
         />
       )}
-    </section>
+    </>
   );
 }
 
@@ -240,7 +244,7 @@ function TicketDetails({
 
   async function deleteTicket() {
     setError("");
-    if (!window.confirm("Supprimer ce bon ? Le stock sera restaure et la recette diminuera.")) return;
+    if (!window.confirm("هل تريد حذف هذه التذكرة؟ سيتم إرجاع الكمية إلى المخزون وإنقاص المداخيل.")) return;
     try {
       await api.deleteSale(sale.id);
       await onDeleted();
@@ -262,8 +266,8 @@ function TicketDetails({
               </>
             ) : (
               <>
-                <button className="ghost-button compact-button" type="button" onClick={() => setEditing(true)}><Edit3 size={16} /> Modifier</button>
-                <button className="ghost-button compact-button danger-action" type="button" onClick={() => void deleteTicket()}><Trash2 size={16} /> Supprimer</button>
+                <button className="ghost-button compact-button" type="button" onClick={() => setEditing(true)}><Edit3 size={16} /> تعديل</button>
+                <button className="ghost-button compact-button danger-action" type="button" onClick={() => void deleteTicket()}><Trash2 size={16} /> حذف</button>
                 <button className="ghost-button compact-button" type="button" onClick={onClose}>{t.close}</button>
               </>
             )}

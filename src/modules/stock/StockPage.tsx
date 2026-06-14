@@ -1,9 +1,9 @@
 import { FormEvent, MouseEvent, ReactNode, useEffect, useMemo, useState } from "react";
-import { Barcode, ClipboardList, Coins, Edit3, ImagePlus, Plus, RefreshCcw, Save, Search, Trash2, X } from "lucide-react";
+import { Barcode, ClipboardList, Coins, Edit3, History, ImagePlus, PackageMinus, PackagePlus, Plus, RefreshCcw, Save, Search, Trash2, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
-import { Language, Product, ProductInput, ProductStockFilter } from "../../shared/types";
+import { Language, Product, ProductInput, ProductStockFilter, StockMovement } from "../../shared/types";
 
 const emptyProduct: ProductInput = {
   name: "",
@@ -17,6 +17,7 @@ const emptyProduct: ProductInput = {
   sale_price: 0,
   image_data: ""
 };
+const maxProductImageSize = 5 * 1024 * 1024;
 
 function createBarcode() {
   return `AS${Date.now().toString().slice(-10)}${Math.floor(Math.random() * 90 + 10)}`;
@@ -25,6 +26,15 @@ function createBarcode() {
 function newProduct(): ProductInput {
   return { ...emptyProduct, barcode: createBarcode() };
 }
+
+type MovementForm = {
+  product: Product;
+  type: "entry" | "destock";
+  quantity: number;
+  purchase_price: number;
+  purchase_price_mode: "unit" | "total";
+  note: string;
+};
 
 export function StockPage({
   language,
@@ -45,6 +55,11 @@ export function StockPage({
   const [formOpen, setFormOpen] = useState(false);
   const [inventoryMode, setInventoryMode] = useState(false);
   const [inventoryCounts, setInventoryCounts] = useState<Record<number, number>>({});
+  const [movementForm, setMovementForm] = useState<MovementForm | null>(null);
+  const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
+  const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [allowNegativeStock, setAllowNegativeStock] = useState(true);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; product: Product } | null>(null);
   const [error, setError] = useState("");
 
@@ -60,6 +75,9 @@ export function StockPage({
 
   useEffect(() => {
     refreshCategories().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    api.appSettings()
+      .then((settings) => setAllowNegativeStock(settings.allow_negative_stock))
+      .catch(() => setAllowNegativeStock(true));
   }, []);
 
   useEffect(() => {
@@ -106,6 +124,31 @@ export function StockPage({
     setFormOpen(true);
   }
 
+  function openMovement(product: Product, type: "entry" | "destock") {
+    setError("");
+    setMovementForm({
+      product,
+      type,
+      quantity: 1,
+      purchase_price: type === "entry" ? product.purchase_price : 0,
+      purchase_price_mode: "unit",
+      note: type === "entry" ? "شراء مخزون" : "إخراج من المخزون"
+    });
+  }
+
+  async function openHistory(product: Product) {
+    setError("");
+    setHistoryProduct(product);
+    setHistoryLoading(true);
+    try {
+      setMovements(await api.stockMovements(product.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
@@ -121,10 +164,11 @@ export function StockPage({
     }
   }
 
-  async function remove(id: number) {
+  async function remove(product: Product) {
     setError("");
+    if (!window.confirm(`هل تريد حذف المنتج "${product.name}"؟ لا يمكن التراجع عن هذه العملية.`)) return;
     try {
-      await api.deleteProduct(id);
+      await api.deleteProduct(product.id);
       await load();
       await refreshCategories();
       onChanged();
@@ -164,6 +208,29 @@ export function StockPage({
     setContextMenu(null);
   }
 
+  async function submitMovement(event: FormEvent) {
+    event.preventDefault();
+    if (!movementForm) return;
+    setError("");
+    try {
+      const unitPurchasePrice = movementForm.type === "entry" && movementForm.purchase_price_mode === "total"
+        ? movementForm.purchase_price / Math.max(1, movementForm.quantity)
+        : movementForm.purchase_price;
+      await api.adjustProductStock({
+        product_id: movementForm.product.id,
+        movement_type: movementForm.type,
+        quantity: movementForm.quantity,
+        purchase_price: movementForm.type === "entry" ? unitPurchasePrice : 0,
+        note: movementForm.note
+      });
+      setMovementForm(null);
+      await load();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function chooseImage(file: File | undefined) {
     setError("");
     if (!file) return;
@@ -171,8 +238,8 @@ export function StockPage({
       setError("Veuillez choisir une image valide");
       return;
     }
-    if (file.size > 1_500_000) {
-      setError("Image trop grande. Maximum 1.5 MB");
+    if (file.size > maxProductImageSize) {
+      setError("Image trop grande. Maximum 5 MB");
       return;
     }
     const imageData = await readImage(file);
@@ -183,19 +250,25 @@ export function StockPage({
     setError("");
     try {
       const changed = products.filter((product) => (inventoryCounts[product.id] ?? product.quantity) !== product.quantity);
-      await Promise.all(changed.map((product) => api.saveProduct({
-        id: product.id,
-        name: product.name,
-        barcode: product.barcode,
-        category: product.category,
-        size: product.size,
-        color: product.color,
-        quantity: inventoryCounts[product.id] ?? product.quantity,
-        low_stock_threshold: product.low_stock_threshold,
-        purchase_price: product.purchase_price,
-        sale_price: product.sale_price,
-        image_data: product.image_data
-      })));
+      await Promise.all(changed.map((product) => {
+        const counted = inventoryCounts[product.id] ?? product.quantity;
+        const diff = counted - product.quantity;
+        return diff > 0
+          ? api.adjustProductStock({
+            product_id: product.id,
+            movement_type: "entry",
+            quantity: diff,
+            purchase_price: product.purchase_price,
+            note: "تصحيح الجرد"
+          })
+          : api.adjustProductStock({
+            product_id: product.id,
+            movement_type: "destock",
+            quantity: Math.abs(diff),
+            purchase_price: 0,
+            note: "تصحيح الجرد"
+          });
+      }));
       await api.saveNow();
       await load();
       setInventoryMode(false);
@@ -294,8 +367,11 @@ export function StockPage({
                   <td>{money(product.purchase_price * product.quantity)}</td>
                   <td>{money(product.sale_price * product.quantity)}</td>
                   <td className="row-actions">
+                    <button title="إدخال مخزون" onClick={() => openMovement(product, "entry")}><PackagePlus size={16} /></button>
+                    <button title="إخراج مخزون" onClick={() => openMovement(product, "destock")}><PackageMinus size={16} /></button>
+                    <button title="حركات المخزون" onClick={() => void openHistory(product)}><History size={16} /></button>
                     <button onClick={() => openEditProduct(product)} onContextMenu={(event) => openContextMenu(event, product)}><Edit3 size={16} /></button>
-                    <button onClick={() => remove(product.id)}><Trash2 size={16} /></button>
+                    <button className="danger-action" title="حذف المنتج" onClick={() => remove(product)}><Trash2 size={16} /></button>
                   </td>
                 </tr>
               ))}
@@ -339,7 +415,7 @@ export function StockPage({
               </div>
               <div className="image-actions">
                 <label className="ghost-button compact-button">
-                  <ImagePlus size={16} /> Image produit
+                  <ImagePlus size={16} /> صورة المنتج
                   <input type="file" accept="image/*" onChange={(event) => void chooseImage(event.target.files?.[0])} />
                 </label>
                 {form.image_data && (
@@ -362,8 +438,146 @@ export function StockPage({
           </form>
         </div>
       )}
+
+      {movementForm && (
+        <div className="modal-backdrop">
+          <form className="panel form-panel compact-form-modal stock-movement-modal" onSubmit={submitMovement}>
+            <div className="section-title">
+              <h2>
+                {movementForm.type === "entry" ? <PackagePlus size={18} /> : <PackageMinus size={18} />}
+                {movementForm.type === "entry" ? "إدخال مخزون" : "إخراج مخزون"}
+              </h2>
+              <span />
+              <button className="ghost-button compact-button" type="button" onClick={() => setMovementForm(null)}><X size={16} /> {t.close}</button>
+            </div>
+            <div className="movement-product-card">
+              <strong>{movementForm.product.name}</strong>
+              <span>{movementForm.product.barcode}</span>
+              <b>المتوفر الآن: {movementForm.product.quantity}</b>
+            </div>
+            <div className="form-grid one-column">
+              <Input
+                label="الكمية"
+                type="number"
+                value={movementForm.quantity}
+                onChange={(value) => setMovementForm({ ...movementForm, quantity: Math.max(0, Number(value)) })}
+              />
+              {movementForm.type === "entry" && (
+                <>
+                  <div className="segmented wide price-mode-tabs full-field">
+                    <button
+                      className={movementForm.purchase_price_mode === "unit" ? "active" : ""}
+                      type="button"
+                      onClick={() => setMovementForm({ ...movementForm, purchase_price_mode: "unit" })}
+                    >
+                      سعر القطعة
+                    </button>
+                    <button
+                      className={movementForm.purchase_price_mode === "total" ? "active" : ""}
+                      type="button"
+                      onClick={() => setMovementForm({ ...movementForm, purchase_price_mode: "total" })}
+                    >
+                      سعر الكمية كاملة
+                    </button>
+                  </div>
+                  <Input
+                    label={movementForm.purchase_price_mode === "unit" ? "سعر شراء القطعة" : "سعر شراء الكمية كاملة"}
+                    type="number"
+                    value={movementForm.purchase_price}
+                    onChange={(value) => setMovementForm({ ...movementForm, purchase_price: Math.max(0, Number(value)) })}
+                  />
+                </>
+              )}
+              <label className="full-field">
+                <span>ملاحظة</span>
+                <textarea value={movementForm.note} onChange={(event) => setMovementForm({ ...movementForm, note: event.target.value })} />
+              </label>
+            </div>
+            <div className="movement-preview">
+              <span>{movementForm.type === "entry" ? "بعد العملية / تكلفة القطعة" : "بعد العملية"}</span>
+              <strong>
+                {movementForm.type === "entry"
+                  ? `${movementForm.product.quantity + movementForm.quantity} · ${money(entryUnitPurchasePrice(movementForm))}`
+                  : Math.max(0, movementForm.product.quantity - movementForm.quantity)}
+              </strong>
+            </div>
+            {error && <p className="error">{error}</p>}
+            <div className="button-row">
+              <button className="gold-button" type="submit" disabled={movementForm.quantity <= 0 || (!allowNegativeStock && movementForm.type === "destock" && movementForm.quantity > movementForm.product.quantity)}>
+                <Save size={18} /> تأكيد العملية
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {historyProduct && (
+        <div className="modal-backdrop">
+          <section className="panel form-panel form-modal stock-history-modal">
+            <div className="section-title">
+              <h2><History size={18} /> حركات المخزون</h2>
+              <span />
+              <button className="ghost-button compact-button" type="button" onClick={() => setHistoryProduct(null)}><X size={16} /> {t.close}</button>
+            </div>
+            <div className="movement-product-card">
+              <strong>{historyProduct.name}</strong>
+              <span>{historyProduct.barcode}</span>
+              <b>المتوفر الآن: {historyProduct.quantity}</b>
+            </div>
+            {historyLoading ? (
+              <p className="helper-text">جاري تحميل الحركات...</p>
+            ) : movements.length ? (
+              <div className="data-table stock-history-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>التاريخ</th>
+                      <th>العملية</th>
+                      <th>الكمية</th>
+                      <th>قبل</th>
+                      <th>بعد</th>
+                      <th>سعر الشراء</th>
+                      <th>ملاحظة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movements.map((movement) => (
+                      <tr key={movement.id}>
+                        <td>{new Date(movement.created_at).toLocaleString("ar-DZ")}</td>
+                        <td><span className={`status-pill ${movement.quantity >= 0 ? "ok" : "warning"}`}>{movementLabel(movement.movement_type)}</span></td>
+                        <td>{movement.quantity > 0 ? `+${movement.quantity}` : movement.quantity}</td>
+                        <td>{movement.before_quantity}</td>
+                        <td>{movement.after_quantity}</td>
+                        <td>{money(movement.unit_purchase_price)}</td>
+                        <td>{movement.note || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="empty-state">لا توجد حركات مخزون لهذا المنتج بعد.</p>
+            )}
+          </section>
+        </div>
+      )}
     </>
   );
+}
+
+function movementLabel(type: StockMovement["movement_type"]) {
+  if (type === "entry") return "إدخال";
+  if (type === "destock") return "إخراج";
+  if (type === "initial") return "مخزون أولي";
+  return "تصحيح";
+}
+
+function entryUnitPurchasePrice(form: MovementForm) {
+  if (form.type !== "entry") return 0;
+  if (form.purchase_price_mode === "total") {
+    return form.quantity > 0 ? form.purchase_price / form.quantity : 0;
+  }
+  return form.purchase_price;
 }
 
 function Input({ label, value, onChange, type = "text", icon, list }: {

@@ -16,6 +16,13 @@ pub struct ProfileInput {
     pub password: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AppSettings {
+    pub allow_negative_stock: bool,
+    pub cash_register_auto_close_time: String,
+    pub max_discount_amount: f64,
+}
+
 #[derive(Debug, Serialize)]
 pub struct Product {
     pub id: i64,
@@ -46,6 +53,30 @@ pub struct ProductInput {
     pub purchase_price: f64,
     pub sale_price: f64,
     pub image_data: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StockMovementInput {
+    pub product_id: i64,
+    pub movement_type: String,
+    pub quantity: i64,
+    pub purchase_price: f64,
+    pub note: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StockMovement {
+    pub id: i64,
+    pub product_id: i64,
+    pub product_name: String,
+    pub barcode: String,
+    pub movement_type: String,
+    pub quantity: i64,
+    pub before_quantity: i64,
+    pub after_quantity: i64,
+    pub unit_purchase_price: f64,
+    pub note: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -322,12 +353,10 @@ pub struct CashShift {
 #[derive(Debug, Deserialize)]
 pub struct OpenShiftInput {
     pub opening_amount: f64,
-    pub auto_close_time: String,
     pub cashier: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CloseShiftInput {
     pub id: i64,
-    pub closing_amount: f64,
 }

@@ -1,4 +1,4 @@
-use chrono::{Local, NaiveTime};
+use chrono::{Local, NaiveTime, TimeZone};
 use postgres::{Client, Row};
 use tauri::State;
 
@@ -22,27 +22,40 @@ pub fn open_shift(db: State<Database>, input: OpenShiftInput) -> AppResult<CashS
     if input.cashier.trim().is_empty() {
         return Err(AppError::Message("Caissier obligatoire".into()));
     }
-    let close_time = NaiveTime::parse_from_str(input.auto_close_time.trim(), "%H:%M")
-        .map_err(|_| AppError::Message("Heure fermeture invalide".into()))?;
-
     db.with_client(|client| {
         auto_close_due_shift(client)?;
         if current_shift_for_client(client)?.is_some() {
             return Err(AppError::Message("Une caisse est deja ouverte".into()));
         }
+        let auto_close_time = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'cash_register_auto_close_time'",
+                &[],
+            )?
+            .map(|row| row.get::<_, String>(0))
+            .unwrap_or_else(|| "23:59".into());
+        let close_time = NaiveTime::parse_from_str(auto_close_time.trim(), "%H:%M")
+            .map_err(|_| AppError::Message("Heure fermeture invalide".into()))?;
 
         let now = Local::now();
         let today_close = now.date_naive().and_time(close_time);
-        let close_at = if today_close <= now.naive_local() {
+        let close_at_naive = if today_close <= now.naive_local() {
             today_close + chrono::Duration::days(1)
         } else {
             today_close
         };
+        let close_at = Local
+            .from_local_datetime(&close_at_naive)
+            .single()
+            .ok_or_else(|| AppError::Message("Heure fermeture invalide".into()))?
+            .to_rfc3339();
+        let opening_amount = input.opening_amount;
+        let cashier = input.cashier.trim().to_string();
         let row = client.query_one(
             "INSERT INTO cash_shifts (opening_amount, auto_close_at, cashier)
-             VALUES ($1, $2, $3)
+             VALUES ($1::float8, $2::text::timestamptz, $3::text)
              RETURNING id",
-            &[&input.opening_amount, &close_at, &input.cashier.trim()],
+            &[&opening_amount, &close_at, &cashier],
         )?;
         get_shift(client, row.get(0))
     })
@@ -50,15 +63,13 @@ pub fn open_shift(db: State<Database>, input: OpenShiftInput) -> AppResult<CashS
 
 #[tauri::command]
 pub fn close_shift(db: State<Database>, input: CloseShiftInput) -> AppResult<CashShift> {
-    if input.closing_amount < 0.0 {
-        return Err(AppError::Message("Montant fermeture invalide".into()));
-    }
     db.with_client(|client| {
+        let expected = get_shift(client, input.id)?.expected_amount;
         client.execute(
             "UPDATE cash_shifts
              SET status = 'closed', closed_at = COALESCE(closed_at, NOW()), closing_amount = $1
              WHERE id = $2 AND status = 'open'",
-            &[&input.closing_amount, &input.id],
+            &[&expected, &input.id],
         )?;
         get_shift(client, input.id)
     })
