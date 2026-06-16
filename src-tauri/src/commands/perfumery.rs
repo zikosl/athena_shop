@@ -19,7 +19,9 @@ pub fn list_flacons(db: State<Database>) -> AppResult<Vec<Flacon>> {
 #[tauri::command]
 pub fn save_flacon(db: State<Database>, input: FlaconInput) -> AppResult<Flacon> {
     if input.name.trim().is_empty() || input.volume_ml <= 0.0 {
-        return Err(AppError::Message("Nom et volume du flacon obligatoires".into()));
+        return Err(AppError::Message(
+            "Nom et volume du flacon obligatoires".into(),
+        ));
     }
     db.with_client(|client| {
         let id: i64 = if let Some(id) = input.id {
@@ -69,7 +71,9 @@ pub fn save_perfume(db: State<Database>, input: PerfumeInput) -> AppResult<Perfu
         return Err(AppError::Message("Nom du parfum obligatoire".into()));
     }
     if input.added_volume_ml < 0.0 || input.total_purchase_price < 0.0 || input.low_stock_ml < 0.0 {
-        return Err(AppError::Message("Volumes et prix doivent etre positifs".into()));
+        return Err(AppError::Message(
+            "Volumes et prix doivent etre positifs".into(),
+        ));
     }
 
     db.with_client(|client| {

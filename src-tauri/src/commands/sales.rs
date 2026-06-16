@@ -69,7 +69,19 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
     }
 
     db.with_client(|client| {
-        let shift_id = super::shifts::require_open_shift(client)?;
+        let requested_type = input.sale_type.trim();
+        let sale_type = if requested_type == "credit" {
+            "credit"
+        } else if requested_type == "delivery" {
+            "delivery"
+        } else {
+            "cash"
+        };
+        let shift_id = if sale_type == "delivery" {
+            None
+        } else {
+            Some(super::shifts::require_open_shift(client)?)
+        };
         let mut tx = client.transaction()?;
         let max_discount_amount = max_discount_amount(&mut tx)?;
         if input.discount > max_discount_amount {
@@ -137,16 +149,23 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
 
         let total = (subtotal - input.discount).max(0.0);
         let profit = (gross_profit - input.discount).max(0.0);
-        let sale_type = if input.sale_type.trim() == "credit" { "credit" } else { "cash" };
-        if sale_type == "credit" && input.customer_name.trim().is_empty() {
-            return Err(AppError::Message("Nom client obligatoire pour un credit".into()));
+        if (sale_type == "credit" || sale_type == "delivery") && input.customer_name.trim().is_empty() {
+            return Err(AppError::Message("Nom client obligatoire".into()));
         }
-        if input.paid_amount > total {
+        if sale_type != "delivery" && input.paid_amount > total {
             return Err(AppError::Message("Le montant paye depasse le total".into()));
         }
-        let paid_amount = if sale_type == "cash" { total } else { input.paid_amount };
+        let paid_amount = if sale_type == "cash" {
+            total
+        } else if sale_type == "delivery" {
+            0.0
+        } else {
+            input.paid_amount
+        };
         let remaining_amount = (total - paid_amount).max(0.0);
-        let credit_status = if remaining_amount <= 0.0 {
+        let credit_status = if sale_type == "delivery" {
+            "delivery_pending"
+        } else if remaining_amount <= 0.0 {
             "paid"
         } else if paid_amount > 0.0 {
             "partial"
@@ -283,6 +302,103 @@ pub fn list_sales(db: State<Database>) -> AppResult<Vec<Sale>> {
 }
 
 #[tauri::command]
+pub fn list_delivery_sales(db: State<Database>) -> AppResult<Vec<Sale>> {
+    db.with_client(|client| {
+        let rows = client.query(
+            "SELECT id, receipt_no, subtotal, discount, total, profit, payment_method,
+                    sale_type, customer_name, customer_phone, paid_amount, remaining_amount,
+                    due_date, credit_note, credit_status, cashier, created_at::text
+             FROM sales WHERE sale_type = 'delivery' ORDER BY id DESC LIMIT 200",
+            &[],
+        )?;
+
+        let mut with_items = Vec::new();
+        for row in rows {
+            let mut sale = sale_from_row(&row);
+            sale.items = list_sale_items(client, sale.id)?;
+            with_items.push(sale);
+        }
+        Ok(with_items)
+    })
+}
+
+#[tauri::command]
+pub fn collect_delivery(db: State<Database>, id: i64) -> AppResult<Sale> {
+    db.with_client(|client| {
+        let shift_id = super::shifts::require_open_shift(client)?;
+        let mut tx = client.transaction()?;
+        let row = tx.query_one(
+            "SELECT sale_type, credit_status, total FROM sales WHERE id = $1",
+            &[&id],
+        )?;
+        let sale_type: String = row.get(0);
+        let status: String = row.get(1);
+        let total: f64 = row.get(2);
+        if sale_type != "delivery" {
+            return Err(AppError::Message("Bon livraison introuvable".into()));
+        }
+        if status != "delivery_pending" {
+            return Err(AppError::Message("Cette livraison est deja traitee".into()));
+        }
+        tx.execute(
+            "UPDATE sales
+             SET shift_id = $1, paid_amount = total, remaining_amount = 0,
+                 credit_status = 'delivery_paid', created_at = NOW()
+             WHERE id = $2",
+            &[&shift_id, &id],
+        )?;
+        refresh_closed_shift_closing_amount(&mut tx, Some(shift_id))?;
+        tx.commit()?;
+        let sale = load_sale(client, id)?;
+        if (sale.total - total).abs() > f64::EPSILON {
+            return Err(AppError::Message("Erreur de total livraison".into()));
+        }
+        Ok(sale)
+    })
+}
+
+#[tauri::command]
+pub fn return_delivery(db: State<Database>, id: i64) -> AppResult<Sale> {
+    db.with_client(|client| {
+        let mut tx = client.transaction()?;
+        let row = tx.query_one(
+            "SELECT sale_type, credit_status FROM sales WHERE id = $1",
+            &[&id],
+        )?;
+        let sale_type: String = row.get(0);
+        let status: String = row.get(1);
+        if sale_type != "delivery" {
+            return Err(AppError::Message("Bon livraison introuvable".into()));
+        }
+        if status != "delivery_pending" {
+            return Err(AppError::Message("Cette livraison est deja traitee".into()));
+        }
+
+        for item in stored_sale_items(&mut tx, id)? {
+            tx.execute(
+                "UPDATE products SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2",
+                &[&item.quantity, &item.product_id],
+            )?;
+        }
+        for item in stored_perfume_sale_items(&mut tx, id)? {
+            let returned_volume = item.volume_ml * item.quantity as f64;
+            tx.execute(
+                "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml + $1, updated_at = NOW() WHERE id = $2",
+                &[&returned_volume, &item.perfume_id],
+            )?;
+        }
+        tx.execute(
+            "UPDATE sales
+             SET paid_amount = 0, remaining_amount = 0, credit_status = 'delivery_returned'
+             WHERE id = $1",
+            &[&id],
+        )?;
+        tx.commit()?;
+        load_sale(client, id)
+    })
+}
+
+#[tauri::command]
 pub fn update_sale(db: State<Database>, input: SaleUpdateInput) -> AppResult<Sale> {
     db.with_client(|client| {
         let mut tx = client.transaction()?;
@@ -310,7 +426,9 @@ pub fn return_sale_item(db: State<Database>, input: SaleReturnInput) -> AppResul
             let quantity = if item.product_id == input.product_id {
                 found = true;
                 if input.quantity > item.quantity {
-                    return Err(AppError::Message("Retour superieur a la quantite vendue".into()));
+                    return Err(AppError::Message(
+                        "Retour superieur a la quantite vendue".into(),
+                    ));
                 }
                 item.quantity - input.quantity
             } else {
@@ -435,7 +553,9 @@ fn replace_sale_items(
     input_items: Vec<crate::models::SaleItemUpdateInput>,
 ) -> AppResult<()> {
     if input_items.is_empty() || input_items.iter().all(|item| item.quantity <= 0) {
-        return Err(AppError::Message("Le bon doit garder au moins un article".into()));
+        return Err(AppError::Message(
+            "Le bon doit garder au moins un article".into(),
+        ));
     }
 
     let sale_row = tx.query_one(
@@ -521,7 +641,13 @@ fn replace_sale_items(
         )?;
     }
 
-    let totals = calculate_sale_totals(subtotal, gross_profit, old_discount, &sale_type, old_paid_amount);
+    let totals = calculate_sale_totals(
+        subtotal,
+        gross_profit,
+        old_discount,
+        &sale_type,
+        old_paid_amount,
+    );
     tx.execute(
         "UPDATE sales
          SET subtotal = $1, discount = $2, total = $3, profit = $4,
@@ -659,10 +785,11 @@ fn refresh_closed_shift_closing_amount(
          ),
          sales_totals AS (
            SELECT shift_id,
-                  COALESCE(SUM(CASE WHEN sale_type = 'cash' THEN total ELSE GREATEST(paid_amount - COALESCE(spt.amount, 0), 0) END), 0)::float8 AS amount
+                  COALESCE(SUM(CASE WHEN sale_type IN ('cash', 'delivery') THEN total ELSE GREATEST(paid_amount - COALESCE(spt.amount, 0), 0) END), 0)::float8 AS amount
            FROM sales s
            LEFT JOIN sale_payment_totals spt ON spt.sale_id = s.id
            WHERE s.shift_id = $1
+             AND (s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid')
            GROUP BY shift_id
          ),
          payment_totals AS (

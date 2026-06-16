@@ -1,5 +1,5 @@
 export type Language = "fr" | "ar";
-export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "revenue" | "reports" | "expenses" | "credits" | "zakat" | "settings";
+export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "delivery" | "revenue" | "reports" | "expenses" | "credits" | "suppliers" | "zakat" | "settings";
 
 export interface UserSession {
   id: number;
@@ -27,6 +27,12 @@ export interface AppSettings {
   allow_negative_stock: boolean;
   cash_register_auto_close_time: string;
   max_discount_amount: number;
+  invoice_printer: string;
+  barcode_printer: string;
+  ui_font_scale: "small" | "normal" | "large";
+  ui_density: "compact" | "comfortable" | "spacious";
+  pos_layout: "auto" | "side" | "bottom";
+  pos_cart_width: number;
 }
 
 export interface Product {
@@ -83,6 +89,90 @@ export interface StockMovement {
   created_at: string;
 }
 
+export interface Supplier {
+  id: number;
+  name: string;
+  phone: string;
+  address: string;
+  note: string;
+  active: boolean;
+  total_purchases: number;
+  total_paid: number;
+  remaining_amount: number;
+  last_purchase_at: string;
+  created_at: string;
+}
+
+export interface SupplierInput {
+  id?: number;
+  name: string;
+  phone: string;
+  address: string;
+  note: string;
+  active: boolean;
+}
+
+export interface PurchaseOrderItem {
+  id: number;
+  product_id: number;
+  product_name: string;
+  barcode: string;
+  quantity: number;
+  unit_purchase_price: number;
+  line_total: number;
+}
+
+export interface PurchaseOrderItemInput {
+  product_id: number;
+  quantity: number;
+  unit_purchase_price: number;
+}
+
+export interface SupplierPayment {
+  id: number;
+  supplier_id: number;
+  supplier_name: string;
+  purchase_order_id: number;
+  bon_no: string;
+  shift_id?: number;
+  amount: number;
+  note: string;
+  cashier: string;
+  paid_at: string;
+}
+
+export interface SupplierPaymentInput {
+  purchase_order_id: number;
+  amount: number;
+  note: string;
+  cashier: string;
+}
+
+export interface PurchaseOrder {
+  id: number;
+  bon_no: string;
+  supplier_id: number;
+  supplier_name: string;
+  subtotal: number;
+  paid_amount: number;
+  remaining_amount: number;
+  status: "draft" | "confirmed" | "paid";
+  note: string;
+  cashier: string;
+  created_at: string;
+  confirmed_at: string;
+  items: PurchaseOrderItem[];
+  payments: SupplierPayment[];
+}
+
+export interface PurchaseOrderInput {
+  id?: number;
+  supplier_id: number;
+  note: string;
+  cashier: string;
+  items: PurchaseOrderItemInput[];
+}
+
 export type ProductStockFilter = "all" | "available" | "low" | "out";
 
 export interface ProductFilters {
@@ -127,6 +217,9 @@ export interface DashboardStats {
   credit_remaining_total: number;
   credit_payments_today: number;
   credit_payments_yesterday: number;
+  delivery_pending_count: number;
+  delivery_pending_total: number;
+  delivery_collected_today: number;
 }
 
 export type ReportPeriod = "daily" | "weekly" | "monthly";
@@ -148,6 +241,12 @@ export interface ReportSummary {
   average_ticket: number;
   credit_collected: number;
   credit_remaining: number;
+  delivery_pending_total: number;
+  delivery_pending_count: number;
+  delivery_collected: number;
+  supplier_purchases: number;
+  supplier_payments: number;
+  supplier_remaining: number;
   stock_purchase_value: number;
   stock_sale_value: number;
 }
@@ -247,7 +346,7 @@ export interface CheckoutInput {
   items: Array<{ product_id: number; quantity: number }>;
   perfume_items: Array<{ perfume_id: number; flacon_id: number; quantity: number }>;
   discount: number;
-  sale_type: "cash" | "credit";
+  sale_type: "cash" | "credit" | "delivery";
   paid_amount: number;
   customer_name: string;
   customer_phone: string;
@@ -290,14 +389,14 @@ export interface Sale {
   total: number;
   profit: number;
   payment_method: string;
-  sale_type: "cash" | "credit";
+  sale_type: "cash" | "credit" | "delivery";
   customer_name: string;
   customer_phone: string;
   paid_amount: number;
   remaining_amount: number;
   due_date: string;
   credit_note: string;
-  credit_status: "open" | "partial" | "paid";
+  credit_status: "open" | "partial" | "paid" | "delivery_pending" | "delivery_paid" | "delivery_returned";
   cashier: string;
   created_at: string;
   items: SaleItem[];
@@ -336,6 +435,7 @@ export interface CashShift {
   cash_sales: number;
   credit_payments: number;
   expenses: number;
+  supplier_payments: number;
   status: "open" | "closed";
   cashier: string;
 }

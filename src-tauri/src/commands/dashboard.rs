@@ -11,6 +11,7 @@ struct DayStats {
     sale_profit: f64,
     credit_payments: f64,
     credit_payment_profit: f64,
+    delivery_collected: f64,
     expenses: f64,
 }
 
@@ -34,6 +35,13 @@ pub fn get_dashboard(db: State<Database>) -> AppResult<DashboardStats> {
         )?;
         let open_credit_count: i64 = row.get(0);
         let credit_remaining_total: f64 = row.get(1);
+        let row = client.query_one(
+            "SELECT COUNT(*)::bigint, COALESCE(SUM(total), 0)::float8
+             FROM sales WHERE sale_type = 'delivery' AND credit_status = 'delivery_pending'",
+            &[],
+        )?;
+        let delivery_pending_count: i64 = row.get(0);
+        let delivery_pending_total: f64 = row.get(1);
 
         Ok(DashboardStats {
             sales_today: today.cash_in,
@@ -45,12 +53,16 @@ pub fn get_dashboard(db: State<Database>) -> AppResult<DashboardStats> {
             sales_count_yesterday: yesterday.sales_count,
             revenue_yesterday: yesterday.cash_in,
             expenses_yesterday: yesterday.expenses,
-            profit_yesterday: yesterday.sale_profit + yesterday.credit_payment_profit - yesterday.expenses,
+            profit_yesterday: yesterday.sale_profit + yesterday.credit_payment_profit
+                - yesterday.expenses,
             low_stock_count,
             open_credit_count,
             credit_remaining_total,
             credit_payments_today: today.credit_payments,
             credit_payments_yesterday: yesterday.credit_payments,
+            delivery_pending_count,
+            delivery_pending_total,
+            delivery_collected_today: today.delivery_collected,
         })
     })
 }
@@ -65,7 +77,7 @@ fn day_stats(client: &mut postgres::Client, day_sql: &str) -> AppResult<DayStats
          SELECT
            COALESCE(SUM(
              CASE
-               WHEN s.sale_type = 'cash' THEN s.total
+               WHEN s.sale_type IN ('cash', 'delivery') THEN s.total
                ELSE GREATEST(s.paid_amount - COALESCE(p.amount, 0), 0)
              END
            ), 0)::float8,
@@ -73,13 +85,14 @@ fn day_stats(client: &mut postgres::Client, day_sql: &str) -> AppResult<DayStats
            COALESCE(SUM(
              CASE
                WHEN s.total <= 0 THEN 0
-               WHEN s.sale_type = 'cash' THEN s.profit
+               WHEN s.sale_type IN ('cash', 'delivery') THEN s.profit
                ELSE s.profit * GREATEST(s.paid_amount - COALESCE(p.amount, 0), 0) / s.total
              END
            ), 0)::float8
          FROM sales s
          LEFT JOIN payment_totals p ON p.sale_id = s.id
-         WHERE s.created_at::date = {day_sql}"
+         WHERE s.created_at::date = {day_sql}
+           AND (s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid')"
     );
     let row = client.query_one(&sales_query, &[])?;
     let cash_in: f64 = row.get(0);
@@ -102,6 +115,14 @@ fn day_stats(client: &mut postgres::Client, day_sql: &str) -> AppResult<DayStats
     let row = client.query_one(&payments_query, &[])?;
     let credit_payments: f64 = row.get(0);
     let credit_payment_profit: f64 = row.get(1);
+    let delivery_query = format!(
+        "SELECT COALESCE(SUM(total), 0)::float8
+         FROM sales
+         WHERE sale_type = 'delivery'
+           AND credit_status = 'delivery_paid'
+           AND created_at::date = {day_sql}"
+    );
+    let delivery_collected: f64 = client.query_one(&delivery_query, &[])?.get(0);
 
     let expenses_query = format!(
         "SELECT COALESCE(SUM(amount), 0)::float8
@@ -115,6 +136,7 @@ fn day_stats(client: &mut postgres::Client, day_sql: &str) -> AppResult<DayStats
         sale_profit,
         credit_payments,
         credit_payment_profit,
+        delivery_collected,
         expenses,
     })
 }

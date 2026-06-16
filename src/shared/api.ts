@@ -18,6 +18,12 @@ import {
   Product,
   ProductFilters,
   ProductInput,
+  PurchaseOrder,
+  PurchaseOrderInput,
+  Supplier,
+  SupplierInput,
+  SupplierPayment,
+  SupplierPaymentInput,
   StockMovement,
   StockMovementInput,
   OpenShiftInput,
@@ -32,6 +38,20 @@ import { todayInputValue } from "./format";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 
+function defaultSettings(): AppSettings {
+  return {
+    allow_negative_stock: true,
+    cash_register_auto_close_time: "23:59",
+    max_discount_amount: 200,
+    invoice_printer: "",
+    barcode_printer: "",
+    ui_font_scale: "normal",
+    ui_density: "comfortable",
+    pos_layout: "auto",
+    pos_cart_width: 320
+  };
+}
+
 type Db = {
   products: Product[];
   expenses: Expense[];
@@ -41,6 +61,9 @@ type Db = {
   perfumes: Perfume[];
   shifts: CashShift[];
   stockMovements: StockMovement[];
+  suppliers: Supplier[];
+  purchaseOrders: PurchaseOrder[];
+  supplierPayments: SupplierPayment[];
   settings: AppSettings;
 };
 
@@ -62,7 +85,10 @@ const seed: Db = {
   perfumes: [],
   shifts: [],
   stockMovements: [],
-  settings: { allow_negative_stock: true, cash_register_auto_close_time: "23:59", max_discount_amount: 200 }
+  suppliers: [],
+  purchaseOrders: [],
+  supplierPayments: [],
+  settings: defaultSettings()
 };
 
 function sampleProduct(
@@ -111,10 +137,19 @@ function readDb(): Db {
     perfumes: parsed.perfumes ?? [],
     shifts: parsed.shifts ?? [],
     stockMovements: parsed.stockMovements ?? [],
+    suppliers: parsed.suppliers ?? [],
+    purchaseOrders: parsed.purchaseOrders ?? [],
+    supplierPayments: parsed.supplierPayments ?? [],
     settings: {
       allow_negative_stock: parsed.settings?.allow_negative_stock ?? true,
       cash_register_auto_close_time: parsed.settings?.cash_register_auto_close_time ?? "23:59",
-      max_discount_amount: parsed.settings?.max_discount_amount ?? 200
+      max_discount_amount: parsed.settings?.max_discount_amount ?? 200,
+      invoice_printer: parsed.settings?.invoice_printer ?? "",
+      barcode_printer: parsed.settings?.barcode_printer ?? "",
+      ui_font_scale: parsed.settings?.ui_font_scale ?? "normal",
+      ui_density: parsed.settings?.ui_density ?? "comfortable",
+      pos_layout: parsed.settings?.pos_layout ?? "auto",
+      pos_cart_width: parsed.settings?.pos_cart_width ?? 320
     }
   };
 }
@@ -129,7 +164,7 @@ function normalizeProduct(product: Product): Product {
 function normalizeSale(sale: Sale): Sale {
   return {
     ...sale,
-    payment_method: "Espèces",
+    payment_method: "نقدا",
     sale_type: sale.sale_type ?? "cash",
     customer_name: sale.customer_name ?? "",
     customer_phone: sale.customer_phone ?? "",
@@ -155,7 +190,10 @@ function makeEmptyDb(): Db {
     perfumes: [],
     shifts: [],
     stockMovements: [],
-    settings: { allow_negative_stock: true, cash_register_auto_close_time: "23:59", max_discount_amount: 200 }
+    suppliers: [],
+    purchaseOrders: [],
+    supplierPayments: [],
+    settings: defaultSettings()
   };
 }
 
@@ -167,56 +205,59 @@ function makeDummyDb(): Db {
     return next.toISOString();
   };
   const products = [
-    sampleProduct(1, "Pyjama satin noir", "AS-DEMO-001", "Products", "M", "Noir", 18, 4, 1800, 3400),
-    sampleProduct(2, "Ensemble coton creme", "AS-DEMO-002", "Products", "L", "Creme", 22, 5, 1400, 2800),
-    sampleProduct(3, "Robe maison fleurie", "AS-DEMO-003", "Products", "M", "Rose", 8, 3, 2100, 4300),
-    sampleProduct(4, "Pantoufles soft", "AS-DEMO-004", "Accessoires", "38", "Beige", 5, 4, 700, 1600),
-    sampleProduct(5, "Sac cadeau boutique", "AS-DEMO-005", "Accessoires", "Standard", "Or", 35, 8, 120, 350),
-    sampleProduct(6, "Kimono premium", "AS-DEMO-006", "Products", "XL", "Olive", 3, 4, 3200, 6500),
-    sampleProduct(7, "Musc blanc 12ml", "AS-DEMO-007", "Perfumerie", "12ml", "Blanc", 16, 5, 650, 1500),
-    sampleProduct(8, "Parfum oud 30ml", "AS-DEMO-008", "Perfumerie", "30ml", "Ambre", 9, 3, 1900, 4200)
+    sampleProduct(1, "بيجامة ساتان سوداء", "AS-DEMO-001", "Products", "M", "أسود", 18, 4, 1800, 3400),
+    sampleProduct(2, "طقم قطن كريمي", "AS-DEMO-002", "Products", "L", "كريمي", 22, 5, 1400, 2800),
+    sampleProduct(3, "فستان منزلي مزهر", "AS-DEMO-003", "Products", "M", "وردي", 8, 3, 2100, 4300),
+    sampleProduct(4, "نعال ناعمة", "AS-DEMO-004", "إكسسوارات", "38", "بيج", 5, 4, 700, 1600),
+    sampleProduct(5, "كيس هدية", "AS-DEMO-005", "إكسسوارات", "عادي", "ذهبي", 35, 8, 120, 350),
+    sampleProduct(6, "كيمونو فاخر", "AS-DEMO-006", "Products", "XL", "زيتوني", 3, 4, 3200, 6500),
+    sampleProduct(7, "مسك أبيض 12مل", "AS-DEMO-007", "Perfumerie", "12ml", "أبيض", 16, 5, 650, 1500),
+    sampleProduct(8, "عطر عود 30مل", "AS-DEMO-008", "Perfumerie", "30ml", "عنبر", 9, 3, 1900, 4200)
   ];
   const sales: Sale[] = [
     demoSale(1, "AS-DEMO-0001", date(6), "cash", 6200, 0, 6200, 3200, 6200, 0, "", "", "paid", [
-      demoItem(1, "Pyjama satin noir", "AS-DEMO-001", 1, 3400),
-      demoItem(2, "Ensemble coton creme", "AS-DEMO-002", 1, 2800)
+      demoItem(1, "بيجامة ساتان سوداء", "AS-DEMO-001", 1, 3400),
+      demoItem(2, "طقم قطن كريمي", "AS-DEMO-002", 1, 2800)
     ]),
     demoSale(2, "AS-DEMO-0002", date(4), "credit", 8600, 200, 8400, 4200, 6000, 2400, "Samira", "0555000001", "partial", [
-      demoItem(3, "Robe maison fleurie", "AS-DEMO-003", 2, 4300)
+      demoItem(3, "فستان منزلي مزهر", "AS-DEMO-003", 2, 4300)
     ]),
     demoSale(3, "AS-DEMO-0003", date(1), "cash", 6150, 0, 6150, 2780, 6150, 0, "", "", "paid", [
-      demoItem(7, "Musc blanc 12ml", "AS-DEMO-007", 3, 1500),
-      demoItem(4, "Pantoufles soft", "AS-DEMO-004", 1, 1600),
-      demoItem(5, "Sac cadeau boutique", "AS-DEMO-005", 1, 50)
+      demoItem(7, "مسك أبيض 12مل", "AS-DEMO-007", 3, 1500),
+      demoItem(4, "نعال ناعمة", "AS-DEMO-004", 1, 1600),
+      demoItem(5, "كيس هدية", "AS-DEMO-005", 1, 50)
     ]),
     demoSale(4, "AS-DEMO-0004", date(0), "credit", 10800, 0, 10800, 5200, 4000, 6800, "Nadia", "0555000002", "partial", [
-      demoItem(6, "Kimono premium", "AS-DEMO-006", 1, 6500),
-      demoItem(8, "Parfum oud 30ml", "AS-DEMO-008", 1, 4200),
-      demoItem(5, "Sac cadeau boutique", "AS-DEMO-005", 1, 100)
+      demoItem(6, "كيمونو فاخر", "AS-DEMO-006", 1, 6500),
+      demoItem(8, "عطر عود 30مل", "AS-DEMO-008", 1, 4200),
+      demoItem(5, "كيس هدية", "AS-DEMO-005", 1, 100)
     ]),
     demoSale(5, "AS-DEMO-0005", date(0), "cash", 3150, 0, 3150, 1730, 3150, 0, "", "", "paid", [
-      demoItem(2, "Ensemble coton creme", "AS-DEMO-002", 1, 2800),
-      demoItem(5, "Sac cadeau boutique", "AS-DEMO-005", 1, 350)
+      demoItem(2, "طقم قطن كريمي", "AS-DEMO-002", 1, 2800),
+      demoItem(5, "كيس هدية", "AS-DEMO-005", 1, 350)
     ])
   ];
   return {
     products,
     expenses: [
-      { id: 1, label: "Loyer boutique", category: "Fixe", amount: 18000, note: "Dummy data", expense_date: date(2).slice(0, 10), created_at: date(2) },
-      { id: 2, label: "Publicite Instagram", category: "Marketing", amount: 4200, note: "Campagne test", expense_date: date(1).slice(0, 10), created_at: date(1) },
-      { id: 3, label: "Sachets et emballage", category: "Fournitures", amount: 2300, note: "Stock emballage", expense_date: date(0).slice(0, 10), created_at: date(0) },
-      { id: 4, label: "Livraison fournisseur", category: "Transport", amount: 3100, note: "Reception marchandise", expense_date: date(12).slice(0, 10), created_at: date(12) },
-      { id: 5, label: "Nettoyage boutique", category: "Service", amount: 1200, note: "Entretien", expense_date: date(20).slice(0, 10), created_at: date(20) }
+      { id: 1, label: "كراء المحل", category: "ثابت", amount: 18000, note: "بيانات تجريبية", expense_date: date(2).slice(0, 10), created_at: date(2) },
+      { id: 2, label: "إعلانات إنستغرام", category: "تسويق", amount: 4200, note: "حملة تجريبية", expense_date: date(1).slice(0, 10), created_at: date(1) },
+      { id: 3, label: "أكياس وتغليف", category: "لوازم", amount: 2300, note: "مخزون التغليف", expense_date: date(0).slice(0, 10), created_at: date(0) },
+      { id: 4, label: "توصيل المورد", category: "نقل", amount: 3100, note: "استلام البضاعة", expense_date: date(12).slice(0, 10), created_at: date(12) },
+      { id: 5, label: "تنظيف المحل", category: "خدمة", amount: 1200, note: "صيانة", expense_date: date(20).slice(0, 10), created_at: date(20) }
     ],
     sales,
     creditPayments: [
-      { id: 1, sale_id: 2, amount: 3000, note: "Versement dummy", cashier: "Administrateur", paid_at: date(2) }
+      { id: 1, sale_id: 2, amount: 3000, note: "دفعة تجريبية", cashier: "المدير", paid_at: date(2) }
     ],
     flacons: seed.flacons,
     perfumes: [],
     shifts: [],
     stockMovements: [],
-    settings: { allow_negative_stock: true, cash_register_auto_close_time: "23:59", max_discount_amount: 200 }
+    suppliers: [],
+    purchaseOrders: [],
+    supplierPayments: [],
+    settings: defaultSettings()
   };
 }
 
@@ -254,16 +295,16 @@ function demoSale(
     discount,
     total,
     profit,
-    payment_method: "Especes",
+    payment_method: "نقدا",
     sale_type: saleType,
     customer_name: customerName,
     customer_phone: customerPhone,
     paid_amount: paidAmount,
     remaining_amount: remainingAmount,
     due_date: "",
-    credit_note: "Dummy data",
+    credit_note: "بيانات تجريبية",
     credit_status: creditStatus,
-    cashier: "Administrateur",
+    cashier: "المدير",
     created_at: createdAt,
     items
   };
@@ -283,7 +324,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       return {
         id: 1,
         username: "admin",
-        display_name: "Administrateur",
+        display_name: "المدير",
         role: "Super Admin"
       } as T;
     }
@@ -317,10 +358,20 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     db.settings = {
       allow_negative_stock: Boolean(input.allow_negative_stock),
       cash_register_auto_close_time: input.cash_register_auto_close_time || "23:59",
-      max_discount_amount: Math.max(0, Number(input.max_discount_amount || 0))
+      max_discount_amount: Math.max(0, Number(input.max_discount_amount || 0)),
+      invoice_printer: input.invoice_printer ?? "",
+      barcode_printer: input.barcode_printer ?? "",
+      ui_font_scale: input.ui_font_scale ?? "normal",
+      ui_density: input.ui_density ?? "comfortable",
+      pos_layout: input.pos_layout ?? "auto",
+      pos_cart_width: Math.min(420, Math.max(280, Number(input.pos_cart_width || 320)))
     };
     writeDb(db);
     return db.settings as T;
+  }
+
+  if (command === "list_printers") {
+    return ["Imprimante ticket POS", "Imprimante codes-barres"] as T;
   }
 
   if (command === "list_flacons") return db.flacons as T;
@@ -419,6 +470,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       cash_sales: 0,
       credit_payments: 0,
       expenses: 0,
+      supplier_payments: 0,
       status: "open",
       cashier: input.cashier
     });
@@ -492,7 +544,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "adjust_product_stock") {
     const input = args?.input as StockMovementInput;
     const product = db.products.find((item) => item.id === input.product_id);
-    if (!product) throw new Error("Produit introuvable");
+    if (!product) throw new Error("?????? ??? ?????");
     if (input.quantity <= 0) throw new Error("الكمية يجب أن تكون أكبر من صفر");
     const before = product.quantity;
     const delta = input.movement_type === "entry" ? input.quantity : -input.quantity;
@@ -524,6 +576,140 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       .filter((movement) => movement.product_id === productId)
       .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id)
       .slice(0, 80) as T;
+  }
+
+  if (command === "list_suppliers") {
+    return db.suppliers.map((supplier) => withSupplierTotals(db, supplier)) as T;
+  }
+
+  if (command === "save_supplier") {
+    const input = args?.input as SupplierInput;
+    if (!input.name.trim()) throw new Error("اسم المورد إجباري");
+    const existing = input.id ? db.suppliers.find((supplier) => supplier.id === input.id) : undefined;
+    const supplier: Supplier = {
+      id: existing?.id ?? Date.now(),
+      name: input.name.trim(),
+      phone: input.phone.trim(),
+      address: input.address.trim(),
+      note: input.note.trim(),
+      active: input.active,
+      total_purchases: 0,
+      total_paid: 0,
+      remaining_amount: 0,
+      last_purchase_at: "",
+      created_at: existing?.created_at ?? new Date().toISOString()
+    };
+    db.suppliers = existing
+      ? db.suppliers.map((item) => item.id === supplier.id ? supplier : item)
+      : [supplier, ...db.suppliers];
+    writeDb(db);
+    return withSupplierTotals(db, supplier) as T;
+  }
+
+  if (command === "disable_supplier") {
+    const id = args?.id as number;
+    db.suppliers = db.suppliers.map((supplier) => supplier.id === id ? { ...supplier, active: false } : supplier);
+    writeDb(db);
+    return withSupplierTotals(db, db.suppliers.find((supplier) => supplier.id === id)!) as T;
+  }
+
+  if (command === "list_purchase_orders") {
+    return db.purchaseOrders
+      .map((order) => withPurchaseRelations(db, order))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id) as T;
+  }
+
+  if (command === "get_purchase_order") {
+    const id = args?.id as number;
+    const order = db.purchaseOrders.find((item) => item.id === id);
+    if (!order) throw new Error("قسيمة شراء غير موجود");
+    return withPurchaseRelations(db, order) as T;
+  }
+
+  if (command === "save_purchase_order_draft") {
+    const input = args?.input as PurchaseOrderInput;
+    const supplier = db.suppliers.find((item) => item.id === input.supplier_id && item.active);
+    if (!supplier) throw new Error("اختر موردا نشطا");
+    if (!input.items.length) throw new Error("أضف منتجا واحدا على الأقل");
+    const items = input.items.map((line, index) => {
+      const product = db.products.find((item) => item.id === line.product_id);
+      if (!product) throw new Error("المنتج غير موجود");
+      if (line.quantity <= 0 || line.unit_purchase_price < 0) throw new Error("تحقق من الكمية وسعر الشراء");
+      return {
+        id: Date.now() + index,
+        product_id: product.id,
+        product_name: product.name,
+        barcode: product.barcode,
+        quantity: line.quantity,
+        unit_purchase_price: line.unit_purchase_price,
+        line_total: line.quantity * line.unit_purchase_price
+      };
+    });
+    const subtotal = items.reduce((sum, item) => sum + item.line_total, 0);
+    const existing = input.id ? db.purchaseOrders.find((item) => item.id === input.id) : undefined;
+    if (existing && existing.status !== "draft") throw new Error("لا يمكن تعديل قسيمة شراء مؤكد");
+    const order: PurchaseOrder = {
+      id: existing?.id ?? Date.now(),
+      bon_no: existing?.bon_no ?? `BA-${String(db.purchaseOrders.length + 1).padStart(6, "0")}`,
+      supplier_id: supplier.id,
+      supplier_name: supplier.name,
+      subtotal,
+      paid_amount: 0,
+      remaining_amount: subtotal,
+      status: "draft",
+      note: input.note.trim(),
+      cashier: input.cashier.trim(),
+      created_at: existing?.created_at ?? new Date().toISOString(),
+      confirmed_at: "",
+      items,
+      payments: []
+    };
+    db.purchaseOrders = existing
+      ? db.purchaseOrders.map((item) => item.id === order.id ? order : item)
+      : [order, ...db.purchaseOrders];
+    writeDb(db);
+    return withPurchaseRelations(db, order) as T;
+  }
+
+  if (command === "confirm_purchase_order") {
+    const id = args?.id as number;
+    const paidAmount = Math.max(0, Number(args?.paidAmount ?? args?.paid_amount ?? 0));
+    const cashier = String(args?.cashier ?? "");
+    const order = db.purchaseOrders.find((item) => item.id === id);
+    if (!order) throw new Error("????? ?????? ??? ??????");
+    if (order.status !== "draft") throw new Error("?? ????? ??? ??????? ?? ???");
+    if (paidAmount > order.subtotal) throw new Error("???? ????? ???? ?? ???? ???????");
+    if (paidAmount > 0 && !activeDemoShift(db)) throw new Error("???? ??????? ??? ????????");
+    for (const item of order.items) applyDemoPurchaseStock(db, order.id, item);
+    const payment = paidAmount > 0 ? makeDemoSupplierPayment(db, order, paidAmount, "???? ??? ????? ???????", cashier) : undefined;
+    if (payment) db.supplierPayments.unshift(payment);
+    order.paid_amount = paidAmount;
+    order.remaining_amount = Math.max(0, order.subtotal - paidAmount);
+    order.status = order.remaining_amount <= 0 ? "paid" : "confirmed";
+    order.cashier = cashier;
+    order.confirmed_at = new Date().toISOString();
+    writeDb(db);
+    return withPurchaseRelations(db, order) as T;
+  }
+
+  if (command === "add_supplier_payment") {
+    const input = args?.input as SupplierPaymentInput;
+    const order = db.purchaseOrders.find((item) => item.id === input.purchase_order_id);
+    if (!order) throw new Error("????? ?????? ??? ??????");
+    if (order.status === "draft") throw new Error("??? ??????? ??? ????? ????");
+    if (input.amount <= 0 || input.amount > order.remaining_amount) throw new Error("???? ????? ??? ????");
+    if (!activeDemoShift(db)) throw new Error("???? ??????? ??? ????????");
+    const payment = makeDemoSupplierPayment(db, order, input.amount, input.note, input.cashier);
+    db.supplierPayments.unshift(payment);
+    order.paid_amount += input.amount;
+    order.remaining_amount = Math.max(0, order.remaining_amount - input.amount);
+    order.status = order.remaining_amount <= 0 ? "paid" : "confirmed";
+    writeDb(db);
+    return withPurchaseRelations(db, order) as T;
+  }
+
+  if (command === "list_supplier_payments") {
+    return db.supplierPayments.sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.id - a.id) as T;
   }
 
   if (command === "delete_product") {
@@ -559,11 +745,11 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "checkout") {
     const input = args?.input as CheckoutInput;
     const shift = activeDemoShift(db);
-    if (!shift) throw new Error("Ouvrez la caisse avant de continuer");
+    if (input.sale_type !== "delivery" && !shift) throw new Error("???? ??????? ??? ????????");
     const items = input.items.map((item) => {
       const product = db.products.find((candidate) => candidate.id === item.product_id);
-      if (!product) throw new Error("Produit introuvable");
-      if (product.quantity < item.quantity && !db.settings.allow_negative_stock) throw new Error(`Stock insuffisant pour ${product.name}`);
+      if (!product) throw new Error("?????? ??? ?????");
+      if (product.quantity < item.quantity && !db.settings.allow_negative_stock) throw new Error(`المخزون غير كاف للمنتج ${product.name}`);
       product.quantity -= item.quantity;
       return {
         product_id: product.id,
@@ -576,11 +762,11 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     });
     const perfumeItems = (input.perfume_items ?? []).map((item) => {
       const perfume = db.perfumes.find((candidate) => candidate.id === item.perfume_id);
-      if (!perfume) throw new Error("Parfum introuvable");
+      if (!perfume) throw new Error("????? ??? ?????");
       const price = perfume.prices.find((candidate) => candidate.flacon_id === item.flacon_id);
-      if (!price) throw new Error("Flacon introuvable");
+      if (!price) throw new Error("???????? ??? ??????");
       const needed = price.volume_ml * item.quantity;
-      if (perfume.remaining_volume_ml < needed) throw new Error(`Stock insuffisant pour ${perfume.name}`);
+      if (perfume.remaining_volume_ml < needed) throw new Error(`المخزون غير كاف للعطر ${perfume.name}`);
       perfume.remaining_volume_ml -= needed;
       return {
         product_id: -perfume.id,
@@ -592,22 +778,23 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       };
     });
     const subtotal = [...items, ...perfumeItems].reduce((sum, item) => sum + item.line_total, 0);
-    if (input.discount < 0) throw new Error("Remise invalide");
-    if (input.discount > db.settings.max_discount_amount) throw new Error(`La remise maximale est ${db.settings.max_discount_amount}`);
+    if (input.discount < 0) throw new Error("??????? ??? ????");
+    if (input.discount > db.settings.max_discount_amount) throw new Error(`???? ????? ?? ${db.settings.max_discount_amount}`);
     const total = Math.max(0, subtotal - input.discount);
-    if (input.sale_type === "credit" && !input.customer_name.trim()) throw new Error("Nom client obligatoire pour un crédit");
-    if (input.paid_amount > total) throw new Error("Le montant payé dépasse le total");
-    const paid = input.sale_type === "cash" ? total : input.paid_amount;
+    if (input.sale_type === "delivery" && !input.customer_name.trim()) throw new Error("??? ?????? ??????");
+    if (input.sale_type === "credit" && !input.customer_name.trim()) throw new Error("??? ?????? ?????? ????? ??????");
+    if (input.paid_amount > total) throw new Error("?????? ??????? ???? ?? ???????");
+    const paid = input.sale_type === "cash" ? total : input.sale_type === "delivery" ? 0 : input.paid_amount;
     const remaining = Math.max(0, total - paid);
     const sale: Sale = {
       id: Date.now(),
-      shift_id: shift.id,
+      shift_id: input.sale_type === "delivery" ? undefined : shift?.id,
       receipt_no: `AS-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`,
       subtotal,
       discount: input.discount,
       total,
       profit: total,
-      payment_method: "Espèces",
+      payment_method: "نقدا",
       sale_type: input.sale_type,
       customer_name: input.customer_name,
       customer_phone: input.customer_phone,
@@ -615,7 +802,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       remaining_amount: remaining,
       due_date: input.due_date,
       credit_note: input.credit_note,
-      credit_status: remaining <= 0 ? "paid" : paid > 0 ? "partial" : "open",
+      credit_status: input.sale_type === "delivery" ? "delivery_pending" : remaining <= 0 ? "paid" : paid > 0 ? "partial" : "open",
       cashier: input.cashier,
       created_at: new Date().toISOString(),
       items: [...items, ...perfumeItems]
@@ -627,6 +814,42 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 
   if (command === "list_sales") return db.sales as T;
 
+  if (command === "list_delivery_sales") {
+    return db.sales.filter((sale) => sale.sale_type === "delivery") as T;
+  }
+
+  if (command === "collect_delivery") {
+    const id = args?.id as number;
+    const shift = activeDemoShift(db);
+    if (!shift) throw new Error("???? ??????? ??? ????????");
+    const sale = db.sales.find((item) => item.id === id && item.sale_type === "delivery");
+    if (!sale) throw new Error("??? ??????? ??? ?????");
+    if (sale.credit_status !== "delivery_pending") throw new Error("??? ?????? ??? ??????? ?? ???");
+    sale.shift_id = shift.id;
+    sale.paid_amount = sale.total;
+    sale.remaining_amount = 0;
+    sale.credit_status = "delivery_paid";
+    sale.created_at = new Date().toISOString();
+    writeDb(db);
+    return sale as T;
+  }
+
+  if (command === "return_delivery") {
+    const id = args?.id as number;
+    const sale = db.sales.find((item) => item.id === id && item.sale_type === "delivery");
+    if (!sale) throw new Error("??? ??????? ??? ?????");
+    if (sale.credit_status !== "delivery_pending") throw new Error("??? ?????? ??? ??????? ?? ???");
+    for (const item of sale.items) {
+      const product = db.products.find((product) => product.id === item.product_id);
+      if (product) product.quantity += item.quantity;
+    }
+    sale.paid_amount = 0;
+    sale.remaining_amount = 0;
+    sale.credit_status = "delivery_returned";
+    writeDb(db);
+    return sale as T;
+  }
+
   if (command === "update_sale") {
     const input = args?.input as SaleUpdateInput;
     const sale = replaceDemoSaleItems(db, input.sale_id, input.items);
@@ -637,13 +860,13 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "return_sale_item") {
     const input = args?.input as SaleReturnInput;
     const sale = db.sales.find((item) => item.id === input.sale_id);
-    if (!sale) throw new Error("Bon introuvable");
+    if (!sale) throw new Error("??????? ??? ??????");
     const updatedItems = sale.items.map((item) => ({
       product_id: item.product_id,
       quantity: item.product_id === input.product_id ? item.quantity - input.quantity : item.quantity
     })).filter((item) => item.quantity > 0);
-    if (!sale.items.some((item) => item.product_id === input.product_id)) throw new Error("Article introuvable dans le bon");
-    if (!updatedItems.length) throw new Error("Retour total: utilisez supprimer le bon");
+    if (!sale.items.some((item) => item.product_id === input.product_id)) throw new Error("?????? ??? ????? ?? ???????");
+    if (!updatedItems.length) throw new Error("??????? ?????? ?????? ??? ???????");
     const updatedSale = replaceDemoSaleItems(db, input.sale_id, updatedItems);
     writeDb(db);
     return updatedSale as T;
@@ -652,7 +875,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "delete_sale") {
     const id = args?.id as number;
     const sale = db.sales.find((item) => item.id === id);
-    if (!sale) throw new Error("Bon introuvable");
+    if (!sale) throw new Error("??????? ??? ??????");
     for (const item of sale.items) {
       const product = db.products.find((product) => product.id === item.product_id);
       if (product) product.quantity += item.quantity;
@@ -675,11 +898,11 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "add_credit_payment") {
     const input = args?.input as CreditPaymentInput;
     const shift = activeDemoShift(db);
-    if (!shift) throw new Error("Ouvrez la caisse avant de continuer");
+    if (!shift) throw new Error("???? ??????? ??? ????????");
     const sale = db.sales.find((item) => item.id === input.sale_id);
-    if (!sale) throw new Error("Crédit introuvable");
-    if (input.amount <= 0) throw new Error("Montant de versement invalide");
-    if (input.amount > sale.remaining_amount) throw new Error("Le versement dépasse le reste à payer");
+    if (!sale) throw new Error("????? ??? ?????");
+    if (input.amount <= 0) throw new Error("???? ?????? ??? ????");
+    if (input.amount > sale.remaining_amount) throw new Error("?????? ???? ?? ?????? ???????");
     sale.paid_amount += input.amount;
     sale.remaining_amount = Math.max(0, sale.remaining_amount - input.amount);
     sale.credit_status = sale.remaining_amount <= 0 ? "paid" : "partial";
@@ -719,7 +942,12 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       open_credit_count: db.sales.filter((sale) => sale.sale_type === "credit" && sale.remaining_amount > 0).length,
       credit_remaining_total: db.sales.reduce((sum, sale) => sum + (sale.remaining_amount ?? 0), 0),
       credit_payments_today: todayStats.creditPayments,
-      credit_payments_yesterday: yesterdayStats.creditPayments
+      credit_payments_yesterday: yesterdayStats.creditPayments,
+      delivery_pending_count: db.sales.filter((sale) => sale.sale_type === "delivery" && sale.credit_status === "delivery_pending").length,
+      delivery_pending_total: db.sales
+        .filter((sale) => sale.sale_type === "delivery" && sale.credit_status === "delivery_pending")
+        .reduce((sum, sale) => sum + sale.total, 0),
+      delivery_collected_today: todayStats.deliveryCollected
     } as T;
   }
 
@@ -731,11 +959,78 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   throw new Error(`Commande non disponible: ${command}`);
 }
 
+function withSupplierTotals(db: Db, supplier: Supplier): Supplier {
+  const orders = db.purchaseOrders.filter((order) => order.supplier_id === supplier.id && order.status !== "draft");
+  return {
+    ...supplier,
+    total_purchases: orders.reduce((sum, order) => sum + order.subtotal, 0),
+    total_paid: orders.reduce((sum, order) => sum + order.paid_amount, 0),
+    remaining_amount: orders.reduce((sum, order) => sum + order.remaining_amount, 0),
+    last_purchase_at: lastString(orders.map((order) => order.confirmed_at).filter(Boolean).sort())
+  };
+}
+
+function lastString(values: string[]) {
+  return values.length ? values[values.length - 1] : "";
+}
+
+function withPurchaseRelations(db: Db, order: PurchaseOrder): PurchaseOrder {
+  const supplier = db.suppliers.find((item) => item.id === order.supplier_id);
+  return {
+    ...order,
+    supplier_name: supplier?.name ?? order.supplier_name,
+    payments: db.supplierPayments
+      .filter((payment) => payment.purchase_order_id === order.id)
+      .sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.id - a.id)
+  };
+}
+
+function applyDemoPurchaseStock(db: Db, orderId: number, item: PurchaseOrder["items"][number]) {
+  const product = db.products.find((line) => line.id === item.product_id);
+  if (!product) throw new Error("'DEF*, :J1 EH,H/");
+  const before = product.quantity;
+  const after = before + item.quantity;
+  const oldValue = product.purchase_price * Math.max(0, before);
+  const addedValue = item.unit_purchase_price * item.quantity;
+  product.purchase_price = after > 0 ? (oldValue + addedValue) / after : item.unit_purchase_price;
+  product.quantity = after;
+  product.updated_at = new Date().toISOString();
+  db.stockMovements.unshift(makeDemoStockMovement(
+    product,
+    "entry",
+    item.quantity,
+    before,
+    after,
+    item.unit_purchase_price,
+    `قسيمة شراء ${orderId}`
+  ));
+}
+
+function makeDemoSupplierPayment(db: Db, order: PurchaseOrder, amount: number, note: string, cashier: string): SupplierPayment {
+  const shift = activeDemoShift(db);
+  if (!shift) throw new Error("???? ??????? ??? ????????");
+  return {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    supplier_id: order.supplier_id,
+    supplier_name: order.supplier_name,
+    purchase_order_id: order.id,
+    bon_no: order.bon_no,
+    shift_id: shift.id,
+    amount,
+    note,
+    cashier,
+    paid_at: new Date().toISOString()
+  };
+}
+
 function buildDemoReport(db: Db, input: ReportFilter): ReportData {
   const from = input.from_date || todayInputValue();
   const to = input.to_date || from;
   const buckets = makeDateBuckets(input.period, from, to).map(({ label, start, end }) => {
-    const sales = db.sales.filter((sale) => between(sale.created_at.slice(0, 10), start, end));
+    const sales = db.sales.filter((sale) =>
+      between(sale.created_at.slice(0, 10), start, end)
+      && (sale.sale_type !== "delivery" || sale.credit_status === "delivery_paid")
+    );
     const expenses = db.expenses.filter((expense) => between(expense.expense_date, start, end));
     const payments = db.creditPayments.filter((payment) => between(payment.paid_at.slice(0, 10), start, end));
     const paymentsBySale = db.creditPayments.reduce<Record<number, number>>((totals, payment) => {
@@ -743,14 +1038,14 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
       return totals;
     }, {});
     const saleEntry = sales.reduce((sum, sale) => {
-      if (sale.sale_type === "cash") return sum + sale.total;
+      if (sale.sale_type === "cash" || sale.sale_type === "delivery") return sum + sale.total;
       return sum + Math.max(0, sale.paid_amount - (paymentsBySale[sale.id] ?? 0));
     }, 0);
     const selling = sales.reduce((sum, sale) => sum + sale.total, 0);
     const buying = sales.reduce((sum, sale) => sum + Math.max(0, sale.total - sale.profit), 0);
     const bookedProfit = sales.reduce((sum, sale) => sum + sale.profit, 0);
     const saleProfit = sales.reduce((sum, sale) => {
-      const collected = sale.sale_type === "cash"
+      const collected = sale.sale_type === "cash" || sale.sale_type === "delivery"
         ? sale.total
         : Math.max(0, sale.paid_amount - (paymentsBySale[sale.id] ?? 0));
       return sum + realizedProfit(sale, collected);
@@ -760,7 +1055,10 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
       const sale = db.sales.find((item) => item.id === payment.sale_id);
       return sale ? sum + realizedProfit(sale, payment.amount) : sum;
     }, 0);
-    const sortie = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+    const supplierPayments = db.supplierPayments
+      .filter((payment) => between(payment.paid_at.slice(0, 10), start, end))
+      .reduce((sum, payment) => sum + payment.amount, 0);
+    const sortie = expenses.reduce((sum, expense) => sum + expense.amount, 0) + supplierPayments;
     return {
       label,
       start_date: start,
@@ -774,7 +1072,10 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
       sales_count: sales.length
     };
   });
-  const filteredSales = db.sales.filter((sale) => between(sale.created_at.slice(0, 10), from, to));
+  const filteredSales = db.sales.filter((sale) =>
+    between(sale.created_at.slice(0, 10), from, to)
+    && (sale.sale_type !== "delivery" || sale.credit_status === "delivery_paid")
+  );
   const grossSales = filteredSales.reduce((sum, sale) => sum + sale.total, 0);
   const summary = {
     entry: buckets.reduce((sum, bucket) => sum + bucket.entry, 0),
@@ -789,6 +1090,22 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
       .filter((payment) => between(payment.paid_at.slice(0, 10), from, to))
       .reduce((sum, payment) => sum + payment.amount, 0),
     credit_remaining: db.sales.reduce((sum, sale) => sum + sale.remaining_amount, 0),
+    delivery_pending_total: db.sales
+      .filter((sale) => sale.sale_type === "delivery" && sale.credit_status === "delivery_pending")
+      .reduce((sum, sale) => sum + sale.total, 0),
+    delivery_pending_count: db.sales.filter((sale) => sale.sale_type === "delivery" && sale.credit_status === "delivery_pending").length,
+    delivery_collected: filteredSales
+      .filter((sale) => sale.sale_type === "delivery" && sale.credit_status === "delivery_paid")
+      .reduce((sum, sale) => sum + sale.total, 0),
+    supplier_purchases: db.purchaseOrders
+      .filter((order) => order.status !== "draft" && order.confirmed_at && between(order.confirmed_at.slice(0, 10), from, to))
+      .reduce((sum, order) => sum + order.subtotal, 0),
+    supplier_payments: db.supplierPayments
+      .filter((payment) => between(payment.paid_at.slice(0, 10), from, to))
+      .reduce((sum, payment) => sum + payment.amount, 0),
+    supplier_remaining: db.purchaseOrders
+      .filter((order) => order.status !== "draft")
+      .reduce((sum, order) => sum + order.remaining_amount, 0),
     stock_purchase_value: db.products.reduce((sum, product) => sum + product.purchase_price * product.quantity, 0),
     stock_sale_value: db.products.reduce((sum, product) => sum + product.sale_price * product.quantity, 0)
   };
@@ -811,7 +1128,10 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
 }
 
 function demoDashboardDay(db: Db, day: string) {
-  const sales = db.sales.filter((sale) => sale.created_at.slice(0, 10) === day);
+  const sales = db.sales.filter((sale) =>
+    sale.created_at.slice(0, 10) === day
+    && (sale.sale_type !== "delivery" || sale.credit_status === "delivery_paid")
+  );
   const expenses = db.expenses.filter((expense) => expense.expense_date === day);
   const payments = db.creditPayments.filter((payment) => payment.paid_at.slice(0, 10) === day);
   const paymentsBySale = db.creditPayments.reduce<Record<number, number>>((totals, payment) => {
@@ -819,11 +1139,11 @@ function demoDashboardDay(db: Db, day: string) {
     return totals;
   }, {});
   const saleEntry = sales.reduce((sum, sale) => {
-    if (sale.sale_type === "cash") return sum + sale.total;
+    if (sale.sale_type === "cash" || sale.sale_type === "delivery") return sum + sale.total;
     return sum + Math.max(0, sale.paid_amount - (paymentsBySale[sale.id] ?? 0));
   }, 0);
   const saleProfit = sales.reduce((sum, sale) => {
-    const collected = sale.sale_type === "cash"
+    const collected = sale.sale_type === "cash" || sale.sale_type === "delivery"
       ? sale.total
       : Math.max(0, sale.paid_amount - (paymentsBySale[sale.id] ?? 0));
     return sum + realizedProfit(sale, collected);
@@ -834,12 +1154,18 @@ function demoDashboardDay(db: Db, day: string) {
     return sale ? sum + realizedProfit(sale, payment.amount) : sum;
   }, 0);
   const expenseTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const supplierPaymentTotal = db.supplierPayments
+    .filter((payment) => payment.paid_at.slice(0, 10) === day)
+    .reduce((sum, payment) => sum + payment.amount, 0);
   return {
     revenue: saleEntry + creditPayments,
     salesCount: sales.length,
-    expenses: expenseTotal,
-    profit: saleProfit + creditProfit - expenseTotal,
-    creditPayments
+    expenses: expenseTotal + supplierPaymentTotal,
+    profit: saleProfit + creditProfit - expenseTotal - supplierPaymentTotal,
+    creditPayments,
+    deliveryCollected: sales
+      .filter((sale) => sale.sale_type === "delivery" && sale.credit_status === "delivery_paid")
+      .reduce((sum, sale) => sum + sale.total, 0)
   };
 }
 
@@ -865,9 +1191,9 @@ function buildDemoShift(db: Db, shift: CashShift): CashShift {
     return totals;
   }, {});
   const cashSales = db.sales
-    .filter((sale) => sale.shift_id === shift.id)
+    .filter((sale) => sale.shift_id === shift.id && (sale.sale_type !== "delivery" || sale.credit_status === "delivery_paid"))
     .reduce((sum, sale) => {
-      if (sale.sale_type === "cash") return sum + sale.total;
+      if (sale.sale_type === "cash" || sale.sale_type === "delivery") return sum + sale.total;
       return sum + Math.max(0, sale.paid_amount - (paymentsBySale[sale.id] ?? 0));
     }, 0);
   const creditPayments = db.creditPayments
@@ -876,12 +1202,16 @@ function buildDemoShift(db: Db, shift: CashShift): CashShift {
   const expenses = db.expenses
     .filter((expense) => expense.shift_id === shift.id)
     .reduce((sum, expense) => sum + expense.amount, 0);
+  const supplierPayments = db.supplierPayments
+    .filter((payment) => payment.shift_id === shift.id)
+    .reduce((sum, payment) => sum + payment.amount, 0);
   return {
     ...shift,
     cash_sales: cashSales,
     credit_payments: creditPayments,
     expenses,
-    expected_amount: shift.opening_amount + cashSales + creditPayments - expenses
+    supplier_payments: supplierPayments,
+    expected_amount: shift.opening_amount + cashSales + creditPayments - expenses - supplierPayments
   };
 }
 
@@ -940,8 +1270,8 @@ function realizedProfit(sale: Sale, collected: number) {
 
 function replaceDemoSaleItems(db: Db, saleId: number, items: Array<{ product_id: number; quantity: number }>) {
   const sale = db.sales.find((item) => item.id === saleId);
-  if (!sale) throw new Error("Bon introuvable");
-  if (!items.length || items.every((item) => item.quantity <= 0)) throw new Error("Le bon doit garder au moins un article");
+  if (!sale) throw new Error("??????? ??? ??????");
+  if (!items.length || items.every((item) => item.quantity <= 0)) throw new Error("??? ?? ???? ??????? ????? ???? ??? ?????");
 
   for (const item of sale.items) {
     const product = db.products.find((product) => product.id === item.product_id);
@@ -950,10 +1280,10 @@ function replaceDemoSaleItems(db: Db, saleId: number, items: Array<{ product_id:
 
   const nextItems = items.filter((item) => item.quantity > 0).map((input) => {
     const oldItem = sale.items.find((item) => item.product_id === input.product_id);
-    if (!oldItem) throw new Error("Modification limitee aux articles du bon");
+    if (!oldItem) throw new Error("??????? ????? ??????? ???????");
     const product = db.products.find((product) => product.id === input.product_id);
-    if (!product) throw new Error("Produit introuvable");
-    if (product.quantity < input.quantity && !db.settings.allow_negative_stock) throw new Error(`Stock insuffisant pour ${oldItem.product_name}`);
+    if (!product) throw new Error("?????? ??? ?????");
+    if (product.quantity < input.quantity && !db.settings.allow_negative_stock) throw new Error(`المخزون غير كاف للمنتج ${oldItem.product_name}`);
     product.quantity -= input.quantity;
     return {
       ...oldItem,
@@ -1009,6 +1339,7 @@ export const api = {
   updateProfile: (input: ProfileInput) => call<UserSession>("update_profile", { input }),
   appSettings: () => call<AppSettings>("get_app_settings"),
   saveAppSettings: (input: AppSettings) => call<AppSettings>("save_app_settings", { input }),
+  printers: () => call<string[]>("list_printers"),
   saveNow: () => call<void>("save_database"),
   resetWithDummyData: () => call<void>("reset_with_dummy_data"),
   emptyDatabase: () => call<void>("empty_database"),
@@ -1032,6 +1363,15 @@ export const api = {
   adjustProductStock: (input: StockMovementInput) => call<Product>("adjust_product_stock", { input }),
   stockMovements: (productId: number) => call<StockMovement[]>("list_stock_movements", { product_id: productId }),
   deleteProduct: (id: number) => call<void>("delete_product", { id }),
+  suppliers: () => call<Supplier[]>("list_suppliers"),
+  saveSupplier: (input: SupplierInput) => call<Supplier>("save_supplier", { input }),
+  disableSupplier: (id: number) => call<Supplier>("disable_supplier", { id }),
+  purchaseOrders: () => call<PurchaseOrder[]>("list_purchase_orders"),
+  purchaseOrder: (id: number) => call<PurchaseOrder>("get_purchase_order", { id }),
+  savePurchaseOrderDraft: (input: PurchaseOrderInput) => call<PurchaseOrder>("save_purchase_order_draft", { input }),
+  confirmPurchaseOrder: (id: number, paidAmount: number, cashier: string) => call<PurchaseOrder>("confirm_purchase_order", { id, paidAmount, cashier }),
+  addSupplierPayment: (input: SupplierPaymentInput) => call<PurchaseOrder>("add_supplier_payment", { input }),
+  supplierPayments: () => call<SupplierPayment[]>("list_supplier_payments"),
   expenses: () => call<Expense[]>("list_expenses"),
   saveExpense: (input: ExpenseInput) => call<Expense>("save_expense", { input }),
   deleteExpense: (id: number) => call<void>("delete_expense", { id }),
@@ -1041,6 +1381,9 @@ export const api = {
   perfumes: () => call<Perfume[]>("list_perfumes"),
   savePerfume: (input: PerfumeInput) => call<Perfume>("save_perfume", { input }),
   sales: () => call<Sale[]>("list_sales"),
+  deliveries: () => call<Sale[]>("list_delivery_sales"),
+  collectDelivery: (id: number) => call<Sale>("collect_delivery", { id }),
+  returnDelivery: (id: number) => call<Sale>("return_delivery", { id }),
   updateSale: (input: SaleUpdateInput) => call<Sale>("update_sale", { input }),
   returnSaleItem: (input: SaleReturnInput) => call<Sale>("return_sale_item", { input }),
   deleteSale: (id: number) => call<void>("delete_sale", { id }),

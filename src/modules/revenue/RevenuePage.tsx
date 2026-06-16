@@ -11,7 +11,7 @@ export function RevenuePage({ language, onChanged }: { language: Language; onCha
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [credits, setCredits] = useState<CreditAccount[]>([]);
   const [query, setQuery] = useState("");
-  const [saleType, setSaleType] = useState<"all" | "cash" | "credit">("all");
+  const [saleType, setSaleType] = useState<"all" | "cash" | "credit" | "delivery">("all");
   const [fromDate, setFromDate] = useState(todayInputValue);
   const [toDate, setToDate] = useState(todayInputValue);
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
@@ -66,10 +66,11 @@ export function RevenuePage({ language, onChanged }: { language: Language; onCha
         sale.cashier,
         ...sale.items.map((item) => `${item.product_name} ${item.barcode}`)
       ].some((value) => value.toLowerCase().includes(normalizedQuery));
+      const visibleDelivery = sale.sale_type !== "delivery" || sale.credit_status === "delivery_paid";
       const matchesType = saleType === "all" || sale.sale_type === saleType;
       const matchesFrom = !fromDate || saleDate >= fromDate;
       const matchesTo = !toDate || saleDate <= toDate;
-      return matchesQuery && matchesType && matchesFrom && matchesTo;
+      return visibleDelivery && matchesQuery && matchesType && matchesFrom && matchesTo;
     });
   }, [fromDate, query, saleType, sales, toDate]);
 
@@ -88,14 +89,14 @@ export function RevenuePage({ language, onChanged }: { language: Language; onCha
 
   const totals = useMemo(() => {
     const saleRevenue = filteredSales.reduce((sum, sale) => {
-      if (sale.sale_type === "cash") return sum + sale.total;
+      if (sale.sale_type === "cash" || sale.sale_type === "delivery") return sum + sale.total;
       const laterPayments = creditPaymentsBySale[sale.id] ?? 0;
       return sum + Math.max(0, sale.paid_amount - laterPayments);
     }, 0);
     const creditPaymentTotal = filteredCreditPayments.reduce((sum, payment) => sum + payment.amount, 0);
     const expenseTotal = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
     const saleProfit = filteredSales.reduce((sum, sale) => {
-      const collected = sale.sale_type === "cash"
+      const collected = sale.sale_type === "cash" || sale.sale_type === "delivery"
         ? sale.total
         : Math.max(0, sale.paid_amount - (creditPaymentsBySale[sale.id] ?? 0));
       return sum + realizedProfit(sale, collected);
@@ -135,10 +136,11 @@ export function RevenuePage({ language, onChanged }: { language: Language; onCha
         {error && <p className="error">{error}</p>}
         <div className="filter-row">
           <div className="searchbar"><Search size={18} /><input placeholder={t.search} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
-          <select aria-label={t.type} value={saleType} onChange={(event) => setSaleType(event.target.value as "all" | "cash" | "credit")}>
+          <select aria-label={t.type} value={saleType} onChange={(event) => setSaleType(event.target.value as "all" | "cash" | "credit" | "delivery")}>
             <option value="all">{t.allTypes}</option>
             <option value="cash">{t.cash}</option>
             <option value="credit">{t.credit}</option>
+            <option value="delivery">التوصيل</option>
           </select>
           <input className="filter-input" aria-label={t.fromDate} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
           <input className="filter-input" aria-label={t.toDate} type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
@@ -156,7 +158,7 @@ export function RevenuePage({ language, onChanged }: { language: Language; onCha
                     </button>
                   </td>
                   <td>{sale.created_at}</td>
-                  <td><span className={`status-pill ${sale.sale_type === "credit" ? "warning" : "ok"}`}>{sale.sale_type === "credit" ? t.credit : t.cash}</span></td>
+                  <td><span className={`status-pill ${sale.sale_type === "credit" ? "warning" : "ok"}`}>{sale.sale_type === "credit" ? t.credit : sale.sale_type === "delivery" ? "التوصيل" : t.cash}</span></td>
                   <td>{money(sale.paid_amount)}</td>
                   <td>{money(sale.remaining_amount)}</td>
                   <td>{money(sale.total)}</td>
@@ -276,7 +278,7 @@ function TicketDetails({
 
         <div className="ticket-meta">
           <span>{t.date}: <strong>{sale.created_at}</strong></span>
-          <span>{t.type}: <strong>{sale.sale_type === "credit" ? t.credit : t.cash}</strong></span>
+          <span>{t.type}: <strong>{sale.sale_type === "credit" ? t.credit : sale.sale_type === "delivery" ? "التوصيل" : t.cash}</strong></span>
           <span>{t.collected}: <strong>{money(sale.paid_amount)}</strong></span>
           <span>{t.remaining}: <strong>{money(sale.remaining_amount)}</strong></span>
           {sale.customer_name && <span>{t.customer}: <strong>{sale.customer_name}</strong></span>}

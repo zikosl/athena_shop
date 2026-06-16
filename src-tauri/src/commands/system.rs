@@ -2,11 +2,22 @@ use std::fs;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 use tauri::{AppHandle, State};
 
 use crate::db::{Database, PostgresConfig};
 use crate::error::{AppError, AppResult};
 use crate::models::AppSettings;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+#[cfg(target_os = "windows")]
+fn hide_console(command: &mut Command) -> &mut Command {
+    command.creation_flags(CREATE_NO_WINDOW)
+}
 
 #[tauri::command]
 pub fn save_database(db: State<Database>) -> AppResult<()> {
@@ -52,24 +63,92 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             .and_then(|row| row.get::<_, String>(0).parse::<f64>().ok())
             .unwrap_or(200.0)
             .max(0.0);
+        let invoice_printer = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'invoice_printer'",
+                &[],
+            )?
+            .map(|row| row.get::<_, String>(0))
+            .unwrap_or_default();
+        let barcode_printer = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'barcode_printer'",
+                &[],
+            )?
+            .map(|row| row.get::<_, String>(0))
+            .unwrap_or_default();
+        let ui_font_scale = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'ui_font_scale'",
+                &[],
+            )?
+            .map(|row| row.get::<_, String>(0))
+            .filter(|value| matches!(value.as_str(), "small" | "normal" | "large"))
+            .unwrap_or_else(|| "normal".into());
+        let ui_density = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'ui_density'",
+                &[],
+            )?
+            .map(|row| row.get::<_, String>(0))
+            .filter(|value| matches!(value.as_str(), "compact" | "comfortable" | "spacious"))
+            .unwrap_or_else(|| "comfortable".into());
+        let pos_layout = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'pos_layout'",
+                &[],
+            )?
+            .map(|row| row.get::<_, String>(0))
+            .filter(|value| matches!(value.as_str(), "auto" | "side" | "bottom"))
+            .unwrap_or_else(|| "auto".into());
+        let pos_cart_width = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'pos_cart_width'",
+                &[],
+            )?
+            .and_then(|row| row.get::<_, String>(0).parse::<i64>().ok())
+            .unwrap_or(320)
+            .clamp(280, 420);
         Ok(AppSettings {
             allow_negative_stock,
             cash_register_auto_close_time,
             max_discount_amount,
+            invoice_printer,
+            barcode_printer,
+            ui_font_scale,
+            ui_density,
+            pos_layout,
+            pos_cart_width,
         })
     })
 }
 
 #[tauri::command]
 pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<AppSettings> {
-    if chrono::NaiveTime::parse_from_str(input.cash_register_auto_close_time.trim(), "%H:%M").is_err() {
+    if chrono::NaiveTime::parse_from_str(input.cash_register_auto_close_time.trim(), "%H:%M")
+        .is_err()
+    {
         return Err(AppError::Message("Heure fermeture invalide".into()));
     }
     if input.max_discount_amount < 0.0 {
         return Err(AppError::Message("Remise maximale invalide".into()));
     }
+    if !matches!(input.ui_font_scale.as_str(), "small" | "normal" | "large") {
+        return Err(AppError::Message("Taille de police invalide".into()));
+    }
+    if !matches!(input.ui_density.as_str(), "compact" | "comfortable" | "spacious") {
+        return Err(AppError::Message("Densite interface invalide".into()));
+    }
+    if !matches!(input.pos_layout.as_str(), "auto" | "side" | "bottom") {
+        return Err(AppError::Message("Disposition POS invalide".into()));
+    }
+    let pos_cart_width = input.pos_cart_width.clamp(280, 420);
     db.with_client(|client| {
-        let value = if input.allow_negative_stock { "true" } else { "false" };
+        let value = if input.allow_negative_stock {
+            "true"
+        } else {
+            "false"
+        };
         client.execute(
             "INSERT INTO app_meta (key, value)
              VALUES ('allow_negative_stock', $1)
@@ -89,15 +168,95 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             &[&max_discount_amount],
         )?;
-        Ok(input)
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('invoice_printer', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&input.invoice_printer.trim()],
+        )?;
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('barcode_printer', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&input.barcode_printer.trim()],
+        )?;
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('ui_font_scale', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&input.ui_font_scale.as_str()],
+        )?;
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('ui_density', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&input.ui_density.as_str()],
+        )?;
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('pos_layout', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&input.pos_layout.as_str()],
+        )?;
+        let pos_cart_width_value = pos_cart_width.to_string();
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('pos_cart_width', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&pos_cart_width_value],
+        )?;
+        Ok(AppSettings {
+            pos_cart_width,
+            ..input
+        })
     })
 }
 
 #[tauri::command]
-pub fn print_receipt_text(content: String) -> AppResult<()> {
+pub fn list_printers() -> AppResult<Vec<String>> {
+    let output = if cfg!(target_os = "windows") {
+        let mut command = Command::new("powershell.exe");
+        hide_console(&mut command)
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -ExpandProperty Name",
+            ])
+            .output()
+    } else {
+        Command::new("lpstat").arg("-a").output()
+    };
+
+    let Ok(output) = output else {
+        return Ok(Vec::new());
+    };
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            if cfg!(target_os = "windows") {
+                line.to_string()
+            } else {
+                line.split_whitespace().next().unwrap_or(line).to_string()
+            }
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn print_receipt_text(db: State<Database>, content: String) -> AppResult<()> {
     if content.trim().is_empty() {
         return Err(AppError::Message("Ticket vide".into()));
     }
+    let settings = get_app_settings(db)?;
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -106,7 +265,7 @@ pub fn print_receipt_text(content: String) -> AppResult<()> {
     let path = std::env::temp_dir().join(format!("athena-shop-ticket-{timestamp}.txt"));
     fs::write(&path, content)?;
 
-    if let Err(error) = print_file(&path) {
+    if let Err(error) = print_file(&path, settings.invoice_printer.as_str()) {
         let _ = fs::remove_file(&path);
         return Err(error);
     }
@@ -114,42 +273,60 @@ pub fn print_receipt_text(content: String) -> AppResult<()> {
 }
 
 #[cfg(target_os = "windows")]
-fn print_file(path: &std::path::Path) -> AppResult<()> {
-    ensure_printer_available()?;
-    Command::new("powershell.exe")
+fn print_file(path: &std::path::Path, printer_name: &str) -> AppResult<()> {
+    ensure_printer_available(printer_name)?;
+    let mut command = Command::new("powershell.exe");
+    hide_console(&mut command)
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            "try { Get-Content -LiteralPath $args[0] | Out-Printer } finally { Remove-Item -LiteralPath $args[0] -ErrorAction SilentlyContinue }",
+            "try { if ([string]::IsNullOrWhiteSpace($args[1])) { Get-Content -LiteralPath $args[0] | Out-Printer } else { Get-Content -LiteralPath $args[0] | Out-Printer -Name $args[1] } } finally { Remove-Item -LiteralPath $args[0] -ErrorAction SilentlyContinue }",
         ])
         .arg(path)
+        .arg(printer_name)
         .spawn()?;
     Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn print_file(path: &std::path::Path) -> AppResult<()> {
-    Command::new("lp").arg(path).spawn()?;
+fn print_file(path: &std::path::Path, printer_name: &str) -> AppResult<()> {
+    let mut command = Command::new("lp");
+    if !printer_name.trim().is_empty() {
+        command.arg("-d").arg(printer_name.trim());
+    }
+    command.arg(path).spawn()?;
     Ok(())
 }
 
 #[cfg(target_os = "windows")]
-fn ensure_printer_available() -> AppResult<()> {
-    let status = Command::new("powershell.exe")
+fn ensure_printer_available(printer_name: &str) -> AppResult<()> {
+    let script = if printer_name.trim().is_empty() {
+        "if ((Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Select-Object -First 1) -ne $null) { exit 0 } else { exit 1 }"
+    } else {
+        "if ((Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $args[0] } | Select-Object -First 1) -ne $null) { exit 0 } else { exit 1 }"
+    };
+    let mut command = Command::new("powershell.exe");
+    let status = hide_console(&mut command)
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            "if ((Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Select-Object -First 1) -ne $null) { exit 0 } else { exit 1 }",
+            script,
         ])
+        .arg(printer_name)
         .status()?;
     if status.success() {
         Ok(())
-    } else {
+    } else if printer_name.trim().is_empty() {
         Err(AppError::Message("Aucune imprimante disponible".into()))
+    } else {
+        Err(AppError::Message(format!(
+            "Imprimante introuvable: {}",
+            printer_name
+        )))
     }
 }
 
@@ -158,7 +335,9 @@ pub fn reset_with_dummy_data(db: State<Database>) -> AppResult<()> {
     db.with_client(|client| {
         client.batch_execute(
             "
-            TRUNCATE TABLE stock_movements, credit_payments, sale_items, sales, expenses, products, cash_shifts RESTART IDENTITY CASCADE;
+            TRUNCATE TABLE supplier_payments, purchase_order_items, purchase_orders, suppliers,
+              stock_movements, credit_payments, sale_items, sales, expenses, products, cash_shifts
+              RESTART IDENTITY CASCADE;
 
             INSERT INTO products
               (id, name, barcode, category, size, color, quantity, low_stock_threshold, purchase_price, sale_price, image_data)
@@ -224,8 +403,9 @@ pub fn reset_with_dummy_data(db: State<Database>) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub fn open_cash_drawer() -> AppResult<()> {
+pub fn open_cash_drawer(db: State<Database>) -> AppResult<()> {
     // ESC/POS cash drawer pulse: ESC p m t1 t2.
+    let settings = get_app_settings(db)?;
     let pulse = [0x1B_u8, 0x70, 0x00, 0x19, 0xFA];
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -234,7 +414,7 @@ pub fn open_cash_drawer() -> AppResult<()> {
     let path = std::env::temp_dir().join(format!("athena-shop-drawer-{timestamp}.bin"));
     fs::write(&path, pulse)?;
 
-    if let Err(error) = print_file(&path) {
+    if let Err(error) = print_file(&path, settings.invoice_printer.as_str()) {
         let _ = fs::remove_file(&path);
         return Err(error);
     }
@@ -252,7 +432,8 @@ pub fn open_external_url(url: String) -> AppResult<()> {
 
 #[cfg(target_os = "windows")]
 fn open_url(url: &str) -> AppResult<()> {
-    Command::new("cmd.exe")
+    let mut command = Command::new("cmd.exe");
+    hide_console(&mut command)
         .args(["/C", "start", "", url])
         .spawn()?;
     Ok(())
@@ -284,6 +465,10 @@ pub fn empty_database(db: State<Database>) -> AppResult<()> {
               sale_items,
               sales,
               expenses,
+              supplier_payments,
+              purchase_order_items,
+              purchase_orders,
+              suppliers,
               products,
               cash_shifts,
               stock_movements

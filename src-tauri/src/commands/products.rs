@@ -136,7 +136,9 @@ pub fn adjust_product_stock(db: State<Database>, input: StockMovementInput) -> A
         };
         let next_quantity = product.quantity + delta;
         if next_quantity < 0 && !allow_negative_stock(client)? {
-            return Err(AppError::Message("لا يمكن إخراج كمية أكبر من المخزون الحالي".into()));
+            return Err(AppError::Message(
+                "لا يمكن إخراج كمية أكبر من المخزون الحالي".into(),
+            ));
         }
 
         let next_purchase_price = if movement_type == "entry" && input.purchase_price > 0.0 {
@@ -164,7 +166,11 @@ pub fn adjust_product_stock(db: State<Database>, input: StockMovementInput) -> A
             delta,
             product.quantity,
             next_quantity,
-            if input.purchase_price > 0.0 { input.purchase_price } else { product.purchase_price },
+            if input.purchase_price > 0.0 {
+                input.purchase_price
+            } else {
+                product.purchase_price
+            },
             input.note.trim(),
         )?;
         get_product(client, input.product_id)
@@ -237,10 +243,14 @@ fn validate_product(client: &mut postgres::Client, input: &ProductInput) -> AppR
         return Err(AppError::Message("Nom et code-barres obligatoires".into()));
     }
     if input.quantity < 0 && !allow_negative_stock(client)? {
-        return Err(AppError::Message("المخزون السالب غير مفعل في الإعدادات".into()));
+        return Err(AppError::Message(
+            "المخزون السالب غير مفعل في الإعدادات".into(),
+        ));
     }
     if input.low_stock_threshold < 0 {
-        return Err(AppError::Message("Les quantites doivent etre positives".into()));
+        return Err(AppError::Message(
+            "Les quantites doivent etre positives".into(),
+        ));
     }
     if input.purchase_price < 0.0 || input.sale_price < 0.0 {
         return Err(AppError::Message("Les prix doivent etre positifs".into()));

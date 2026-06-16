@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowDownCircle, CalendarDays, ChartColumnIncreasing, HandCoins, PackageSearch, ReceiptText, ShoppingCart, Wallet } from "lucide-react";
+import { Activity, ArrowDownCircle, CalendarDays, ChartColumnIncreasing, HandCoins, PackageSearch, ReceiptText, ShoppingCart, Truck, UsersRound, Wallet } from "lucide-react";
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
 import { Language, ReportBucket, ReportData, ReportPeriod } from "../../shared/types";
 
 type Preset = "daily" | "weekly" | "monthly" | "custom";
 
-export function ReportsPage({ language }: { language: Language }) {
+export function ReportsPage({ language: _language }: { language: Language }) {
   const [preset, setPreset] = useState<Preset>("daily");
   const [period, setPeriod] = useState<ReportPeriod>("daily");
   const [fromDate, setFromDate] = useState(todayInputValue);
@@ -79,7 +79,7 @@ export function ReportsPage({ language }: { language: Language }) {
           <button className={preset === "monthly" ? "active" : ""} type="button" onClick={() => setPreset("monthly")}>شهر</button>
           <button className={preset === "custom" ? "active" : ""} type="button" onClick={() => setPreset("custom")}>مخصص</button>
         </div>
-        <select aria-label="Graph" value={period} onChange={(event) => {
+        <select aria-label="نوع الرسم" value={period} onChange={(event) => {
           setPreset("custom");
           setPeriod(event.target.value as ReportPeriod);
         }}>
@@ -96,10 +96,13 @@ export function ReportsPage({ language }: { language: Language }) {
       <section className="stats-grid report-stat-grid business-stat-grid">
         <ReportCard icon={PackageSearch} label="الشراء" value={money(summary?.buying_total ?? 0)} helper="تكلفة السلع المباعة" tone="danger" />
         <ReportCard icon={ShoppingCart} label="البيع" value={money(summary?.selling_total ?? 0)} helper="مجموع التذاكر" tone="success" />
-        <ReportCard icon={ArrowDownCircle} label="المصاريف" value={money(summary?.sortie ?? 0)} helper="المبالغ المدفوعة" tone="danger" />
+        <ReportCard icon={ArrowDownCircle} label="المصاريف" value={money(summary?.sortie ?? 0)} helper="المصاريف ودفعات الموردين" tone="danger" />
         <ReportCard icon={ChartColumnIncreasing} label="الفائدة" value={money(summary?.gain_total ?? 0)} helper="البيع - الشراء - المصاريف" tone={(summary?.gain_total ?? 0) < 0 ? "danger" : "success"} />
         <ReportCard icon={ReceiptText} label="المبيعات" value={String(summary?.sales_count ?? 0)} helper={`متوسط التذكرة ${money(summary?.average_ticket ?? 0)}`} />
         <ReportCard icon={HandCoins} label="الدين المسترجع" value={money(summary?.credit_collected ?? 0)} helper={`المتبقي ${money(summary?.credit_remaining ?? 0)}`} />
+        <ReportCard icon={Truck} label="التوصيل" value={money(summary?.delivery_pending_total ?? 0)} helper={`${summary?.delivery_pending_count ?? 0} في الانتظار · محصل ${money(summary?.delivery_collected ?? 0)}`} />
+        <ReportCard icon={UsersRound} label="شراء الموردين" value={money(summary?.supplier_purchases ?? 0)} helper={`دفعات ${money(summary?.supplier_payments ?? 0)}`} tone="danger" />
+        <ReportCard icon={HandCoins} label="دين الموردين" value={money(summary?.supplier_remaining ?? 0)} helper="المبلغ المتبقي للموردين" tone={(summary?.supplier_remaining ?? 0) > 0 ? "danger" : "success"} />
         <ReportCard icon={PackageSearch} label="قيمة المخزون" value={money(summary?.stock_sale_value ?? 0)} helper={`شراء ${money(summary?.stock_purchase_value ?? 0)}`} />
       </section>
 

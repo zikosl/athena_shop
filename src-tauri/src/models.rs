@@ -21,6 +21,12 @@ pub struct AppSettings {
     pub allow_negative_stock: bool,
     pub cash_register_auto_close_time: String,
     pub max_discount_amount: f64,
+    pub invoice_printer: String,
+    pub barcode_printer: String,
+    pub ui_font_scale: String,
+    pub ui_density: String,
+    pub pos_layout: String,
+    pub pos_cart_width: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -77,6 +83,98 @@ pub struct StockMovement {
     pub unit_purchase_price: f64,
     pub note: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Supplier {
+    pub id: i64,
+    pub name: String,
+    pub phone: String,
+    pub address: String,
+    pub note: String,
+    pub active: bool,
+    pub total_purchases: f64,
+    pub total_paid: f64,
+    pub remaining_amount: f64,
+    pub last_purchase_at: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SupplierInput {
+    pub id: Option<i64>,
+    pub name: String,
+    pub phone: String,
+    pub address: String,
+    pub note: String,
+    pub active: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PurchaseOrderItem {
+    pub id: i64,
+    pub product_id: i64,
+    pub product_name: String,
+    pub barcode: String,
+    pub quantity: i64,
+    pub unit_purchase_price: f64,
+    pub line_total: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PurchaseOrderItemInput {
+    pub product_id: i64,
+    pub quantity: i64,
+    pub unit_purchase_price: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SupplierPayment {
+    pub id: i64,
+    pub supplier_id: i64,
+    pub supplier_name: String,
+    pub purchase_order_id: i64,
+    pub bon_no: String,
+    pub shift_id: Option<i64>,
+    pub amount: f64,
+    pub note: String,
+    pub cashier: String,
+    pub paid_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SupplierPaymentInput {
+    pub purchase_order_id: i64,
+    pub amount: f64,
+    pub note: String,
+    pub cashier: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PurchaseOrder {
+    pub id: i64,
+    pub bon_no: String,
+    pub supplier_id: i64,
+    pub supplier_name: String,
+    pub subtotal: f64,
+    pub paid_amount: f64,
+    pub remaining_amount: f64,
+    pub status: String,
+    pub note: String,
+    pub cashier: String,
+    pub created_at: String,
+    pub confirmed_at: String,
+    pub items: Vec<PurchaseOrderItem>,
+    pub payments: Vec<SupplierPayment>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PurchaseOrderInput {
+    pub id: Option<i64>,
+    pub supplier_id: i64,
+    pub note: String,
+    pub cashier: String,
+    pub items: Vec<PurchaseOrderItemInput>,
 }
 
 #[derive(Debug, Serialize)]
@@ -277,6 +375,9 @@ pub struct DashboardStats {
     pub credit_remaining_total: f64,
     pub credit_payments_today: f64,
     pub credit_payments_yesterday: f64,
+    pub delivery_pending_count: i64,
+    pub delivery_pending_total: f64,
+    pub delivery_collected_today: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -298,6 +399,12 @@ pub struct ReportSummary {
     pub average_ticket: f64,
     pub credit_collected: f64,
     pub credit_remaining: f64,
+    pub delivery_pending_total: f64,
+    pub delivery_pending_count: i64,
+    pub delivery_collected: f64,
+    pub supplier_purchases: f64,
+    pub supplier_payments: f64,
+    pub supplier_remaining: f64,
     pub stock_purchase_value: f64,
     pub stock_sale_value: f64,
 }
@@ -346,6 +453,7 @@ pub struct CashShift {
     pub cash_sales: f64,
     pub credit_payments: f64,
     pub expenses: f64,
+    pub supplier_payments: f64,
     pub status: String,
     pub cashier: String,
 }

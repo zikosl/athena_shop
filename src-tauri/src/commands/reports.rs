@@ -12,7 +12,9 @@ pub fn get_report(db: State<Database>, input: ReportFilter) -> AppResult<ReportD
     let from_date = parse_date(&input.from_date)?;
     let to_date = parse_date(&input.to_date)?;
     if from_date > to_date {
-        return Err(AppError::Message("La date debut doit etre avant la date fin".into()));
+        return Err(AppError::Message(
+            "La date debut doit etre avant la date fin".into(),
+        ));
     }
 
     db.with_client(|client| {
@@ -69,6 +71,46 @@ pub fn get_report(db: State<Database>, input: ReportFilter) -> AppResult<ReportD
                 &[],
             )?
             .get(0);
+        let row = client.query_one(
+            "SELECT COUNT(*)::bigint, COALESCE(SUM(total), 0)::float8
+             FROM sales WHERE sale_type = 'delivery' AND credit_status = 'delivery_pending'",
+            &[],
+        )?;
+        summary.delivery_pending_count = row.get(0);
+        summary.delivery_pending_total = row.get(1);
+        summary.delivery_collected = client
+            .query_one(
+                "SELECT COALESCE(SUM(total), 0)::float8
+                 FROM sales
+                 WHERE sale_type = 'delivery'
+                   AND credit_status = 'delivery_paid'
+                   AND created_at::date BETWEEN $1 AND $2",
+                &[&from_date, &to_date],
+            )?
+            .get(0);
+        summary.supplier_purchases = client
+            .query_one(
+                "SELECT COALESCE(SUM(subtotal), 0)::float8
+                 FROM purchase_orders
+                 WHERE status <> 'draft'
+                   AND confirmed_at::date BETWEEN $1 AND $2",
+                &[&from_date, &to_date],
+            )?
+            .get(0);
+        summary.supplier_payments = client
+            .query_one(
+                "SELECT COALESCE(SUM(amount), 0)::float8
+                 FROM supplier_payments WHERE paid_at::date BETWEEN $1 AND $2",
+                &[&from_date, &to_date],
+            )?
+            .get(0);
+        summary.supplier_remaining = client
+            .query_one(
+                "SELECT COALESCE(SUM(remaining_amount), 0)::float8
+                 FROM purchase_orders WHERE status <> 'draft'",
+                &[],
+            )?
+            .get(0);
 
         let row = client.query_one(
             "SELECT
@@ -116,7 +158,7 @@ fn bucket_totals(client: &mut Client, start: NaiveDate, end: NaiveDate) -> AppRe
          SELECT
            COALESCE(SUM(
              CASE
-               WHEN s.sale_type = 'cash' THEN s.total
+               WHEN s.sale_type IN ('cash', 'delivery') THEN s.total
                ELSE GREATEST(s.paid_amount - COALESCE(p.amount, 0), 0)
              END
            ), 0)::float8,
@@ -124,7 +166,7 @@ fn bucket_totals(client: &mut Client, start: NaiveDate, end: NaiveDate) -> AppRe
            COALESCE(SUM(
              CASE
                WHEN s.total <= 0 THEN 0
-               WHEN s.sale_type = 'cash' THEN s.profit
+               WHEN s.sale_type IN ('cash', 'delivery') THEN s.profit
                ELSE s.profit * GREATEST(s.paid_amount - COALESCE(p.amount, 0), 0) / s.total
              END
            ), 0)::float8,
@@ -133,7 +175,8 @@ fn bucket_totals(client: &mut Client, start: NaiveDate, end: NaiveDate) -> AppRe
            COALESCE(SUM(s.profit), 0)::float8
          FROM sales s
          LEFT JOIN payment_totals p ON p.sale_id = s.id
-         WHERE s.created_at::date BETWEEN $1 AND $2",
+         WHERE s.created_at::date BETWEEN $1 AND $2
+           AND (s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid')",
         &[&start, &end],
     )?;
     let sale_entry: f64 = row.get(0);
@@ -160,13 +203,21 @@ fn bucket_totals(client: &mut Client, start: NaiveDate, end: NaiveDate) -> AppRe
     let credit_entry: f64 = row.get(0);
     let credit_profit: f64 = row.get(1);
 
-    let sortie: f64 = client
+    let expenses: f64 = client
         .query_one(
             "SELECT COALESCE(SUM(amount), 0)::float8
              FROM expenses WHERE expense_date BETWEEN $1 AND $2",
             &[&start, &end],
         )?
         .get(0);
+    let supplier_payments: f64 = client
+        .query_one(
+            "SELECT COALESCE(SUM(amount), 0)::float8
+             FROM supplier_payments WHERE paid_at::date BETWEEN $1 AND $2",
+            &[&start, &end],
+        )?
+        .get(0);
+    let sortie = expenses + supplier_payments;
 
     Ok(BucketTotals {
         entry: sale_entry + credit_entry,
@@ -179,12 +230,17 @@ fn bucket_totals(client: &mut Client, start: NaiveDate, end: NaiveDate) -> AppRe
     })
 }
 
-fn top_products(client: &mut Client, from_date: NaiveDate, to_date: NaiveDate) -> AppResult<Vec<ReportTopItem>> {
+fn top_products(
+    client: &mut Client,
+    from_date: NaiveDate,
+    to_date: NaiveDate,
+) -> AppResult<Vec<ReportTopItem>> {
     let rows = client.query(
         "SELECT si.product_name, SUM(si.quantity)::bigint, COALESCE(SUM(si.line_total), 0)::float8
          FROM sale_items si
          JOIN sales s ON s.id = si.sale_id
          WHERE s.created_at::date BETWEEN $1 AND $2
+           AND (s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid')
          GROUP BY si.product_name
          ORDER BY COALESCE(SUM(si.line_total), 0) DESC, SUM(si.quantity) DESC
          LIMIT 5",
@@ -225,7 +281,11 @@ fn build_advice(summary: &ReportSummary) -> Vec<String> {
     advice
 }
 
-fn bucket_ranges(period: &str, from_date: NaiveDate, to_date: NaiveDate) -> Vec<(NaiveDate, NaiveDate)> {
+fn bucket_ranges(
+    period: &str,
+    from_date: NaiveDate,
+    to_date: NaiveDate,
+) -> Vec<(NaiveDate, NaiveDate)> {
     let mut ranges = Vec::new();
     let mut cursor = from_date;
     while cursor <= to_date {

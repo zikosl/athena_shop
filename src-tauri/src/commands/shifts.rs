@@ -124,9 +124,10 @@ fn get_shift(client: &mut Client, id: i64) -> AppResult<CashShift> {
          ),
          sales_totals AS (
            SELECT shift_id,
-                  COALESCE(SUM(CASE WHEN sale_type = 'cash' THEN total ELSE GREATEST(paid_amount - COALESCE(spt.amount, 0), 0) END), 0)::float8 AS amount
+                  COALESCE(SUM(CASE WHEN sale_type IN ('cash', 'delivery') THEN total ELSE GREATEST(paid_amount - COALESCE(spt.amount, 0), 0) END), 0)::float8 AS amount
            FROM sales s
            LEFT JOIN sale_payment_totals spt ON spt.sale_id = s.id
+           WHERE s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid'
            GROUP BY shift_id
          ),
          payment_totals AS (
@@ -134,16 +135,21 @@ fn get_shift(client: &mut Client, id: i64) -> AppResult<CashShift> {
          ),
          expense_totals AS (
            SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount FROM expenses GROUP BY shift_id
+         ),
+         supplier_payment_totals AS (
+           SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount FROM supplier_payments GROUP BY shift_id
          )
          SELECT cs.id, cs.opened_at::text, COALESCE(cs.closed_at::text, ''), cs.auto_close_at::text,
                 cs.opening_amount, cs.closing_amount,
-                cs.opening_amount + COALESCE(st.amount, 0) + COALESCE(pt.amount, 0) - COALESCE(et.amount, 0),
+                cs.opening_amount + COALESCE(st.amount, 0) + COALESCE(pt.amount, 0) - COALESCE(et.amount, 0) - COALESCE(spt2.amount, 0),
                 COALESCE(st.amount, 0), COALESCE(pt.amount, 0), COALESCE(et.amount, 0),
+                COALESCE(spt2.amount, 0),
                 cs.status, cs.cashier
          FROM cash_shifts cs
          LEFT JOIN sales_totals st ON st.shift_id = cs.id
          LEFT JOIN payment_totals pt ON pt.shift_id = cs.id
          LEFT JOIN expense_totals et ON et.shift_id = cs.id
+         LEFT JOIN supplier_payment_totals spt2 ON spt2.shift_id = cs.id
          WHERE cs.id = $1",
         &[&id],
     )?;
@@ -162,7 +168,8 @@ fn shift_from_row(row: &Row) -> CashShift {
         cash_sales: row.get(7),
         credit_payments: row.get(8),
         expenses: row.get(9),
-        status: row.get(10),
-        cashier: row.get(11),
+        supplier_payments: row.get(10),
+        status: row.get(11),
+        cashier: row.get(12),
     }
 }

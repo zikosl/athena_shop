@@ -1,7 +1,7 @@
 import { type ChangeEvent, useEffect, useMemo, useState } from "react";
-import { Calculator, HandCoins, Landmark, PackageCheck, Scale, WalletCards } from "lucide-react";
+import { Calculator, CalendarDays, HandCoins, Landmark, PackageCheck, Scale, WalletCards } from "lucide-react";
 import { api } from "../../shared/api";
-import { money } from "../../shared/format";
+import { addHijriYear, hijriDateLabel, money, todayInputValue } from "../../shared/format";
 import { CashShift, CreditAccount, Language, Product } from "../../shared/types";
 
 type StockValuationMode = "purchase" | "sale" | "custom";
@@ -29,6 +29,7 @@ export function ZakatPage({ language }: { language: Language }) {
   const [extraAssets, setExtraAssets] = useState(0);
   const [debtsToPay, setDebtsToPay] = useState(0);
   const [nisab, setNisab] = useState(0);
+  const [lastZakatDate, setLastZakatDate] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -40,6 +41,11 @@ export function ZakatPage({ language }: { language: Language }) {
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
+
+  const today = useMemo(() => new Date(), []);
+  const hijriToday = hijriDateLabel(today, language);
+  const nextZakatDate = lastZakatDate ? addHijriYear(new Date(lastZakatDate)) : null;
+  const hijriCycleComplete = !nextZakatDate || today >= nextZakatDate;
 
   const totals = useMemo(() => {
     const purchaseStockValue = products.reduce((sum, product) => (
@@ -56,7 +62,8 @@ export function ZakatPage({ language }: { language: Language }) {
         ? saleStockValue
         : customStockValue;
     const zakatBase = Math.max(0, selectedStockValue + collectibleDebt + caisseCash + extraAssets - debtsToPay);
-    const eligible = nisab > 0 && zakatBase >= nisab;
+    const reachedNisab = nisab > 0 && zakatBase >= nisab;
+    const eligible = reachedNisab && hijriCycleComplete;
 
     return {
       purchaseStockValue,
@@ -65,27 +72,27 @@ export function ZakatPage({ language }: { language: Language }) {
       caisseCash,
       selectedStockValue,
       zakatBase,
+      reachedNisab,
       eligible,
       zakatDue: eligible ? zakatBase * 0.025 : 0
     };
-  }, [credits, customStockValue, debtsToPay, extraAssets, nisab, products, shift, stockMode]);
-
-  const locale = language === "ar" ? "ar-DZ" : "fr-DZ";
+  }, [credits, customStockValue, debtsToPay, extraAssets, hijriCycleComplete, nisab, products, shift, stockMode]);
 
   return (
     <div className="zakat-page">
       <section className="panel zakat-hero">
         <div>
           <p className="eyebrow"><Scale size={16} /> الزكاة</p>
-          <h2>حساب زكاة المتجر بطريقة بسيطة</h2>
+          <h2>حساب زكاة المتجر حسب السنة الهجرية</h2>
           <p>
-            اجمع قيمة البضاعة المعدة للبيع، الديون القابلة للتحصيل، والصندوق، ثم اطرح الديون الواجبة الدفع. إذا بلغ المجموع النصاب فالزكاة المقدرة هي 2.5%.
+            الزكاة تكون بعد مرور حول هجري كامل على المال الذي بلغ النصاب. اجمع قيمة البضاعة المعدة للبيع، الديون القابلة للتحصيل،
+            والصندوق، ثم اطرح الديون الواجبة الدفع. عند بلوغ النصاب واكتمال الحول تكون الزكاة المقدرة 2.5%.
           </p>
         </div>
         <article className={`zakat-status ${totals.eligible ? "ok" : "warning"}`}>
-          <span>{totals.eligible ? "بلغ النصاب" : "لم يبلغ النصاب"}</span>
+          <span>{totals.eligible ? "الزكاة واجبة الآن" : totals.reachedNisab ? "النصاب موجود، تحقق من الحول" : "لم يبلغ النصاب"}</span>
           <strong>{money(totals.zakatDue)}</strong>
-          <small>الزكاة المقدرة إلى غاية {new Date().toLocaleDateString(locale)}</small>
+          <small>تاريخ اليوم الهجري: {hijriToday}</small>
         </article>
       </section>
 
@@ -96,6 +103,7 @@ export function ZakatPage({ language }: { language: Language }) {
         <article><span><HandCoins size={15} /> ديون قابلة للتحصيل</span><strong>{money(totals.collectibleDebt)}</strong></article>
         <article><span><WalletCards size={15} /> الصندوق المفتوح</span><strong>{money(totals.caisseCash)}</strong></article>
         <article><span><Landmark size={15} /> وعاء الزكاة</span><strong>{money(totals.zakatBase)}</strong></article>
+        <article><span><CalendarDays size={15} /> الحول الهجري</span><strong>{hijriCycleComplete ? "مكتمل" : "غير مكتمل"}</strong></article>
         <article><span><Calculator size={15} /> الزكاة 2.5%</span><strong>{money(totals.zakatDue)}</strong></article>
       </section>
 
@@ -128,6 +136,15 @@ export function ZakatPage({ language }: { language: Language }) {
 
           <div className="zakat-input-grid">
             <label>
+              <span>آخر تاريخ أخرجت فيه الزكاة</span>
+              <div className="field"><input type="date" value={lastZakatDate} onChange={(event) => setLastZakatDate(event.target.value)} /></div>
+              <small className="helper-text">
+                {nextZakatDate
+                  ? `موعد الزكاة القادم تقريبا: ${hijriDateLabel(nextZakatDate, language)}`
+                  : "اتركه فارغا إذا كانت هذه أول مرة تحسب فيها الزكاة."}
+              </small>
+            </label>
+            <label>
               <span>أموال إضافية في البنك أو الخزنة</span>
               <div className="field"><input {...numericInput(extraAssets, setExtraAssets)} /></div>
             </label>
@@ -148,10 +165,10 @@ export function ZakatPage({ language }: { language: Language }) {
             <span />
           </div>
           <ol>
-            <li>اختر هل تريد تقييم البضاعة بسعر البيع أو الشراء أو إدخال قيمة يدوية.</li>
-            <li>أضف الأموال خارج التطبيق، مثل البنك أو الخزنة.</li>
-            <li>اكتب الديون والفواتير الواجبة الدفع قبل حساب الزكاة.</li>
-            <li>أدخل قيمة النصاب حسب الذهب أو الفضة التي تعتمدها.</li>
+            <li>أدخل آخر تاريخ أخرجت فيه الزكاة حتى يحسب النظام حول السنة الهجرية.</li>
+            <li>اختر تقييم البضاعة بسعر البيع أو الشراء أو أدخل قيمة يدوية.</li>
+            <li>أضف الأموال خارج التطبيق مثل البنك أو الخزنة، ثم اطرح الديون الواجبة الدفع.</li>
+            <li>أدخل قيمة النصاب المعتمد حسب الذهب أو الفضة التي تعتمدها.</li>
           </ol>
           <p className="helper-text">
             هذه أداة مساعدة وليست فتوى. راجع إمامك أو مستشارك الشرعي للحالات الخاصة مثل الديون، البضاعة الراكدة، أو الشركاء.

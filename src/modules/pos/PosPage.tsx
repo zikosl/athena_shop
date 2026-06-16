@@ -23,7 +23,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [perfumeCart, setPerfumeCart] = useState<PerfumeCartItem[]>([]);
   const [discount, setDiscount] = useState(0);
-  const [saleType, setSaleType] = useState<"cash" | "credit">("cash");
+  const [saleType, setSaleType] = useState<"cash" | "credit" | "delivery">("cash");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [paidAmount, setPaidAmount] = useState(0);
@@ -85,7 +85,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
     discount < 0 ||
     discount > maxDiscount ||
     discount > subtotal ||
-    (saleType === "credit" && (!customerName.trim() || paidAmount < 0 || paidAmount > total));
+    ((saleType === "credit" || saleType === "delivery") && (!customerName.trim() || paidAmount < 0 || paidAmount > total));
 
   function addProduct(product: Product) {
     if (!allowNegativeStock && product.quantity <= 0) return;
@@ -148,7 +148,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
         })),
         discount,
         sale_type: saleType,
-        paid_amount: saleType === "cash" ? total : normalizedPaid,
+        paid_amount: saleType === "cash" || saleType === "delivery" ? (saleType === "cash" ? total : 0) : normalizedPaid,
         customer_name: customerName,
         customer_phone: customerPhone,
         due_date: dueDate,
@@ -219,7 +219,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
               </span>
               <strong>{product.name}</strong>
               <em><Barcode size={13} /> {product.barcode}</em>
-              <small>{product.quantity} pcs · {money(product.sale_price)}</small>
+              <small>{product.quantity} قطعة · {money(product.sale_price)}</small>
             </button>
           ))}
         </div>
@@ -284,23 +284,25 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
           <div className="segmented wide">
             <button className={saleType === "cash" ? "active" : ""} type="button" onClick={() => setSaleType("cash")}>{t.cash}</button>
             <button className={saleType === "credit" ? "active" : ""} type="button" onClick={() => setSaleType("credit")}>{t.credit}</button>
+            <button className={saleType === "delivery" ? "active" : ""} type="button" onClick={() => setSaleType("delivery")}>التوصيل</button>
           </div>
         </label>
-        {saleType === "credit" && (
+        {(saleType === "credit" || saleType === "delivery") && (
           <div className="credit-fields">
             <label><span>{t.customer}</span><div className="field"><input value={customerName} onChange={(event) => setCustomerName(event.target.value)} /></div></label>
             <label><span>{t.phone}</span><div className="field"><input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} /></div></label>
-            <label><span>{t.paidNow}</span><div className="field"><input type="number" min={0} max={total} value={paidAmount === 0 ? "" : paidAmount} onChange={(event) => setPaidAmount(Number(event.target.value))} /></div></label>
-            <label><span>{t.dueDate}</span><div className="field"><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></div></label>
-            <label className="full-field"><span>{t.note}</span><textarea value={creditNote} onChange={(event) => setCreditNote(event.target.value)} /></label>
+            {saleType === "credit" && <label><span>{t.paidNow}</span><div className="field"><input type="number" min={0} max={total} value={paidAmount === 0 ? "" : paidAmount} onChange={(event) => setPaidAmount(Number(event.target.value))} /></div></label>}
+            {saleType === "credit" && <label><span>{t.dueDate}</span><div className="field"><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></div></label>}
+            <label className="full-field"><span>{saleType === "delivery" ? "العنوان / ملاحظة التوصيل" : t.note}</span><textarea value={creditNote} onChange={(event) => setCreditNote(event.target.value)} /></label>
           </div>
         )}
         <div className="totals">
           <span>{t.subtotal} <b>{money(subtotal)}</b></span>
           {saleType === "credit" && <span>{t.remaining} <b>{money(creditRemaining)}</b></span>}
+          {saleType === "delivery" && <span>توصيل في الانتظار <b>{money(total)}</b></span>}
           <span>{t.total} <strong>{money(total)}</strong></span>
         </div>
-        {saleType === "credit" && !customerName.trim() && <p className="helper-text">{t.requiredCreditCustomer}</p>}
+        {(saleType === "credit" || saleType === "delivery") && !customerName.trim() && <p className="helper-text">{t.requiredCreditCustomer}</p>}
         {discount > maxDiscount && <p className="error">{t.discountMax.replace("200", String(maxDiscount))}</p>}
         {discount > subtotal && <p className="error">{t.discountTooHigh}</p>}
         {error && <p className="error">{error}</p>}
@@ -332,8 +334,8 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
     <div className="modal-backdrop">
       <section className="receipt-modal">
         <div className="receipt-paper" id="receipt">
-          <h2>ياسين لافار</h2>
-          <p>متجر الأقمصة والعطور</p>
+          <h2>J'3JF D'A'1</h2>
+          <p>E*,1 'D#BE5) H'D97H1</p>
           <small>{sale.receipt_no} · {sale.created_at}</small>
           <hr />
           {sale.items.map((item, index) => (

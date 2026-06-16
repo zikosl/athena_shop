@@ -186,7 +186,44 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           after_quantity BIGINT NOT NULL,
           unit_purchase_price DOUBLE PRECISION NOT NULL DEFAULT 0,
           note TEXT NOT NULL DEFAULT '',
+          reference_type TEXT NOT NULL DEFAULT '',
+          reference_id BIGINT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS suppliers (
+          id BIGSERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          phone TEXT NOT NULL DEFAULT '',
+          address TEXT NOT NULL DEFAULT '',
+          note TEXT NOT NULL DEFAULT '',
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS purchase_orders (
+          id BIGSERIAL PRIMARY KEY,
+          bon_no TEXT NOT NULL UNIQUE,
+          supplier_id BIGINT NOT NULL REFERENCES suppliers(id),
+          subtotal DOUBLE PRECISION NOT NULL DEFAULT 0,
+          paid_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+          remaining_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'draft',
+          note TEXT NOT NULL DEFAULT '',
+          cashier TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          confirmed_at TIMESTAMPTZ
+        );
+
+        CREATE TABLE IF NOT EXISTS purchase_order_items (
+          id BIGSERIAL PRIMARY KEY,
+          purchase_order_id BIGINT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+          product_id BIGINT NOT NULL REFERENCES products(id),
+          product_name TEXT NOT NULL,
+          barcode TEXT NOT NULL,
+          quantity BIGINT NOT NULL,
+          unit_purchase_price DOUBLE PRECISION NOT NULL,
+          line_total DOUBLE PRECISION NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS expenses (
@@ -296,6 +333,17 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           cashier TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS supplier_payments (
+          id BIGSERIAL PRIMARY KEY,
+          supplier_id BIGINT NOT NULL REFERENCES suppliers(id),
+          purchase_order_id BIGINT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+          shift_id BIGINT REFERENCES cash_shifts(id),
+          amount DOUBLE PRECISION NOT NULL,
+          note TEXT NOT NULL DEFAULT '',
+          cashier TEXT NOT NULL,
+          paid_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
         CREATE TABLE IF NOT EXISTS app_meta (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL
@@ -308,6 +356,8 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
         ALTER TABLE sales ADD COLUMN IF NOT EXISTS shift_id BIGINT REFERENCES cash_shifts(id);
         ALTER TABLE expenses ADD COLUMN IF NOT EXISTS shift_id BIGINT REFERENCES cash_shifts(id);
         ALTER TABLE credit_payments ADD COLUMN IF NOT EXISTS shift_id BIGINT REFERENCES cash_shifts(id);
+        ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS reference_type TEXT NOT NULL DEFAULT '';
+        ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS reference_id BIGINT;
         ",
     )?;
     Ok(())

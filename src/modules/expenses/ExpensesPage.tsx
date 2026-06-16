@@ -52,7 +52,7 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
     event.preventDefault();
     setError("");
     if (!form.label.trim() || form.amount <= 0) {
-      setError("Libelle et montant valides obligatoires");
+      setError("التسمية والمبلغ الصحيحان إجباريان");
       return;
     }
     try {

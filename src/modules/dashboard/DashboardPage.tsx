@@ -1,5 +1,17 @@
 import { useEffect, useState } from "react";
-import { Box, ChartColumnIncreasing, ShoppingCart, Wallet, Coins, AlertTriangle, HandCoins, ReceiptText, SprayCan } from "lucide-react";
+import {
+  AlertTriangle,
+  Box,
+  ChartColumnIncreasing,
+  Coins,
+  HandCoins,
+  ReceiptText,
+  ShoppingCart,
+  SprayCan,
+  Truck,
+  UsersRound,
+  Wallet
+} from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
@@ -24,8 +36,10 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
     { key: "stock" as ViewKey, title: t.modules.stockTitle, icon: Box, text: t.modules.stockText },
     { key: "perfumery" as ViewKey, title: t.modules.perfumeryTitle, icon: SprayCan, text: t.modules.perfumeryText },
     { key: "pos" as ViewKey, title: t.modules.posTitle, icon: ShoppingCart, text: t.modules.posText },
+    { key: "delivery" as ViewKey, title: t.modules.deliveryTitle, icon: Truck, text: t.modules.deliveryText },
     { key: "revenue" as ViewKey, title: t.modules.revenueTitle, icon: ChartColumnIncreasing, text: t.modules.revenueText },
     { key: "reports" as ViewKey, title: t.modules.reportsTitle, icon: ReceiptText, text: t.modules.reportsText },
+    { key: "suppliers" as ViewKey, title: t.modules.suppliersTitle, icon: UsersRound, text: t.modules.suppliersText },
     { key: "expenses" as ViewKey, title: t.modules.expensesTitle, icon: Wallet, text: t.modules.expensesText },
     { key: "credits" as ViewKey, title: t.modules.creditsTitle, icon: HandCoins, text: t.modules.creditsText }
   ];
@@ -73,8 +87,27 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
       trend: trendLabel(stats?.credit_payments_today ?? 0, stats?.credit_payments_yesterday ?? 0),
       danger: false
     },
-    { label: t.totalToCollect, value: money(stats?.credit_remaining_total ?? 0), icon: HandCoins, trend: `${stats?.open_credit_count ?? 0} ${t.credit}`, danger: (stats?.open_credit_count ?? 0) > 0 },
-    { label: t.lowStock, value: String(stats?.low_stock_count ?? 0), icon: AlertTriangle, trend: t.alerts, danger: (stats?.low_stock_count ?? 0) > 0 }
+    {
+      label: t.totalToCollect,
+      value: money(stats?.credit_remaining_total ?? 0),
+      icon: HandCoins,
+      trend: `${stats?.open_credit_count ?? 0} ${t.credit}`,
+      danger: (stats?.open_credit_count ?? 0) > 0
+    },
+    {
+      label: t.delivery,
+      value: money(stats?.delivery_pending_total ?? 0),
+      icon: Truck,
+      trend: `${stats?.delivery_pending_count ?? 0} ${t.pending}`,
+      danger: (stats?.delivery_pending_count ?? 0) > 0
+    },
+    {
+      label: t.lowStock,
+      value: String(stats?.low_stock_count ?? 0),
+      icon: AlertTriangle,
+      trend: t.alerts,
+      danger: (stats?.low_stock_count ?? 0) > 0
+    }
   ];
 
   return (
@@ -87,7 +120,7 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
               <div className="module-icon"><Icon size={48} /></div>
               <h3>{module.title}</h3>
               <p>{module.text}</p>
-              <button onClick={() => onNavigate(module.key)}>{t.access}<span>→</span></button>
+              <button onClick={() => onNavigate(module.key)}>{t.access}<span>←</span></button>
             </article>
           );
         })}
@@ -101,6 +134,7 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
             return (
               <article className="stat-card" key={card.label} onClick={() => {
                 if (card.label === t.totalToCollect || card.label === t.paymentsToday) onNavigate("credits");
+                if (card.label === t.delivery) onNavigate("delivery");
                 if (card.label === t.lowStock) onOpenAlerts();
               }}>
                 <div className="stat-icon"><Icon size={23} /></div>
@@ -108,7 +142,7 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
                   <p>{card.label}</p>
                   <strong>{card.value}</strong>
                   <em className={card.danger ? "danger" : "success"}>{card.trend}</em>
-                  <small>{card.label === t.totalToCollect || card.label === t.lowStock ? t.alerts : t.vsYesterday}</small>
+                  <small>{card.label === t.totalToCollect || card.label === t.lowStock || card.label === t.delivery ? t.alerts : t.vsYesterday}</small>
                 </div>
               </article>
             );

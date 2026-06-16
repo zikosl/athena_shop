@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bell,
   Box,
@@ -19,12 +19,15 @@ import {
   Scale,
   SprayCan,
   Sun,
+  Truck,
+  UsersRound,
   Wallet,
   X
 } from "lucide-react";
 import { DatabaseSetupPage } from "../modules/auth/DatabaseSetupPage";
 import { LoginPage } from "../modules/auth/LoginPage";
 import { DashboardPage } from "../modules/dashboard/DashboardPage";
+import { DeliveryPage } from "../modules/delivery/DeliveryPage";
 import { ExpensesPage } from "../modules/expenses/ExpensesPage";
 import { CreditsPage } from "../modules/credits/CreditsPage";
 import { PosPage } from "../modules/pos/PosPage";
@@ -33,12 +36,13 @@ import { ReportsPage } from "../modules/reports/ReportsPage";
 import { RevenuePage } from "../modules/revenue/RevenuePage";
 import { SettingsPage } from "../modules/settings/SettingsPage";
 import { StockPage } from "../modules/stock/StockPage";
+import { SuppliersPage } from "../modules/suppliers/SuppliersPage";
 import { ZakatPage } from "../modules/zakat/ZakatPage";
 import { api } from "../shared/api";
-import { appDateLabel, money } from "../shared/format";
+import { appDateLabel, hijriDateLabel, money } from "../shared/format";
 import { useText } from "../shared/i18n";
 import { AppToast, showToast } from "../shared/toast";
-import { CashShift, Language, ProductStockFilter, UserSession, ViewKey } from "../shared/types";
+import { AppSettings, CashShift, Language, ProductStockFilter, UserSession, ViewKey } from "../shared/types";
 import annaStoreLogo from "../assets/anna-store-logo.png";
 import openzeyLogo from "../assets/openzey-logo.png";
 import openzeyLogoWhite from "../assets/openzey-logo-white.png";
@@ -46,9 +50,11 @@ import openzeyLogoWhite from "../assets/openzey-logo-white.png";
 const nav = [
   { key: "dashboard", icon: Home },
   { key: "pos", icon: ShoppingCart },
+  { key: "delivery", icon: Truck },
   { key: "revenue", icon: ChartColumnIncreasing },
   { key: "credits", icon: HandCoins },
   { key: "expenses", icon: Wallet },
+  { key: "suppliers", icon: UsersRound },
   { key: "stock", icon: Box },
   { key: "perfumery", icon: SprayCan },
   { key: "reports", icon: ReceiptText },
@@ -57,6 +63,18 @@ const nav = [
 ] as const;
 
 type Theme = "dark" | "light";
+
+const defaultAppSettings: AppSettings = {
+  allow_negative_stock: true,
+  cash_register_auto_close_time: "23:59",
+  max_discount_amount: 200,
+  invoice_printer: "",
+  barcode_printer: "",
+  ui_font_scale: "normal",
+  ui_density: "comfortable",
+  pos_layout: "auto",
+  pos_cart_width: 320
+};
 
 export function App() {
   const [language] = useState<Language>("ar");
@@ -84,6 +102,7 @@ export function App() {
   const [infoOpen, setInfoOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [toasts, setToasts] = useState<AppToast[]>([]);
+  const [appSettings, setAppSettings] = useState<AppSettings>(defaultAppSettings);
   const t = useText(language);
 
   useEffect(() => {
@@ -129,6 +148,9 @@ export function App() {
     api.currentShift()
       .then(setShift)
       .catch(() => setShift(null));
+    api.appSettings()
+      .then((settings) => setAppSettings({ ...defaultAppSettings, ...settings }))
+      .catch(() => setAppSettings(defaultAppSettings));
   }, [refreshToken, user]);
 
   const refresh = useCallback(() => setRefreshToken((token) => token + 1), []);
@@ -181,12 +203,14 @@ export function App() {
     if (view === "stock") return <StockPage language={language} onChanged={refresh} initialStockFilter={stockFilter} />;
     if (view === "perfumery") return <PerfumeryPage language={language} onChanged={refresh} />;
     if (view === "pos") return <PosPage language={language} user={user} onSale={refresh} />;
+    if (view === "delivery") return <DeliveryPage language={language} onChanged={refresh} />;
     if (view === "revenue") return <RevenuePage language={language} onChanged={refresh} />;
     if (view === "reports") return <ReportsPage language={language} />;
     if (view === "expenses") return <ExpensesPage language={language} onChanged={refresh} />;
+    if (view === "suppliers") return <SuppliersPage language={language} user={user} onChanged={refresh} />;
     if (view === "credits") return <CreditsPage language={language} user={user} onChanged={refresh} />;
     if (view === "zakat") return <ZakatPage language={language} />;
-    return <SettingsPage language={language} user={user} onUserChanged={updateUserSession} />;
+    return <SettingsPage language={language} user={user} onUserChanged={updateUserSession} onSettingsChanged={setAppSettings} />;
   }, [language, openStockAlerts, refresh, refreshToken, stockFilter, updateUserSession, user, view]);
 
   if (databaseConfigured === null) {
@@ -205,7 +229,17 @@ export function App() {
   }
 
   return (
-    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onContextMenu={(event) => event.preventDefault()}>
+    <div
+      className={[
+        "app-shell",
+        sidebarCollapsed ? "sidebar-collapsed" : "",
+        `ui-font-${appSettings.ui_font_scale}`,
+        `ui-density-${appSettings.ui_density}`,
+        `ui-pos-${appSettings.pos_layout}`
+      ].filter(Boolean).join(" ")}
+      style={{ "--pos-cart-width": `${appSettings.pos_cart_width}px` } as CSSProperties}
+      onContextMenu={(event) => event.preventDefault()}
+    >
       <aside className="sidebar">
         <div className="brand-mark">
           <div className="brand-logo-frame">
@@ -298,6 +332,7 @@ export function App() {
               <span>{saveStatus || t.saveData}</span>
             </button>
             <div className="glass-pill"><ReceiptText size={17} />{appDateLabel(now, language)}</div>
+            <div className="glass-pill"><Scale size={17} />{hijriDateLabel(now, language)}</div>
             <div className="glass-pill"><CreditCard size={17} />{t.admin}</div>
           </section>
         </header>
@@ -431,6 +466,7 @@ function CashShiftModal({
               <article><span>مبيعات نقدية</span><strong>{money(shift.cash_sales)}</strong></article>
               <article><span>دفعات الدين</span><strong>{money(shift.credit_payments)}</strong></article>
               <article><span>المصاريف</span><strong>{money(shift.expenses)}</strong></article>
+              <article><span>دفعات الموردين</span><strong>{money(shift.supplier_payments)}</strong></article>
               <article><span>المبلغ المتوقع</span><strong>{money(shift.expected_amount)}</strong></article>
               <article><span>الغلق التلقائي</span><strong>{shift.auto_close_at.slice(0, 16)}</strong></article>
             </div>

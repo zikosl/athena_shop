@@ -53,7 +53,11 @@ pub fn update_profile(db: State<Database>, input: ProfileInput) -> AppResult<Use
         if input.password.trim().is_empty() {
             client.execute(
                 "UPDATE users SET username = $1, display_name = $2 WHERE id = $3",
-                &[&input.username.trim(), &input.display_name.trim(), &input.id],
+                &[
+                    &input.username.trim(),
+                    &input.display_name.trim(),
+                    &input.id,
+                ],
             )?;
         } else {
             let salt = random_salt();

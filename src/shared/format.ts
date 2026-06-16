@@ -18,3 +18,17 @@ export function appDateLabel(date: Date, language: Language) {
     year: "numeric"
   }).format(date);
 }
+
+export function hijriDateLabel(date: Date, language: Language = "ar") {
+  return new Intl.DateTimeFormat(language === "ar" ? "ar-SA-u-ca-islamic-umalqura" : "fr-DZ-u-ca-islamic-umalqura", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric"
+  }).format(date);
+}
+
+export function addHijriYear(date: Date) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + 354);
+  return next;
+}

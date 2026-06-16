@@ -7,4 +7,5 @@ pub mod products;
 pub mod reports;
 pub mod sales;
 pub mod shifts;
+pub mod suppliers;
 pub mod system;
