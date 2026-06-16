@@ -1,10 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
-import { DatabaseZap, LayoutPanelLeft, PackageMinus, Plus, Printer, Save, SlidersHorizontal, SprayCan, Trash2, UserRound } from "lucide-react";
+import { DatabaseZap, LayoutPanelLeft, PackageMinus, Printer, Save, SlidersHorizontal, Trash2, UserRound } from "lucide-react";
 import { api } from "../../shared/api";
 import { useText } from "../../shared/i18n";
-import { AppSettings, Flacon, FlaconInput, Language, UserSession } from "../../shared/types";
-
-const emptyFlacon: FlaconInput = { name: "", volume_ml: 0, active: true };
+import { AppSettings, Language, UserSession } from "../../shared/types";
 
 const defaultSettings: AppSettings = {
   allow_negative_stock: true,
@@ -35,8 +33,6 @@ export function SettingsPage({
     display_name: user.display_name,
     password: ""
   });
-  const [flacons, setFlacons] = useState<Flacon[]>([]);
-  const [flaconForm, setFlaconForm] = useState<FlaconInput>(emptyFlacon);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [dataStatus, setDataStatus] = useState("");
@@ -46,10 +42,7 @@ export function SettingsPage({
   const [settingsStatus, setSettingsStatus] = useState("");
   const [settingsError, setSettingsError] = useState("");
 
-  const loadFlacons = () => api.flacons().then(setFlacons);
-
   useEffect(() => {
-    loadFlacons().catch((err) => setError(err instanceof Error ? err.message : String(err)));
     api.appSettings()
       .then((saved) => {
         const normalized = { ...defaultSettings, ...saved };
@@ -86,18 +79,6 @@ export function SettingsPage({
     }
   }
 
-  async function saveFlacon(event: FormEvent) {
-    event.preventDefault();
-    setError("");
-    try {
-      await api.saveFlacon(flaconForm);
-      setFlaconForm(emptyFlacon);
-      await loadFlacons();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
   async function saveSettings() {
     setSettingsStatus("");
     setSettingsError("");
@@ -118,7 +99,6 @@ export function SettingsPage({
     if (!window.confirm("هل تريد إعادة تهيئة قاعدة البيانات ببيانات تجريبية؟ سيتم استبدال المنتجات والمبيعات والديون والمصاريف الحالية.")) return;
     try {
       await api.resetWithDummyData();
-      await loadFlacons();
       setDataStatus("تمت إعادة التهيئة ببيانات تجريبية.");
     } catch (err) {
       setDataError(err instanceof Error ? err.message : String(err));
@@ -131,8 +111,6 @@ export function SettingsPage({
     if (!window.confirm("تأكيد نهائي: هل تريد تفريغ قاعدة البيانات بالكامل؟ سيتم حذف المنتجات، المبيعات، المصاريف، الديون، العطور، والقوارير. حساب المدير سيبقى محفوظا.")) return;
     try {
       await api.emptyDatabase();
-      await loadFlacons();
-      setFlaconForm(emptyFlacon);
       setDataStatus("تم تفريغ قاعدة البيانات بنجاح.");
     } catch (err) {
       setDataError(err instanceof Error ? err.message : String(err));
@@ -274,28 +252,6 @@ export function SettingsPage({
           {!printers.length && <p className="helper-text">لم يتم العثور على طابعات. تأكد من إعدادات Windows ثم أعد فتح الصفحة.</p>}
           <button className="gold-button" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</button>
         </div>
-      </article>
-
-      <article className="setting-row flacon-settings">
-        <div><SprayCan size={22} /><strong>قوارير العطور</strong><span>أحجام قابلة للاستعمال في نقطة بيع العطور.</span></div>
-        <form className="flacon-form" onSubmit={saveFlacon}>
-          <label><span>الاسم</span><div className="field"><input placeholder="6ml" value={flaconForm.name} onChange={(event) => setFlaconForm({ ...flaconForm, name: event.target.value })} /></div></label>
-          <label><span>الحجم ml</span><div className="field"><input type="number" min={0} step="0.1" value={flaconForm.volume_ml === 0 ? "" : flaconForm.volume_ml} onChange={(event) => setFlaconForm({ ...flaconForm, volume_ml: Number(event.target.value) })} /></div></label>
-          <button className="gold-button" disabled={!flaconForm.name.trim() || flaconForm.volume_ml <= 0}><Plus size={17} /> إضافة قارورة</button>
-        </form>
-        <div className="flacon-list">
-          {flacons.map((flacon) => (
-            <button key={flacon.id} type="button" className="credit-row" onClick={() => setFlaconForm({ id: flacon.id, name: flacon.name, volume_ml: flacon.volume_ml, active: flacon.active })}>
-              <span><strong>{flacon.name}</strong><small>{flacon.volume_ml} ml</small></span>
-              <span className={`status-pill ${flacon.active ? "ok" : "warning"}`}>{flacon.active ? "نشط" : "غير نشط"}</span>
-            </button>
-          ))}
-        </div>
-        {flaconForm.id && (
-          <button className="ghost-button compact-button" type="button" onClick={() => setFlaconForm(emptyFlacon)}>
-            <Save size={16} /> قارورة جديدة
-          </button>
-        )}
       </article>
 
       <article className="setting-row debug-reset-row">

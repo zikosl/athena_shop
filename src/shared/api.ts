@@ -13,6 +13,8 @@ import {
   FlaconInput,
   Perfume,
   PerfumeInput,
+  PerfumePurchase,
+  PerfumePurchaseInput,
   PostgresConfig,
   ProfileInput,
   Product,
@@ -59,6 +61,7 @@ type Db = {
   creditPayments: CreditAccount["payments"];
   flacons: Flacon[];
   perfumes: Perfume[];
+  perfumePurchases: PerfumePurchase[];
   shifts: CashShift[];
   stockMovements: StockMovement[];
   suppliers: Supplier[];
@@ -78,11 +81,12 @@ const seed: Db = {
   sales: [],
   creditPayments: [],
   flacons: [
-    { id: 1, name: "6ml", volume_ml: 6, active: true, created_at: new Date().toISOString() },
-    { id: 2, name: "12ml", volume_ml: 12, active: true, created_at: new Date().toISOString() },
-    { id: 3, name: "30ml", volume_ml: 30, active: true, created_at: new Date().toISOString() }
+    { id: 1, name: "6ml", flacon_type: "x1", volume_ml: 6, sale_price: 500, active: true, created_at: new Date().toISOString() },
+    { id: 2, name: "12ml", flacon_type: "x1", volume_ml: 12, sale_price: 900, active: true, created_at: new Date().toISOString() },
+    { id: 3, name: "30ml", flacon_type: "x1", volume_ml: 30, sale_price: 1800, active: true, created_at: new Date().toISOString() }
   ],
   perfumes: [],
+  perfumePurchases: [],
   shifts: [],
   stockMovements: [],
   suppliers: [],
@@ -133,8 +137,9 @@ function readDb(): Db {
     expenses: parsed.expenses ?? [],
     sales: (parsed.sales ?? []).map(normalizeSale),
     creditPayments: parsed.creditPayments ?? [],
-    flacons: parsed.flacons ?? seed.flacons,
+    flacons: (parsed.flacons ?? seed.flacons).map(normalizeFlacon),
     perfumes: parsed.perfumes ?? [],
+    perfumePurchases: parsed.perfumePurchases ?? [],
     shifts: parsed.shifts ?? [],
     stockMovements: parsed.stockMovements ?? [],
     suppliers: parsed.suppliers ?? [],
@@ -158,6 +163,14 @@ function normalizeProduct(product: Product): Product {
   return {
     ...product,
     image_data: product.image_data ?? ""
+  };
+}
+
+function normalizeFlacon(flacon: Flacon): Flacon {
+  return {
+    ...flacon,
+    flacon_type: flacon.flacon_type ?? "x1",
+    sale_price: flacon.sale_price ?? 0
   };
 }
 
@@ -188,6 +201,7 @@ function makeEmptyDb(): Db {
     creditPayments: [],
     flacons: [],
     perfumes: [],
+    perfumePurchases: [],
     shifts: [],
     stockMovements: [],
     suppliers: [],
@@ -252,6 +266,7 @@ function makeDummyDb(): Db {
     ],
     flacons: seed.flacons,
     perfumes: [],
+    perfumePurchases: [],
     shifts: [],
     stockMovements: [],
     suppliers: [],
@@ -381,16 +396,45 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     const flacon = {
       id: input.id ?? Date.now(),
       name: input.name,
+      flacon_type: input.flacon_type ?? "x1",
       volume_ml: input.volume_ml,
+      sale_price: input.sale_price,
       active: input.active,
       created_at: new Date().toISOString()
     };
     db.flacons = input.id ? db.flacons.map((item) => item.id === input.id ? flacon : item) : [...db.flacons, flacon];
+    db.perfumes = db.perfumes.map((perfume) => ({
+      ...perfume,
+      prices: [
+        ...perfume.prices.filter((price) => price.flacon_id !== flacon.id),
+        {
+          flacon_id: flacon.id,
+          flacon_name: `${flacon.name} ${flacon.flacon_type}`,
+          volume_ml: flacon.volume_ml,
+          sale_price: flacon.sale_price
+        }
+      ].sort((a, b) => a.volume_ml - b.volume_ml || a.flacon_name.localeCompare(b.flacon_name))
+    }));
     writeDb(db);
     return flacon as T;
   }
 
-  if (command === "list_perfumes") return db.perfumes as T;
+  if (command === "list_perfumes") {
+    return db.perfumes.map((perfume) => ({
+      ...perfume,
+      prices: db.flacons
+        .filter((flacon) => flacon.active)
+        .map((flacon) => {
+          const saved = perfume.prices.find((price) => price.flacon_id === flacon.id);
+          return {
+            flacon_id: flacon.id,
+            flacon_name: `${flacon.name} ${flacon.flacon_type}`,
+            volume_ml: flacon.volume_ml,
+            sale_price: saved?.sale_price || flacon.sale_price
+          };
+        })
+    })) as T;
+  }
 
   if (command === "save_perfume") {
     const input = args?.input as PerfumeInput;
@@ -409,19 +453,48 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       low_stock_ml: input.low_stock_ml,
       created_at: existing?.created_at ?? new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      prices: input.prices.map((price) => {
-        const flacon = db.flacons.find((item) => item.id === price.flacon_id);
+      prices: db.flacons.filter((flacon) => flacon.active).map((flacon) => {
+        const price = input.prices.find((item) => item.flacon_id === flacon.id);
         return {
-          flacon_id: price.flacon_id,
-          flacon_name: flacon?.name ?? "",
-          volume_ml: flacon?.volume_ml ?? 0,
-          sale_price: price.sale_price
+          flacon_id: flacon.id,
+          flacon_name: `${flacon.name} ${flacon.flacon_type}`,
+          volume_ml: flacon.volume_ml,
+          sale_price: price?.sale_price ?? flacon.sale_price
         };
       })
     };
     db.perfumes = existing ? db.perfumes.map((item) => item.id === perfume.id ? perfume : item) : [perfume, ...db.perfumes];
     writeDb(db);
     return perfume as T;
+  }
+
+  if (command === "list_perfume_purchases") {
+    return db.perfumePurchases.sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id) as T;
+  }
+
+  if (command === "save_perfume_purchase") {
+    const input = args?.input as PerfumePurchaseInput;
+    const perfume = input.perfume_id ? db.perfumes.find((item) => item.id === input.perfume_id) : undefined;
+    if (perfume && input.volume_ml > 0) {
+      perfume.total_volume_ml += input.volume_ml;
+      perfume.remaining_volume_ml += input.volume_ml;
+      perfume.total_purchase_price += input.amount;
+      perfume.cost_per_ml = perfume.total_volume_ml > 0 ? perfume.total_purchase_price / perfume.total_volume_ml : 0;
+      perfume.updated_at = new Date().toISOString();
+    }
+    const purchase: PerfumePurchase = {
+      id: Date.now(),
+      perfume_id: input.perfume_id,
+      perfume_name: perfume?.name ?? "",
+      title: input.title,
+      amount: input.amount,
+      volume_ml: input.volume_ml,
+      note: input.note,
+      created_at: new Date().toISOString()
+    };
+    db.perfumePurchases.unshift(purchase);
+    writeDb(db);
+    return purchase as T;
   }
 
   if (command === "reset_with_dummy_data") {
@@ -1055,10 +1128,7 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
       const sale = db.sales.find((item) => item.id === payment.sale_id);
       return sale ? sum + realizedProfit(sale, payment.amount) : sum;
     }, 0);
-    const supplierPayments = db.supplierPayments
-      .filter((payment) => between(payment.paid_at.slice(0, 10), start, end))
-      .reduce((sum, payment) => sum + payment.amount, 0);
-    const sortie = expenses.reduce((sum, expense) => sum + expense.amount, 0) + supplierPayments;
+    const sortie = expenses.reduce((sum, expense) => sum + expense.amount, 0);
     return {
       label,
       start_date: start,
@@ -1097,15 +1167,9 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
     delivery_collected: filteredSales
       .filter((sale) => sale.sale_type === "delivery" && sale.credit_status === "delivery_paid")
       .reduce((sum, sale) => sum + sale.total, 0),
-    supplier_purchases: db.purchaseOrders
-      .filter((order) => order.status !== "draft" && order.confirmed_at && between(order.confirmed_at.slice(0, 10), from, to))
-      .reduce((sum, order) => sum + order.subtotal, 0),
-    supplier_payments: db.supplierPayments
-      .filter((payment) => between(payment.paid_at.slice(0, 10), from, to))
-      .reduce((sum, payment) => sum + payment.amount, 0),
-    supplier_remaining: db.purchaseOrders
-      .filter((order) => order.status !== "draft")
-      .reduce((sum, order) => sum + order.remaining_amount, 0),
+    supplier_purchases: 0,
+    supplier_payments: 0,
+    supplier_remaining: 0,
     stock_purchase_value: db.products.reduce((sum, product) => sum + product.purchase_price * product.quantity, 0),
     stock_sale_value: db.products.reduce((sum, product) => sum + product.sale_price * product.quantity, 0)
   };
@@ -1154,14 +1218,11 @@ function demoDashboardDay(db: Db, day: string) {
     return sale ? sum + realizedProfit(sale, payment.amount) : sum;
   }, 0);
   const expenseTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const supplierPaymentTotal = db.supplierPayments
-    .filter((payment) => payment.paid_at.slice(0, 10) === day)
-    .reduce((sum, payment) => sum + payment.amount, 0);
   return {
     revenue: saleEntry + creditPayments,
     salesCount: sales.length,
-    expenses: expenseTotal + supplierPaymentTotal,
-    profit: saleProfit + creditProfit - expenseTotal - supplierPaymentTotal,
+    expenses: expenseTotal,
+    profit: saleProfit + creditProfit - expenseTotal,
     creditPayments,
     deliveryCollected: sales
       .filter((sale) => sale.sale_type === "delivery" && sale.credit_status === "delivery_paid")
@@ -1202,16 +1263,13 @@ function buildDemoShift(db: Db, shift: CashShift): CashShift {
   const expenses = db.expenses
     .filter((expense) => expense.shift_id === shift.id)
     .reduce((sum, expense) => sum + expense.amount, 0);
-  const supplierPayments = db.supplierPayments
-    .filter((payment) => payment.shift_id === shift.id)
-    .reduce((sum, payment) => sum + payment.amount, 0);
   return {
     ...shift,
     cash_sales: cashSales,
     credit_payments: creditPayments,
     expenses,
-    supplier_payments: supplierPayments,
-    expected_amount: shift.opening_amount + cashSales + creditPayments - expenses - supplierPayments
+    supplier_payments: 0,
+    expected_amount: shift.opening_amount + cashSales + creditPayments - expenses
   };
 }
 
@@ -1380,6 +1438,8 @@ export const api = {
   saveFlacon: (input: FlaconInput) => call<Flacon>("save_flacon", { input }),
   perfumes: () => call<Perfume[]>("list_perfumes"),
   savePerfume: (input: PerfumeInput) => call<Perfume>("save_perfume", { input }),
+  perfumePurchases: () => call<PerfumePurchase[]>("list_perfume_purchases"),
+  savePerfumePurchase: (input: PerfumePurchaseInput) => call<PerfumePurchase>("save_perfume_purchase", { input }),
   sales: () => call<Sale[]>("list_sales"),
   deliveries: () => call<Sale[]>("list_delivery_sales"),
   collectDelivery: (id: number) => call<Sale>("collect_delivery", { id }),

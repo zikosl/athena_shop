@@ -283,10 +283,15 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
         CREATE TABLE IF NOT EXISTS flacons (
           id BIGSERIAL PRIMARY KEY,
           name TEXT NOT NULL,
+          flacon_type TEXT NOT NULL DEFAULT 'x1',
           volume_ml DOUBLE PRECISION NOT NULL,
+          sale_price DOUBLE PRECISION NOT NULL DEFAULT 0,
           active BOOLEAN NOT NULL DEFAULT TRUE,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+
+        ALTER TABLE flacons ADD COLUMN IF NOT EXISTS flacon_type TEXT NOT NULL DEFAULT 'x1';
+        ALTER TABLE flacons ADD COLUMN IF NOT EXISTS sale_price DOUBLE PRECISION NOT NULL DEFAULT 0;
 
         CREATE TABLE IF NOT EXISTS perfumes (
           id BIGSERIAL PRIMARY KEY,
@@ -331,6 +336,16 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           closed_at TIMESTAMPTZ,
           status TEXT NOT NULL DEFAULT 'open',
           cashier TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS perfume_purchases (
+          id BIGSERIAL PRIMARY KEY,
+          perfume_id BIGINT REFERENCES perfumes(id) ON DELETE SET NULL,
+          title TEXT NOT NULL,
+          amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+          volume_ml DOUBLE PRECISION NOT NULL DEFAULT 0,
+          note TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
         CREATE TABLE IF NOT EXISTS supplier_payments (

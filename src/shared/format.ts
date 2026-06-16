@@ -20,11 +20,19 @@ export function appDateLabel(date: Date, language: Language) {
 }
 
 export function hijriDateLabel(date: Date, language: Language = "ar") {
-  return new Intl.DateTimeFormat(language === "ar" ? "ar-SA-u-ca-islamic-umalqura" : "fr-DZ-u-ca-islamic-umalqura", {
+  const locale = language === "ar" ? "ar-SA-u-ca-islamic-umalqura-nu-arab" : "fr-DZ-u-ca-islamic-umalqura";
+  const formatter = new Intl.DateTimeFormat(locale, {
     day: "2-digit",
     month: "long",
     year: "numeric"
-  }).format(date);
+  });
+  if (language !== "ar") return formatter.format(date);
+
+  const parts = formatter.formatToParts(date);
+  const day = parts.find((part) => part.type === "day")?.value.padStart(2, "٠") ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  return `${day} ${month} ${year} هـ`;
 }
 
 export function addHijriYear(date: Date) {

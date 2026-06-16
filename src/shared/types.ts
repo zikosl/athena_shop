@@ -288,7 +288,9 @@ export interface CartItem {
 export interface Flacon {
   id: number;
   name: string;
+  flacon_type: "x1" | "x2" | "x3";
   volume_ml: number;
+  sale_price: number;
   active: boolean;
   created_at: string;
 }
@@ -296,8 +298,29 @@ export interface Flacon {
 export interface FlaconInput {
   id?: number;
   name: string;
+  flacon_type: "x1" | "x2" | "x3";
   volume_ml: number;
+  sale_price: number;
   active: boolean;
+}
+
+export interface PerfumePurchase {
+  id: number;
+  perfume_id?: number;
+  perfume_name: string;
+  title: string;
+  amount: number;
+  volume_ml: number;
+  note: string;
+  created_at: string;
+}
+
+export interface PerfumePurchaseInput {
+  perfume_id?: number;
+  title: string;
+  amount: number;
+  volume_ml: number;
+  note: string;
 }
 
 export interface PerfumePrice {

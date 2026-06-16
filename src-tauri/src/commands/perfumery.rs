@@ -3,13 +3,17 @@ use tauri::State;
 
 use crate::db::Database;
 use crate::error::{AppError, AppResult};
-use crate::models::{Flacon, FlaconInput, Perfume, PerfumeInput, PerfumePrice};
+use crate::models::{
+    Flacon, FlaconInput, Perfume, PerfumeInput, PerfumePrice, PerfumePurchase,
+    PerfumePurchaseInput,
+};
 
 #[tauri::command]
 pub fn list_flacons(db: State<Database>) -> AppResult<Vec<Flacon>> {
     db.with_client(|client| {
         let rows = client.query(
-            "SELECT id, name, volume_ml, active, created_at::text FROM flacons ORDER BY volume_ml, id",
+            "SELECT id, name, flacon_type, volume_ml, sale_price, active, created_at::text
+             FROM flacons ORDER BY volume_ml, flacon_type, id",
             &[],
         )?;
         Ok(rows.iter().map(flacon_from_row).collect())
@@ -18,28 +22,36 @@ pub fn list_flacons(db: State<Database>) -> AppResult<Vec<Flacon>> {
 
 #[tauri::command]
 pub fn save_flacon(db: State<Database>, input: FlaconInput) -> AppResult<Flacon> {
-    if input.name.trim().is_empty() || input.volume_ml <= 0.0 {
+    if input.name.trim().is_empty() || input.volume_ml <= 0.0 || input.sale_price < 0.0 {
         return Err(AppError::Message(
-            "Nom et volume du flacon obligatoires".into(),
+            "اسم القارورة والحجم والسعر إجباري".into(),
         ));
     }
+    let flacon_type = normalize_flacon_type(&input.flacon_type);
     db.with_client(|client| {
         let id: i64 = if let Some(id) = input.id {
             client.execute(
-                "UPDATE flacons SET name = $1, volume_ml = $2, active = $3 WHERE id = $4",
-                &[&input.name.trim(), &input.volume_ml, &input.active, &id],
+                "UPDATE flacons SET name = $1, flacon_type = $2, volume_ml = $3, sale_price = $4, active = $5 WHERE id = $6",
+                &[&input.name.trim(), &flacon_type, &input.volume_ml, &input.sale_price, &input.active, &id],
             )?;
             id
         } else {
             client
                 .query_one(
-                    "INSERT INTO flacons (name, volume_ml, active) VALUES ($1, $2, $3) RETURNING id",
-                    &[&input.name.trim(), &input.volume_ml, &input.active],
+                    "INSERT INTO flacons (name, flacon_type, volume_ml, sale_price, active)
+                     VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                    &[&input.name.trim(), &flacon_type, &input.volume_ml, &input.sale_price, &input.active],
                 )?
                 .get(0)
         };
+        client.execute(
+            "INSERT INTO perfume_prices (perfume_id, flacon_id, sale_price)
+             SELECT id, $1, $2 FROM perfumes
+             ON CONFLICT (perfume_id, flacon_id) DO UPDATE SET sale_price = EXCLUDED.sale_price",
+            &[&id, &input.sale_price],
+        )?;
         let row = client.query_one(
-            "SELECT id, name, volume_ml, active, created_at::text FROM flacons WHERE id = $1",
+            "SELECT id, name, flacon_type, volume_ml, sale_price, active, created_at::text FROM flacons WHERE id = $1",
             &[&id],
         )?;
         Ok(flacon_from_row(&row))
@@ -108,9 +120,6 @@ pub fn save_perfume(db: State<Database>, input: PerfumeInput) -> AppResult<Perfu
             )?;
             id
         } else {
-            if input.added_volume_ml <= 0.0 {
-                return Err(AppError::Message("Volume initial obligatoire".into()));
-            }
             let cost_per_ml = if input.added_volume_ml > 0.0 {
                 input.total_purchase_price / input.added_volume_ml
             } else {
@@ -157,13 +166,87 @@ pub fn save_perfume(db: State<Database>, input: PerfumeInput) -> AppResult<Perfu
     })
 }
 
+#[tauri::command]
+pub fn list_perfume_purchases(db: State<Database>) -> AppResult<Vec<PerfumePurchase>> {
+    db.with_client(|client| {
+        let rows = client.query(
+            "SELECT pp.id, pp.perfume_id, COALESCE(p.name, ''), pp.title, pp.amount,
+                    pp.volume_ml, pp.note, pp.created_at::text
+             FROM perfume_purchases pp
+             LEFT JOIN perfumes p ON p.id = pp.perfume_id
+             ORDER BY pp.created_at DESC, pp.id DESC",
+            &[],
+        )?;
+        Ok(rows.iter().map(perfume_purchase_from_row).collect())
+    })
+}
+
+#[tauri::command]
+pub fn save_perfume_purchase(
+    db: State<Database>,
+    input: PerfumePurchaseInput,
+) -> AppResult<PerfumePurchase> {
+    if input.title.trim().is_empty() || input.amount < 0.0 || input.volume_ml < 0.0 {
+        return Err(AppError::Message("عنوان الشراء والمبلغ صحيحان إجباريان".into()));
+    }
+    db.with_client(|client| {
+        let mut tx = client.transaction()?;
+        if let Some(perfume_id) = input.perfume_id {
+            if input.volume_ml > 0.0 {
+                let row = tx.query_one(
+                    "SELECT total_volume_ml, remaining_volume_ml, total_purchase_price FROM perfumes WHERE id = $1",
+                    &[&perfume_id],
+                )?;
+                let total_volume: f64 = row.get(0);
+                let remaining_volume: f64 = row.get(1);
+                let purchase_total: f64 = row.get(2);
+                let next_total_volume = total_volume + input.volume_ml;
+                let next_remaining = remaining_volume + input.volume_ml;
+                let next_purchase = purchase_total + input.amount;
+                let cost_per_ml = if next_total_volume > 0.0 { next_purchase / next_total_volume } else { 0.0 };
+                tx.execute(
+                    "UPDATE perfumes
+                     SET total_volume_ml = $1, remaining_volume_ml = $2, total_purchase_price = $3,
+                         cost_per_ml = $4, updated_at = NOW()
+                     WHERE id = $5",
+                    &[&next_total_volume, &next_remaining, &next_purchase, &cost_per_ml, &perfume_id],
+                )?;
+            }
+        }
+        let id: i64 = tx
+            .query_one(
+                "INSERT INTO perfume_purchases (perfume_id, title, amount, volume_ml, note)
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                &[
+                    &input.perfume_id,
+                    &input.title.trim(),
+                    &input.amount,
+                    &input.volume_ml,
+                    &input.note.trim(),
+                ],
+            )?
+            .get(0);
+        tx.commit()?;
+        let row = client.query_one(
+            "SELECT pp.id, pp.perfume_id, COALESCE(p.name, ''), pp.title, pp.amount,
+                    pp.volume_ml, pp.note, pp.created_at::text
+             FROM perfume_purchases pp
+             LEFT JOIN perfumes p ON p.id = pp.perfume_id
+             WHERE pp.id = $1",
+            &[&id],
+        )?;
+        Ok(perfume_purchase_from_row(&row))
+    })
+}
+
 fn list_prices(client: &mut postgres::Client, perfume_id: i64) -> AppResult<Vec<PerfumePrice>> {
     let rows = client.query(
-        "SELECT pp.flacon_id, f.name, f.volume_ml, pp.sale_price
-         FROM perfume_prices pp
-         JOIN flacons f ON f.id = pp.flacon_id
-         WHERE pp.perfume_id = $1
-         ORDER BY f.volume_ml, f.id",
+        "SELECT f.id, CONCAT(f.name, ' ', f.flacon_type), f.volume_ml,
+                COALESCE(NULLIF(pp.sale_price, 0), f.sale_price)::float8
+         FROM flacons f
+         LEFT JOIN perfume_prices pp ON pp.flacon_id = f.id AND pp.perfume_id = $1
+         WHERE f.active = TRUE
+         ORDER BY f.volume_ml, f.flacon_type, f.id",
         &[&perfume_id],
     )?;
     Ok(rows.iter().map(price_from_row).collect())
@@ -173,9 +256,11 @@ fn flacon_from_row(row: &Row) -> Flacon {
     Flacon {
         id: row.get(0),
         name: row.get(1),
-        volume_ml: row.get(2),
-        active: row.get(3),
-        created_at: row.get(4),
+        flacon_type: row.get(2),
+        volume_ml: row.get(3),
+        sale_price: row.get(4),
+        active: row.get(5),
+        created_at: row.get(6),
     }
 }
 
@@ -192,6 +277,27 @@ fn perfume_from_row(row: &Row) -> Perfume {
         created_at: row.get(8),
         updated_at: row.get(9),
         prices: Vec::new(),
+    }
+}
+
+fn perfume_purchase_from_row(row: &Row) -> PerfumePurchase {
+    PerfumePurchase {
+        id: row.get(0),
+        perfume_id: row.get(1),
+        perfume_name: row.get(2),
+        title: row.get(3),
+        amount: row.get(4),
+        volume_ml: row.get(5),
+        note: row.get(6),
+        created_at: row.get(7),
+    }
+}
+
+fn normalize_flacon_type(value: &str) -> String {
+    match value.trim() {
+        "x2" => "x2".into(),
+        "x3" => "x3".into(),
+        _ => "x1".into(),
     }
 }
 

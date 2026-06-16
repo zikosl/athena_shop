@@ -135,21 +135,17 @@ fn get_shift(client: &mut Client, id: i64) -> AppResult<CashShift> {
          ),
          expense_totals AS (
            SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount FROM expenses GROUP BY shift_id
-         ),
-         supplier_payment_totals AS (
-           SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount FROM supplier_payments GROUP BY shift_id
          )
          SELECT cs.id, cs.opened_at::text, COALESCE(cs.closed_at::text, ''), cs.auto_close_at::text,
                 cs.opening_amount, cs.closing_amount,
-                cs.opening_amount + COALESCE(st.amount, 0) + COALESCE(pt.amount, 0) - COALESCE(et.amount, 0) - COALESCE(spt2.amount, 0),
+                cs.opening_amount + COALESCE(st.amount, 0) + COALESCE(pt.amount, 0) - COALESCE(et.amount, 0),
                 COALESCE(st.amount, 0), COALESCE(pt.amount, 0), COALESCE(et.amount, 0),
-                COALESCE(spt2.amount, 0),
+                0::float8,
                 cs.status, cs.cashier
          FROM cash_shifts cs
          LEFT JOIN sales_totals st ON st.shift_id = cs.id
          LEFT JOIN payment_totals pt ON pt.shift_id = cs.id
          LEFT JOIN expense_totals et ON et.shift_id = cs.id
-         LEFT JOIN supplier_payment_totals spt2 ON spt2.shift_id = cs.id
          WHERE cs.id = $1",
         &[&id],
     )?;

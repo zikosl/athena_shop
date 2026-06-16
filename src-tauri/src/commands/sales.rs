@@ -515,11 +515,12 @@ fn get_perfume_for_sale(
 ) -> AppResult<Option<PerfumeForSale>> {
     let row = client.query_opt(
         "SELECT p.id, p.name, p.remaining_volume_ml, p.cost_per_ml,
-                f.id, f.name, f.volume_ml, pp.sale_price
+                f.id, CONCAT(f.name, ' ', f.flacon_type), f.volume_ml,
+                COALESCE(NULLIF(pp.sale_price, 0), f.sale_price)::float8
          FROM perfumes p
-         JOIN perfume_prices pp ON pp.perfume_id = p.id
-         JOIN flacons f ON f.id = pp.flacon_id
-         WHERE p.id = $1 AND f.id = $2 AND f.active = TRUE",
+         JOIN flacons f ON f.id = $2
+         LEFT JOIN perfume_prices pp ON pp.perfume_id = p.id AND pp.flacon_id = f.id
+         WHERE p.id = $1 AND f.active = TRUE AND COALESCE(NULLIF(pp.sale_price, 0), f.sale_price) > 0",
         &[&perfume_id, &flacon_id],
     )?;
     Ok(row.map(|row| PerfumeForSale {

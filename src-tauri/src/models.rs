@@ -249,7 +249,9 @@ pub struct SaleReturnInput {
 pub struct Flacon {
     pub id: i64,
     pub name: String,
+    pub flacon_type: String,
     pub volume_ml: f64,
+    pub sale_price: f64,
     pub active: bool,
     pub created_at: String,
 }
@@ -258,8 +260,31 @@ pub struct Flacon {
 pub struct FlaconInput {
     pub id: Option<i64>,
     pub name: String,
+    pub flacon_type: String,
     pub volume_ml: f64,
+    pub sale_price: f64,
     pub active: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PerfumePurchase {
+    pub id: i64,
+    pub perfume_id: Option<i64>,
+    pub perfume_name: String,
+    pub title: String,
+    pub amount: f64,
+    pub volume_ml: f64,
+    pub note: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PerfumePurchaseInput {
+    pub perfume_id: Option<i64>,
+    pub title: String,
+    pub amount: f64,
+    pub volume_ml: f64,
+    pub note: String,
 }
 
 #[derive(Debug, Serialize)]

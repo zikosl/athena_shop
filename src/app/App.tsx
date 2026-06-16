@@ -20,7 +20,6 @@ import {
   SprayCan,
   Sun,
   Truck,
-  UsersRound,
   Wallet,
   X
 } from "lucide-react";
@@ -36,7 +35,6 @@ import { ReportsPage } from "../modules/reports/ReportsPage";
 import { RevenuePage } from "../modules/revenue/RevenuePage";
 import { SettingsPage } from "../modules/settings/SettingsPage";
 import { StockPage } from "../modules/stock/StockPage";
-import { SuppliersPage } from "../modules/suppliers/SuppliersPage";
 import { ZakatPage } from "../modules/zakat/ZakatPage";
 import { api } from "../shared/api";
 import { appDateLabel, hijriDateLabel, money } from "../shared/format";
@@ -54,7 +52,6 @@ const nav = [
   { key: "revenue", icon: ChartColumnIncreasing },
   { key: "credits", icon: HandCoins },
   { key: "expenses", icon: Wallet },
-  { key: "suppliers", icon: UsersRound },
   { key: "stock", icon: Box },
   { key: "perfumery", icon: SprayCan },
   { key: "reports", icon: ReceiptText },
@@ -207,7 +204,6 @@ export function App() {
     if (view === "revenue") return <RevenuePage language={language} onChanged={refresh} />;
     if (view === "reports") return <ReportsPage language={language} />;
     if (view === "expenses") return <ExpensesPage language={language} onChanged={refresh} />;
-    if (view === "suppliers") return <SuppliersPage language={language} user={user} onChanged={refresh} />;
     if (view === "credits") return <CreditsPage language={language} user={user} onChanged={refresh} />;
     if (view === "zakat") return <ZakatPage language={language} />;
     return <SettingsPage language={language} user={user} onUserChanged={updateUserSession} onSettingsChanged={setAppSettings} />;
@@ -466,7 +462,6 @@ function CashShiftModal({
               <article><span>مبيعات نقدية</span><strong>{money(shift.cash_sales)}</strong></article>
               <article><span>دفعات الدين</span><strong>{money(shift.credit_payments)}</strong></article>
               <article><span>المصاريف</span><strong>{money(shift.expenses)}</strong></article>
-              <article><span>دفعات الموردين</span><strong>{money(shift.supplier_payments)}</strong></article>
               <article><span>المبلغ المتوقع</span><strong>{money(shift.expected_amount)}</strong></article>
               <article><span>الغلق التلقائي</span><strong>{shift.auto_close_at.slice(0, 16)}</strong></article>
             </div>

@@ -9,7 +9,6 @@ import {
   ShoppingCart,
   SprayCan,
   Truck,
-  UsersRound,
   Wallet
 } from "lucide-react";
 import { api } from "../../shared/api";
@@ -39,7 +38,6 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
     { key: "delivery" as ViewKey, title: t.modules.deliveryTitle, icon: Truck, text: t.modules.deliveryText },
     { key: "revenue" as ViewKey, title: t.modules.revenueTitle, icon: ChartColumnIncreasing, text: t.modules.revenueText },
     { key: "reports" as ViewKey, title: t.modules.reportsTitle, icon: ReceiptText, text: t.modules.reportsText },
-    { key: "suppliers" as ViewKey, title: t.modules.suppliersTitle, icon: UsersRound, text: t.modules.suppliersText },
     { key: "expenses" as ViewKey, title: t.modules.expensesTitle, icon: Wallet, text: t.modules.expensesText },
     { key: "credits" as ViewKey, title: t.modules.creditsTitle, icon: HandCoins, text: t.modules.creditsText }
   ];
