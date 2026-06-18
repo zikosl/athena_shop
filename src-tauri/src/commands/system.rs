@@ -9,7 +9,7 @@ use tauri::{AppHandle, State};
 
 use crate::db::{Database, PostgresConfig};
 use crate::error::{AppError, AppResult};
-use crate::models::AppSettings;
+use crate::models::{AppSettings, BarcodePrintInput};
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -85,6 +85,14 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             .map(|row| row.get::<_, String>(0))
             .filter(|value| matches!(value.as_str(), "small" | "normal" | "large"))
             .unwrap_or_else(|| "normal".into());
+        let ui_zoom = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'ui_zoom'",
+                &[],
+            )?
+            .and_then(|row| row.get::<_, String>(0).parse::<i64>().ok())
+            .unwrap_or(100)
+            .clamp(80, 125);
         let ui_density = client
             .query_opt(
                 "SELECT value FROM app_meta WHERE key = 'ui_density'",
@@ -116,6 +124,7 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             invoice_printer,
             barcode_printer,
             ui_font_scale,
+            ui_zoom,
             ui_density,
             pos_layout,
             pos_cart_width,
@@ -136,6 +145,7 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
     if !matches!(input.ui_font_scale.as_str(), "small" | "normal" | "large") {
         return Err(AppError::Message("Taille de police invalide".into()));
     }
+    let ui_zoom = input.ui_zoom.clamp(80, 125);
     if !matches!(input.ui_density.as_str(), "compact" | "comfortable" | "spacious") {
         return Err(AppError::Message("Densite interface invalide".into()));
     }
@@ -186,6 +196,13 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             &[&input.ui_font_scale.as_str()],
         )?;
+        let ui_zoom_value = ui_zoom.to_string();
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('ui_zoom', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&ui_zoom_value],
+        )?;
         client.execute(
             "INSERT INTO app_meta (key, value)
              VALUES ('ui_density', $1)
@@ -206,6 +223,7 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
             &[&pos_cart_width_value],
         )?;
         Ok(AppSettings {
+            ui_zoom,
             pos_cart_width,
             ..input
         })
@@ -219,10 +237,15 @@ pub fn list_printers() -> AppResult<Vec<String>> {
         hide_console(&mut command)
             .args([
                 "-NoProfile",
+                "-Sta",
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                "Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -ExpandProperty Name",
+                r#"
+                Add-Type -AssemblyName System.Drawing
+                [System.Drawing.Printing.PrinterSettings]::InstalledPrinters |
+                  ForEach-Object { $_ }
+                "#,
             ])
             .output()
     } else {
@@ -232,11 +255,13 @@ pub fn list_printers() -> AppResult<Vec<String>> {
     let Ok(output) = output else {
         return Ok(Vec::new());
     };
+
     if !output.status.success() {
         return Ok(Vec::new());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+
     Ok(stdout
         .lines()
         .map(str::trim)
@@ -263,7 +288,9 @@ pub fn print_receipt_text(db: State<Database>, content: String) -> AppResult<()>
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
     let path = std::env::temp_dir().join(format!("athena-shop-ticket-{timestamp}.txt"));
-    fs::write(&path, content)?;
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(content.as_bytes());
+    fs::write(&path, bytes)?;
 
     if let Err(error) = print_file(&path, settings.invoice_printer.as_str()) {
         let _ = fs::remove_file(&path);
@@ -272,22 +299,544 @@ pub fn print_receipt_text(db: State<Database>, content: String) -> AppResult<()>
     Ok(())
 }
 
+#[tauri::command]
+pub fn print_barcode_labels(db: State<Database>, input: BarcodePrintInput) -> AppResult<()> {
+    if input.barcode.trim().is_empty() {
+        return Err(AppError::Message("Code-barres vide".into()));
+    }
+    let count = input.count.clamp(1, 200);
+    let barcode = sanitize_code128(&input.barcode);
+    if barcode.is_empty() {
+        return Err(AppError::Message(
+            "Le code-barres doit contenir au moins un caractere ASCII lisible".into(),
+        ));
+    }
+    let settings = get_app_settings(db)?;
+    ensure_printer_available(settings.barcode_printer.as_str())?;
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| AppError::Message(error.to_string()))?
+        .as_millis();
+    let script_path = std::env::temp_dir().join(format!("athena-shop-barcode-{timestamp}.ps1"));
+    fs::write(&script_path, barcode_print_script())?;
+
+    let output = hide_console(&mut Command::new("powershell.exe"))
+        .args([
+            "-NoProfile",
+            "-Sta",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+        ])
+        .arg(&script_path)
+        .arg(settings.barcode_printer.as_str())
+        .arg(input.product_name)
+        .arg(barcode)
+        .arg(format!("{:.2}", input.price))
+        .arg(count.to_string())
+        .output()?;
+    let _ = fs::remove_file(&script_path);
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Err(AppError::Message(if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            "Impossible d'imprimer les etiquettes code-barres".into()
+        }))
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn print_file(path: &std::path::Path, printer_name: &str) -> AppResult<()> {
     ensure_printer_available(printer_name)?;
-    let mut command = Command::new("powershell.exe");
-    hide_console(&mut command)
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| AppError::Message(error.to_string()))?
+        .as_millis();
+
+    let script_path = std::env::temp_dir().join(format!("athena-shop-receipt-{timestamp}.ps1"));
+
+    fs::write(&script_path, receipt_print_script())?;
+
+    let output = hide_console(&mut Command::new("powershell.exe"))
         .args([
             "-NoProfile",
+            "-Sta",
             "-ExecutionPolicy",
             "Bypass",
-            "-Command",
-            "try { if ([string]::IsNullOrWhiteSpace($args[1])) { Get-Content -LiteralPath $args[0] | Out-Printer } else { Get-Content -LiteralPath $args[0] | Out-Printer -Name $args[1] } } finally { Remove-Item -LiteralPath $args[0] -ErrorAction SilentlyContinue }",
+            "-File",
         ])
+        .arg(&script_path)
         .arg(path)
-        .arg(printer_name)
-        .spawn()?;
-    Ok(())
+        .arg(printer_name.trim())
+        .output();
+
+    let _ = fs::remove_file(&script_path);
+    let _ = fs::remove_file(path);
+
+    let output = output?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        Err(AppError::Message(if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            "Impossible d'imprimer le ticket avec l'imprimante selectionnee".into()
+        }))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn receipt_print_script() -> &'static str {
+    r#"
+param(
+  [string]$Path,
+  [string]$PrinterName
+)
+
+$ErrorActionPreference = 'Stop'
+
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
+
+$installedPrinters = @(
+  [System.Drawing.Printing.PrinterSettings]::InstalledPrinters |
+  ForEach-Object { $_ }
+)
+
+if ($installedPrinters.Count -eq 0) {
+  throw "Aucune imprimante disponible"
+}
+
+if (-not [string]::IsNullOrWhiteSpace($PrinterName)) {
+  $foundPrinter = $false
+
+  foreach ($printer in $installedPrinters) {
+    if ($printer -eq $PrinterName) {
+      $foundPrinter = $true
+      break
+    }
+  }
+
+  if (-not $foundPrinter) {
+    throw ("Imprimante introuvable: '" + $PrinterName + "'. Imprimantes disponibles: " + ($installedPrinters -join ", "))
+  }
+}
+
+if (-not [System.IO.File]::Exists($Path)) {
+  throw ("Fichier ticket introuvable: " + $Path)
+}
+
+$content = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
+$lines = @($content -split "`r?`n")
+
+$doc = New-Object System.Drawing.Printing.PrintDocument
+
+if (-not [string]::IsNullOrWhiteSpace($PrinterName)) {
+  $doc.PrinterSettings.PrinterName = $PrinterName
+}
+
+if (-not $doc.PrinterSettings.IsValid) {
+  throw ("Imprimante invalide ou indisponible: '" + $PrinterName + "'. Imprimantes disponibles: " + ($installedPrinters -join ", "))
+}
+
+$doc.DocumentName = "Athena receipt"
+$doc.OriginAtMargins = $false
+
+# Receipt printer width.
+# Use 80 for 80mm receipt printer.
+# If your receipt printer is 58mm, change this to 58.0.
+[float]$receiptWidthMm = 58.0
+
+# Layout.
+[float]$leftMarginMm = 3.0
+[float]$rightMarginMm = 3.0
+[float]$topMarginMm = 3.0
+[float]$bottomMarginMm = 5.0
+[float]$lineHeightMm = 4.0
+
+[int]$lineCount = [Math]::Max(1, $lines.Count)
+
+[float]$receiptHeightMm = $topMarginMm + $bottomMarginMm + ($lineHeightMm * $lineCount)
+
+# Add small feed at bottom.
+$receiptHeightMm = $receiptHeightMm + 8.0
+
+# PaperSize uses hundredths of an inch.
+[int]$paperWidth = [Math]::Round(($receiptWidthMm / 25.4) * 100)
+[int]$paperHeight = [Math]::Round(($receiptHeightMm / 25.4) * 100)
+
+if ($paperHeight -lt 100) {
+  $paperHeight = 100
+}
+
+$paper = New-Object System.Drawing.Printing.PaperSize("Athena Receipt", $paperWidth, $paperHeight)
+$doc.DefaultPageSettings.PaperSize = $paper
+$doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
+
+$font = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Regular)
+$brush = [System.Drawing.Brushes]::Black
+
+$stringFormat = New-Object System.Drawing.StringFormat
+$stringFormat.Alignment = [System.Drawing.StringAlignment]::Near
+$stringFormat.LineAlignment = [System.Drawing.StringAlignment]::Near
+$stringFormat.FormatFlags = [System.Drawing.StringFormatFlags]::NoWrap
+
+$doc.add_PrintPage({
+  param($sender, $event)
+
+  $g = $event.Graphics
+  $g.PageUnit = [System.Drawing.GraphicsUnit]::Pixel
+  $g.Clear([System.Drawing.Color]::White)
+
+  $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::None
+  $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+  $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::Half
+  $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::SingleBitPerPixelGridFit
+
+  [float]$pxPerMmX = $g.DpiX / 25.4
+  [float]$pxPerMmY = $g.DpiY / 25.4
+
+  [float]$x = $leftMarginMm * $pxPerMmX
+  [float]$y = $topMarginMm * $pxPerMmY
+  [float]$contentW = ($receiptWidthMm - $leftMarginMm - $rightMarginMm) * $pxPerMmX
+  [float]$lineH = $lineHeightMm * $pxPerMmY
+
+  foreach ($line in $lines) {
+    $rect = New-Object System.Drawing.RectangleF(
+      $x,
+      $y,
+      $contentW,
+      $lineH
+    )
+
+    $g.DrawString(
+      [string]$line,
+      $font,
+      $brush,
+      $rect,
+      $stringFormat
+    )
+
+    $y = $y + $lineH
+  }
+
+  $event.HasMorePages = $false
+})
+
+$doc.Print()
+
+Remove-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+"#
+}
+
+fn sanitize_code128(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| {
+            let code = *ch as u32;
+            (32..=126).contains(&code)
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+fn barcode_print_script() -> &'static str {
+    r#"
+param(
+  [string]$PrinterName,
+  [string]$ProductName,
+  [string]$Barcode,
+  [string]$Price,
+  [int]$Count
+)
+
+$ErrorActionPreference = 'Stop'
+
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
+
+$installedPrinters = @(
+  [System.Drawing.Printing.PrinterSettings]::InstalledPrinters |
+  ForEach-Object { $_ }
+)
+
+if ($installedPrinters.Count -eq 0) {
+  throw "Aucune imprimante disponible"
+}
+
+if (-not [string]::IsNullOrWhiteSpace($PrinterName)) {
+  $foundPrinter = $false
+
+  foreach ($printer in $installedPrinters) {
+    if ($printer -eq $PrinterName) {
+      $foundPrinter = $true
+      break
+    }
+  }
+
+  if (-not $foundPrinter) {
+    throw ("Imprimante introuvable: '" + $PrinterName + "'. Imprimantes disponibles: " + ($installedPrinters -join ", "))
+  }
+}
+
+$patterns = @(
+  "212222","222122","222221","121223","121322","131222","122213","122312","132212","221213",
+  "221312","231212","112232","122132","122231","113222","123122","123221","223211","221132",
+  "221231","213212","223112","312131","311222","321122","321221","312212","322112","322211",
+  "212123","212321","232121","111323","131123","131321","112313","132113","132311","211313",
+  "231113","231311","112133","112331","132131","113123","113321","133121","313121","211331",
+  "231131","213113","213311","213131","311123","311321","331121","312113","312311","332111",
+  "314111","221411","431111","111224","111422","121124","121421","141122","141221","112214",
+  "112412","122114","122411","142112","142211","241211","221114","413111","241112","134111",
+  "111242","121142","121241","114212","124112","124211","411212","421112","421211","212141",
+  "214121","412121","111143","111341","131141","114113","114311","411113","411311","113141",
+  "114131","311141","411131","211412","211214","211232","2331112"
+)
+
+function Get-Code128Patterns([string]$value) {
+  $codes = New-Object System.Collections.Generic.List[int]
+
+  # Code 128 Set B
+  $codes.Add(104)
+
+  foreach ($ch in $value.ToCharArray()) {
+    $code = [int][char]$ch
+
+    if ($code -ge 32 -and $code -le 126) {
+      $codes.Add($code - 32)
+    }
+  }
+
+  $checksum = 104
+
+  for ($i = 1; $i -lt $codes.Count; $i++) {
+    $checksum += $codes[$i] * $i
+  }
+
+  $codes.Add($checksum % 103)
+
+  # Stop code
+  $codes.Add(106)
+
+  return $codes | ForEach-Object { $patterns[$_] }
+}
+
+$doc = New-Object System.Drawing.Printing.PrintDocument
+
+if (-not [string]::IsNullOrWhiteSpace($PrinterName)) {
+  $doc.PrinterSettings.PrinterName = $PrinterName
+}
+
+if (-not $doc.PrinterSettings.IsValid) {
+  throw ("Imprimante invalide ou indisponible: '" + $PrinterName + "'. Imprimantes disponibles: " + ($installedPrinters -join ", "))
+}
+
+$doc.DocumentName = "Athena barcode labels"
+$doc.OriginAtMargins = $false
+
+# Label: 40mm x 20mm
+# Gap: physical space between labels.
+# Change ONLY this if vertical decalage happens.
+[float]$labelWidthMm = 40.0
+[float]$labelHeightMm = 20.0
+[float]$gapMm = 2.0
+
+[int]$safeCount = [Math]::Max(1, [int]$Count)
+
+# PaperSize uses hundredths of an inch.
+[int]$paperWidth = [Math]::Round(($labelWidthMm / 25.4) * 100)
+[int]$singleLabelHeight = [Math]::Round(($labelHeightMm / 25.4) * 100)
+[int]$gapHeight = [Math]::Round(($gapMm / 25.4) * 100)
+
+# Continuous page height = labels + physical gaps
+[int]$paperHeight = ($singleLabelHeight * $safeCount) + ($gapHeight * ($safeCount - 1))
+
+$paper = New-Object System.Drawing.Printing.PaperSize("40x20mm Barcode Continuous", $paperWidth, $paperHeight)
+$doc.DefaultPageSettings.PaperSize = $paper
+$doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
+
+# Compact fonts for 40x20mm
+$fontTitle = New-Object System.Drawing.Font("Arial", 5, [System.Drawing.FontStyle]::Bold)
+$fontSmall = New-Object System.Drawing.Font("Consolas", 5, [System.Drawing.FontStyle]::Regular)
+$fontPrice = New-Object System.Drawing.Font("Arial", 6, [System.Drawing.FontStyle]::Bold)
+
+$brush = [System.Drawing.Brushes]::Black
+
+$titleFormat = New-Object System.Drawing.StringFormat
+$titleFormat.Alignment = [System.Drawing.StringAlignment]::Center
+$titleFormat.LineAlignment = [System.Drawing.StringAlignment]::Near
+$titleFormat.Trimming = [System.Drawing.StringTrimming]::EllipsisCharacter
+$titleFormat.FormatFlags = [System.Drawing.StringFormatFlags]::NoWrap
+
+$centerFormat = New-Object System.Drawing.StringFormat
+$centerFormat.Alignment = [System.Drawing.StringAlignment]::Center
+$centerFormat.LineAlignment = [System.Drawing.StringAlignment]::Near
+
+$patternsForCode = @(Get-Code128Patterns $Barcode)
+
+[int]$totalUnits = 0
+
+foreach ($pattern in $patternsForCode) {
+  foreach ($digit in $pattern.ToCharArray()) {
+    $totalUnits = $totalUnits + [int]::Parse([string]$digit)
+  }
+}
+
+$doc.add_PrintPage({
+  param($sender, $event)
+
+  $g = $event.Graphics
+  $g.PageUnit = [System.Drawing.GraphicsUnit]::Pixel
+  $g.Clear([System.Drawing.Color]::White)
+
+  # Sharp barcode rendering
+  $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::None
+  $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+  $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::Half
+  $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::SingleBitPerPixelGridFit
+
+  # Convert mm to printer pixels
+  [float]$pxPerMmX = $g.DpiX / 25.4
+  [float]$pxPerMmY = $g.DpiY / 25.4
+
+  [float]$labelW = $labelWidthMm * $pxPerMmX
+  [float]$labelH = $labelHeightMm * $pxPerMmY
+  [float]$gapH = $gapMm * $pxPerMmY
+
+  # Safe horizontal margins
+  [float]$leftMarginMm = 1.0
+  [float]$rightMarginMm = 1.0
+
+  [float]$contentX = $leftMarginMm * $pxPerMmX
+  [float]$contentW = $labelW - (($leftMarginMm + $rightMarginMm) * $pxPerMmX)
+
+  # Fine horizontal correction.
+  # Positive = move right, negative = move left.
+  [float]$xCorrectionMm = 0.0
+  $contentX = $contentX + ($xCorrectionMm * $pxPerMmX)
+
+  # Vertical positions inside 20mm label
+  [float]$titleYmm = 0.9
+  [float]$titleHmm = 3.0
+
+  [float]$barYmm = 4.4
+  [float]$barHmm = 8.4
+
+  [float]$barcodeTextYmm = 12.9
+  [float]$barcodeTextHmm = 2.6
+
+  [float]$priceYmm = 15.5
+  [float]$priceHmm = 3.4
+
+  # Fine vertical correction inside each label.
+  # Positive = move content down, negative = move up.
+  [float]$yCorrectionMm = 0.0
+
+  # Barcode width
+  [float]$barAreaW = $contentW - (1.0 * $pxPerMmX)
+  [int]$unit = [Math]::Floor($barAreaW / $totalUnits)
+
+  if ($unit -lt 1) {
+    $unit = 1
+  }
+
+  [float]$actualBarcodeW = $totalUnits * $unit
+
+  for ([int]$labelIndex = 0; $labelIndex -lt $safeCount; $labelIndex++) {
+    # IMPORTANT:
+    # Each next label starts after label height + physical gap.
+    [float]$baseY = $labelIndex * ($labelH + $gapH)
+
+    # Product name
+    $titleRect = New-Object System.Drawing.RectangleF(
+      $contentX,
+      ($baseY + (($titleYmm + $yCorrectionMm) * $pxPerMmY)),
+      $contentW,
+      ($titleHmm * $pxPerMmY)
+    )
+
+    $g.DrawString(
+      [string]$ProductName,
+      $fontTitle,
+      $brush,
+      $titleRect,
+      $titleFormat
+    )
+
+    # Barcode
+    [float]$x = $contentX + (($contentW - $actualBarcodeW) / 2)
+    [float]$barY = $baseY + (($barYmm + $yCorrectionMm) * $pxPerMmY)
+    [float]$barH = $barHmm * $pxPerMmY
+
+    foreach ($pattern in $patternsForCode) {
+      for ([int]$i = 0; $i -lt $pattern.Length; $i++) {
+        [float]$w = [int]::Parse([string]$pattern[$i]) * $unit
+
+        if (($i % 2) -eq 0) {
+          $g.FillRectangle($brush, $x, $barY, $w, $barH)
+        }
+
+        $x = $x + $w
+      }
+    }
+
+    # Barcode number
+    $barcodeTextRect = New-Object System.Drawing.RectangleF(
+      $contentX,
+      ($baseY + (($barcodeTextYmm + $yCorrectionMm) * $pxPerMmY)),
+      $contentW,
+      ($barcodeTextHmm * $pxPerMmY)
+    )
+
+    $g.DrawString(
+      [string]$Barcode,
+      $fontSmall,
+      $brush,
+      $barcodeTextRect,
+      $centerFormat
+    )
+
+    # Price
+    $priceRect = New-Object System.Drawing.RectangleF(
+      $contentX,
+      ($baseY + (($priceYmm + $yCorrectionMm) * $pxPerMmY)),
+      $contentW,
+      ($priceHmm * $pxPerMmY)
+    )
+
+    $g.DrawString(
+      ("DA " + [string]$Price),
+      $fontPrice,
+      $brush,
+      $priceRect,
+      $centerFormat
+    )
+  }
+
+  # Print all labels on one continuous page.
+  # This avoids page-by-page feed/skip.
+  $event.HasMorePages = $false
+})
+
+$doc.Print()
+
+Remove-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue
+"#
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -302,31 +851,70 @@ fn print_file(path: &std::path::Path, printer_name: &str) -> AppResult<()> {
 
 #[cfg(target_os = "windows")]
 fn ensure_printer_available(printer_name: &str) -> AppResult<()> {
-    let script = if printer_name.trim().is_empty() {
-        "if ((Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Select-Object -First 1) -ne $null) { exit 0 } else { exit 1 }"
-    } else {
-        "if ((Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $args[0] } | Select-Object -First 1) -ne $null) { exit 0 } else { exit 1 }"
-    };
-    let mut command = Command::new("powershell.exe");
-    let status = hide_console(&mut command)
+    let printer_name = printer_name.trim();
+
+    let script = r#"
+Add-Type -AssemblyName System.Drawing
+
+$printerName = $args[0]
+
+$printers = @(
+  [System.Drawing.Printing.PrinterSettings]::InstalledPrinters |
+  ForEach-Object { $_ }
+)
+
+if ([string]::IsNullOrWhiteSpace($printerName)) {
+  if ($printers.Count -gt 0) {
+    exit 0
+  } else {
+    Write-Error "Aucune imprimante disponible"
+    exit 1
+  }
+}
+
+$found = $false
+foreach ($p in $printers) {
+  if ($p -eq $printerName) {
+    $found = $true
+    break
+  }
+}
+
+if ($found) {
+  exit 0
+} else {
+  Write-Error ("Imprimante introuvable: '" + $printerName + "'. Disponibles: " + ($printers -join ", "))
+  exit 1
+}
+"#;
+
+    let output = hide_console(&mut Command::new("powershell.exe"))
         .args([
             "-NoProfile",
+            "-Sta",
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
             script,
         ])
         .arg(printer_name)
-        .status()?;
-    if status.success() {
+        .output()?;
+
+    if output.status.success() {
         Ok(())
-    } else if printer_name.trim().is_empty() {
-        Err(AppError::Message("Aucune imprimante disponible".into()))
     } else {
-        Err(AppError::Message(format!(
-            "Imprimante introuvable: {}",
-            printer_name
-        )))
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        Err(AppError::Message(if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else if printer_name.is_empty() {
+            "Aucune imprimante disponible".into()
+        } else {
+            format!("Imprimante introuvable: {}", printer_name)
+        }))
     }
 }
 

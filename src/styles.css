@@ -18,6 +18,7 @@
   --sidebar-collapsed-width: 86px;
   --app-gap: 18px;
   --ui-font-size: 14px;
+  --app-zoom: 1;
   --font-scale: 1;
   --ui-control-height: 42px;
   --ui-panel-padding: 18px;
@@ -123,9 +124,9 @@ button { cursor: pointer; }
   font-size: var(--ui-font-size);
 }
 
-.app-shell.ui-font-small { --ui-font-size: 12px; --font-scale: 0.9; }
-.app-shell.ui-font-normal { --ui-font-size: 14px; --font-scale: 1; }
-.app-shell.ui-font-large { --ui-font-size: 16px; --font-scale: 1.14; }
+.app-shell.ui-font-small { --ui-font-size: calc(12px * var(--app-zoom)); --font-scale: calc(0.9 * var(--app-zoom)); }
+.app-shell.ui-font-normal { --ui-font-size: calc(14px * var(--app-zoom)); --font-scale: var(--app-zoom); }
+.app-shell.ui-font-large { --ui-font-size: calc(16px * var(--app-zoom)); --font-scale: calc(1.14 * var(--app-zoom)); }
 
 .app-shell.ui-density-compact {
   --app-gap: 12px;

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
   AppSettings,
+  BarcodePrintInput,
   CashShift,
   CheckoutInput,
   CloseShiftInput,
@@ -48,6 +49,7 @@ function defaultSettings(): AppSettings {
     invoice_printer: "",
     barcode_printer: "",
     ui_font_scale: "normal",
+    ui_zoom: 100,
     ui_density: "comfortable",
     pos_layout: "auto",
     pos_cart_width: 320
@@ -152,6 +154,7 @@ function readDb(): Db {
       invoice_printer: parsed.settings?.invoice_printer ?? "",
       barcode_printer: parsed.settings?.barcode_printer ?? "",
       ui_font_scale: parsed.settings?.ui_font_scale ?? "normal",
+      ui_zoom: Math.min(125, Math.max(80, Number(parsed.settings?.ui_zoom ?? 100))),
       ui_density: parsed.settings?.ui_density ?? "comfortable",
       pos_layout: parsed.settings?.pos_layout ?? "auto",
       pos_cart_width: parsed.settings?.pos_cart_width ?? 320
@@ -377,6 +380,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       invoice_printer: input.invoice_printer ?? "",
       barcode_printer: input.barcode_printer ?? "",
       ui_font_scale: input.ui_font_scale ?? "normal",
+      ui_zoom: Math.min(125, Math.max(80, Number(input.ui_zoom || 100))),
       ui_density: input.ui_density ?? "comfortable",
       pos_layout: input.pos_layout ?? "auto",
       pos_cart_width: Math.min(420, Math.max(280, Number(input.pos_cart_width || 320)))
@@ -509,6 +513,11 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 
   if (command === "print_receipt_text") {
     console.info(args?.content);
+    return undefined as T;
+  }
+
+  if (command === "print_barcode_labels") {
+    console.info("print_barcode_labels", args?.input);
     return undefined as T;
   }
 
@@ -1404,6 +1413,7 @@ export const api = {
   openCashDrawer: () => call<void>("open_cash_drawer"),
   openExternalUrl: (url: string) => call<void>("open_external_url", { url }),
   printReceiptText: (content: string) => call<void>("print_receipt_text", { content }),
+  printBarcodeLabels: (input: BarcodePrintInput) => call<void>("print_barcode_labels", { input }),
   currentShift: () => call<CashShift | null>("current_shift"),
   openShift: (input: OpenShiftInput) => call<CashShift>("open_shift", { input }),
   closeShift: (input: CloseShiftInput) => call<CashShift>("close_shift", { input }),

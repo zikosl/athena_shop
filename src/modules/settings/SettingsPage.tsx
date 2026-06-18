@@ -4,6 +4,8 @@ import { api } from "../../shared/api";
 import { useText } from "../../shared/i18n";
 import { AppSettings, Language, UserSession } from "../../shared/types";
 
+const zoomStep = 5;
+
 const defaultSettings: AppSettings = {
   allow_negative_stock: true,
   cash_register_auto_close_time: "23:59",
@@ -11,6 +13,7 @@ const defaultSettings: AppSettings = {
   invoice_printer: "",
   barcode_printer: "",
   ui_font_scale: "normal",
+  ui_zoom: 100,
   ui_density: "comfortable",
   pos_layout: "auto",
   pos_cart_width: 320
@@ -58,6 +61,13 @@ export function SettingsPage({
   function updateSettings(next: AppSettings) {
     setSettings(next);
     onSettingsChanged?.(next);
+  }
+
+  function updateZoom(nextZoom: number) {
+    updateSettings({
+      ...settings,
+      ui_zoom: Math.min(125, Math.max(80, nextZoom))
+    });
   }
 
   async function submit(event: FormEvent) {
@@ -146,6 +156,14 @@ export function SettingsPage({
               <button className={settings.ui_font_scale === "small" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_font_scale: "small" })}>صغير</button>
               <button className={settings.ui_font_scale === "normal" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_font_scale: "normal" })}>عادي</button>
               <button className={settings.ui_font_scale === "large" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_font_scale: "large" })}>كبير</button>
+            </div>
+          </label>
+          <label>
+            <span>تكبير الواجهة: {settings.ui_zoom ?? 100}%</span>
+            <div className="segmented wide zoom-controls">
+              <button type="button" onClick={() => updateZoom((settings.ui_zoom ?? 100) - zoomStep)}>-</button>
+              <button className={(settings.ui_zoom ?? 100) === 100 ? "active" : ""} type="button" onClick={() => updateZoom(100)}>100%</button>
+              <button type="button" onClick={() => updateZoom((settings.ui_zoom ?? 100) + zoomStep)}>+</button>
             </div>
           </label>
           <label>

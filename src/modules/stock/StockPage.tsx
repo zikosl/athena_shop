@@ -3,6 +3,7 @@ import { Barcode, ClipboardList, Coins, Edit3, History, ImagePlus, PackageMinus,
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
+import { showToast } from "../../shared/toast";
 import { Language, Product, ProductInput, ProductStockFilter, StockMovement } from "../../shared/types";
 
 const emptyProduct: ProductInput = {
@@ -574,8 +575,9 @@ export function StockPage({
 function BarcodePrintModal({ product, onClose }: { product: Product; onClose: () => void }) {
   const [count, setCount] = useState(1);
   const [barcodePrinter, setBarcodePrinter] = useState("");
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
   const labelCount = Math.max(1, Math.min(200, count || 1));
-  const labels = Array.from({ length: labelCount });
 
   useEffect(() => {
     api.appSettings()
@@ -583,8 +585,25 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
       .catch(() => setBarcodePrinter(""));
   }, []);
 
-  function printLabels() {
-    window.setTimeout(() => window.print(), 50);
+  async function printLabels() {
+    setStatus("");
+    setError("");
+    try {
+      await api.printBarcodeLabels({
+        product_name: product.name,
+        barcode: product.barcode,
+        price: product.sale_price,
+        count: labelCount
+      });
+      const message = `تم إرسال ${labelCount} ملصق إلى طابعة الباركود`;
+      setStatus(message);
+      showToast(message, "success");
+    } catch (err) {
+      console.log(err)
+      const message = err instanceof Error ? err.message : "تعذرت طباعة الباركود";
+      setError(message);
+      showToast(message, "error");
+    }
   }
 
   return (
@@ -616,12 +635,11 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
             />
           </div>
         </label>
+        {status && <p className="helper-text">{status}</p>}
+        {error && <p className="error">{error}</p>}
         <div className="modal-actions">
-          <button className="gold-button" type="button" onClick={printLabels}><Barcode size={18} /> طباعة {labelCount}</button>
+          <button className="gold-button" type="button" onClick={() => void printLabels()}><Barcode size={18} /> طباعة {labelCount}</button>
           <button className="ghost-button" type="button" onClick={onClose}>إغلاق</button>
-        </div>
-        <div className="barcode-print-sheet" aria-hidden="true">
-          {labels.map((_, index) => <BarcodeLabel key={index} product={product} />)}
         </div>
       </section>
     </div>

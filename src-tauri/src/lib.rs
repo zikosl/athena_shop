@@ -63,6 +63,7 @@ pub fn run() {
             commands::system::list_printers,
             commands::system::open_cash_drawer,
             commands::system::open_external_url,
+            commands::system::print_barcode_labels,
             commands::system::print_receipt_text,
             commands::system::reset_with_dummy_data,
             commands::system::save_app_settings,

@@ -68,6 +68,7 @@ const defaultAppSettings: AppSettings = {
   invoice_printer: "",
   barcode_printer: "",
   ui_font_scale: "normal",
+  ui_zoom: 100,
   ui_density: "comfortable",
   pos_layout: "auto",
   pos_cart_width: 320
@@ -233,7 +234,10 @@ export function App() {
         `ui-density-${appSettings.ui_density}`,
         `ui-pos-${appSettings.pos_layout}`
       ].filter(Boolean).join(" ")}
-      style={{ "--pos-cart-width": `${appSettings.pos_cart_width}px` } as CSSProperties}
+      style={{
+        "--pos-cart-width": `${appSettings.pos_cart_width}px`,
+        "--app-zoom": `${(appSettings.ui_zoom ?? 100) / 100}`
+      } as CSSProperties}
       onContextMenu={(event) => event.preventDefault()}
     >
       <aside className="sidebar">

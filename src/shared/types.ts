@@ -30,6 +30,7 @@ export interface AppSettings {
   invoice_printer: string;
   barcode_printer: string;
   ui_font_scale: "small" | "normal" | "large";
+  ui_zoom: number;
   ui_density: "compact" | "comfortable" | "spacious";
   pos_layout: "auto" | "side" | "bottom";
   pos_cart_width: number;
@@ -470,4 +471,11 @@ export interface OpenShiftInput {
 
 export interface CloseShiftInput {
   id: number;
+}
+
+export interface BarcodePrintInput {
+  product_name: string;
+  barcode: string;
+  price: number;
+  count: number;
 }

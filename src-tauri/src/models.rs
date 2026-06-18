@@ -24,6 +24,7 @@ pub struct AppSettings {
     pub invoice_printer: String,
     pub barcode_printer: String,
     pub ui_font_scale: String,
+    pub ui_zoom: i64,
     pub ui_density: String,
     pub pos_layout: String,
     pub pos_cart_width: i64,
@@ -492,4 +493,12 @@ pub struct OpenShiftInput {
 #[derive(Debug, Deserialize)]
 pub struct CloseShiftInput {
     pub id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BarcodePrintInput {
+    pub product_name: String,
+    pub barcode: String,
+    pub price: f64,
+    pub count: i64,
 }

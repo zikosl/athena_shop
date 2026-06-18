@@ -322,12 +322,17 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
   async function printReceipt() {
     setPrintStatus("");
     setPrintError("");
-    showToast("\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629 \u0644\u0644\u0637\u0628\u0627\u0639\u0629", "success");
-    void api.printReceiptText(formatReceiptText(sale, t)).catch(() => {
-      const message = "\u0644\u0627 \u064a\u0645\u0643\u0646 \u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629. \u062a\u0623\u0643\u062f \u0645\u0646 \u0648\u062c\u0648\u062f \u0637\u0627\u0628\u0639\u0629.";
+    try {
+      await api.printReceiptText(formatReceiptText(sale, t));
+      const message = "\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629 \u0644\u0644\u0637\u0628\u0627\u0639\u0629";
+      setPrintStatus(message);
+      showToast(message, "success");
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "";
+      const message = detail || "\u0644\u0627 \u064a\u0645\u0643\u0646 \u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629. \u062a\u0623\u0643\u062f \u0645\u0646 \u0648\u062c\u0648\u062f \u0637\u0627\u0628\u0639\u0629.";
       setPrintError(message);
       showToast(message, "error");
-    });
+    }
   }
 
   return (
