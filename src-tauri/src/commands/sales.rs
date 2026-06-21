@@ -1,4 +1,4 @@
-use chrono::Local;
+use chrono::{Local, NaiveDate};
 use postgres::{Client, Row};
 use tauri::State;
 
@@ -77,10 +77,32 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
         } else {
             "cash"
         };
+        let now = Local::now();
+        let sale_date = if input.sale_date.trim().is_empty() {
+            now.date_naive()
+        } else {
+            NaiveDate::parse_from_str(input.sale_date.trim(), "%Y-%m-%d")
+                .map_err(|_| AppError::Message("Date de facture invalide".into()))?
+        };
+        if sale_date > now.date_naive() {
+            return Err(AppError::Message("La date de facture ne peut pas etre dans le futur".into()));
+        }
+        let sale_created_at = sale_date
+            .and_time(now.time())
+            .and_local_timezone(Local)
+            .single()
+            .ok_or_else(|| AppError::Message("Date de facture invalide".into()))?;
         let shift_id = if sale_type == "delivery" {
             None
-        } else {
+        } else if sale_date == now.date_naive() {
             Some(super::shifts::require_open_shift(client)?)
+        } else {
+            client
+                .query_opt(
+                    "SELECT id FROM cash_shifts WHERE opened_at::date = $1 ORDER BY opened_at DESC LIMIT 1",
+                    &[&sale_date],
+                )?
+                .map(|row| row.get::<_, i64>(0))
         };
         let mut tx = client.transaction()?;
         let max_discount_amount = max_discount_amount(&mut tx)?;
@@ -90,7 +112,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                 max_discount_amount
             )));
         }
-        let receipt_no = format!("AS-{}", Local::now().format("%Y%m%d-%H%M%S"));
+        let receipt_no = format!("AS-{}", now.format("%Y%m%d-%H%M%S"));
         let mut subtotal = 0.0;
         let mut gross_profit = 0.0;
         let mut sale_lines = Vec::new();
@@ -112,16 +134,20 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                 )));
             }
 
-            let line_total = product.sale_price * item.quantity as f64;
+            let unit_price = item.unit_price.unwrap_or(product.sale_price);
+            if unit_price < 0.0 || !unit_price.is_finite() {
+                return Err(AppError::Message("Prix de vente invalide".into()));
+            }
+            let line_total = unit_price * item.quantity as f64;
             subtotal += line_total;
-            gross_profit += (product.sale_price - product.purchase_price) * item.quantity as f64;
+            gross_profit += (unit_price - product.purchase_price) * item.quantity as f64;
 
             tx.execute(
                 "UPDATE products SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2",
                 &[&item.quantity, &product.id],
             )?;
 
-            sale_lines.push((product, item.quantity, line_total));
+            sale_lines.push((product, item.quantity, unit_price, line_total));
         }
 
         for item in &input.perfume_items {
@@ -178,8 +204,8 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                 "INSERT INTO sales
                  (shift_id, receipt_no, subtotal, discount, total, profit, payment_method, sale_type,
                   customer_name, customer_phone, paid_amount, remaining_amount, due_date,
-                  credit_note, credit_status, cashier)
-                 VALUES ($1, $2, $3, $4, $5, $6, 'Especes', $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                  credit_note, credit_status, cashier, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, 'Especes', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
                  RETURNING id",
                 &[
                     &shift_id,
@@ -197,12 +223,13 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                     &input.credit_note.trim(),
                     &credit_status,
                     &input.cashier.trim(),
+                    &sale_created_at,
                 ],
             )?
             .get(0);
 
         let mut response_items = Vec::new();
-        for (product, quantity, line_total) in sale_lines {
+        for (product, quantity, unit_price, line_total) in sale_lines {
             tx.execute(
                 "INSERT INTO sale_items
                  (sale_id, product_id, product_name, barcode, quantity, unit_price, purchase_price, line_total)
@@ -213,7 +240,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                     &product.name,
                     &product.barcode,
                     &quantity,
-                    &product.sale_price,
+                    &unit_price,
                     &product.purchase_price,
                     &line_total,
                 ],
@@ -223,7 +250,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                 product_name: product.name,
                 barcode: product.barcode,
                 quantity,
-                unit_price: product.sale_price,
+                unit_price,
                 line_total,
             });
         }
@@ -255,6 +282,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
             });
         }
 
+        refresh_closed_shift_closing_amount(&mut tx, shift_id)?;
         tx.commit()?;
 
         Ok(Sale {
@@ -274,7 +302,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
             credit_note: input.credit_note,
             credit_status: credit_status.into(),
             cashier: input.cashier,
-            created_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            created_at: sale_created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
             items: response_items,
         })
     })
@@ -438,6 +466,7 @@ pub fn return_sale_item(db: State<Database>, input: SaleReturnInput) -> AppResul
                 updated_items.push(crate::models::SaleItemUpdateInput {
                     product_id: item.product_id,
                     quantity,
+                    unit_price: Some(item.unit_price),
                 });
             }
         }
@@ -617,9 +646,13 @@ fn replace_sale_items(
             )));
         }
 
-        let line_total = old_item.unit_price * input.quantity as f64;
+        let unit_price = input.unit_price.unwrap_or(old_item.unit_price);
+        if unit_price < 0.0 || !unit_price.is_finite() {
+            return Err(AppError::Message("Prix de vente invalide".into()));
+        }
+        let line_total = unit_price * input.quantity as f64;
         subtotal += line_total;
-        gross_profit += (old_item.unit_price - old_item.purchase_price) * input.quantity as f64;
+        gross_profit += (unit_price - old_item.purchase_price) * input.quantity as f64;
 
         tx.execute(
             "UPDATE products SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2",
@@ -635,7 +668,7 @@ fn replace_sale_items(
                 &old_item.product_name,
                 &old_item.barcode,
                 &input.quantity,
-                &old_item.unit_price,
+                &unit_price,
                 &old_item.purchase_price,
                 &line_total,
             ],
@@ -800,13 +833,19 @@ fn refresh_closed_shift_closing_amount(
          expense_totals AS (
            SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount
            FROM expenses WHERE shift_id = $1 GROUP BY shift_id
+         ),
+         supplier_payment_totals AS (
+           SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount
+           FROM supplier_payments WHERE shift_id = $1 GROUP BY shift_id
          )
          SELECT cs.status,
-                cs.opening_amount + COALESCE(st.amount, 0) + COALESCE(pt.amount, 0) - COALESCE(et.amount, 0)
+                cs.opening_amount + COALESCE(st.amount, 0) + COALESCE(pt.amount, 0)
+                  - COALESCE(et.amount, 0) - COALESCE(supt.amount, 0)
          FROM cash_shifts cs
          LEFT JOIN sales_totals st ON st.shift_id = cs.id
          LEFT JOIN payment_totals pt ON pt.shift_id = cs.id
          LEFT JOIN expense_totals et ON et.shift_id = cs.id
+         LEFT JOIN supplier_payment_totals supt ON supt.shift_id = cs.id
          WHERE cs.id = $1",
         &[&shift_id],
     )?;

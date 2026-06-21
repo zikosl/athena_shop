@@ -24,12 +24,6 @@ pub fn run() {
             commands::expenses::list_expenses,
             commands::expenses::save_expense,
             commands::expenses::delete_expense,
-            commands::perfumery::list_flacons,
-            commands::perfumery::save_flacon,
-            commands::perfumery::list_perfumes,
-            commands::perfumery::list_perfume_purchases,
-            commands::perfumery::save_perfume,
-            commands::perfumery::save_perfume_purchase,
             commands::products::list_products,
             commands::products::save_product,
             commands::products::adjust_product_stock,
@@ -70,5 +64,5 @@ pub fn run() {
             commands::system::save_database,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Yassine POS");
+        .expect("error while running Denzel POS");
 }

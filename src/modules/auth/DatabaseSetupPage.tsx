@@ -1,10 +1,11 @@
 import { FormEvent, useState } from "react";
-import { Database, Server, User } from "lucide-react";
+import { Cloud as Server, Database, User } from "@phosphor-icons/react";
 import { api } from "../../shared/api";
 import { PostgresConfig } from "../../shared/types";
-import annaStoreLogo from "../../assets/anna-store-logo.png";
+import denzelLogoDark from "../../assets/denzel-logo-dark.png";
+import denzelLogo from "../../assets/denzel-logo.png";
 
-export function DatabaseSetupPage({ onConfigured }: { onConfigured: () => void }) {
+export function DatabaseSetupPage({ theme, onConfigured }: { theme: "dark" | "light"; onConfigured: () => void }) {
   const [form, setForm] = useState<PostgresConfig>({
     host: "localhost",
     port: 5432,
@@ -34,9 +35,9 @@ export function DatabaseSetupPage({ onConfigured }: { onConfigured: () => void }
       <div className="particles" />
       <form className="login-card setup-card" onSubmit={submit}>
         <div className="login-brand">
-          <img src={annaStoreLogo} alt="ياسين لافار لأقمصة والعطور" className="brand-logo" />
+          <img src={theme === "dark" ? denzelLogoDark : denzelLogo} alt="دنزل" className="brand-logo" />
           <div>
-            <h1>ياسين لافار لأقمصة والعطور</h1>
+            <h1>دنزل</h1>
             <p>إعداد قاعدة البيانات</p>
           </div>
         </div>

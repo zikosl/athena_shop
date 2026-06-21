@@ -40,6 +40,8 @@ import {
 import { todayInputValue } from "./format";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
+const demoDbKey = "denzel-pos-demo-db";
+const legacyDemoDbKey = "athena-shop-demo-db";
 
 function defaultSettings(): AppSettings {
   return {
@@ -48,6 +50,12 @@ function defaultSettings(): AppSettings {
     max_discount_amount: 200,
     invoice_printer: "",
     barcode_printer: "",
+    receipt_title: "دنزل",
+    receipt_subtitle: "للألبسة",
+    show_invoice_logo: true,
+    ticket_width_chars: 32,
+    barcode_label_width_mm: 40,
+    barcode_label_height_mm: 20,
     ui_font_scale: "normal",
     ui_zoom: 100,
     ui_density: "comfortable",
@@ -128,11 +136,12 @@ function sampleProduct(
 }
 
 function readDb(): Db {
-  const raw = localStorage.getItem("athena-shop-demo-db");
+  const raw = localStorage.getItem(demoDbKey) ?? localStorage.getItem(legacyDemoDbKey);
   if (!raw) {
-    localStorage.setItem("athena-shop-demo-db", JSON.stringify(seed));
+    localStorage.setItem(demoDbKey, JSON.stringify(seed));
     return structuredClone(seed);
   }
+  if (!localStorage.getItem(demoDbKey)) localStorage.setItem(demoDbKey, raw);
   const parsed = JSON.parse(raw) as Partial<Db>;
   return {
     products: (parsed.products ?? seed.products).map(normalizeProduct),
@@ -153,6 +162,12 @@ function readDb(): Db {
       max_discount_amount: parsed.settings?.max_discount_amount ?? 200,
       invoice_printer: parsed.settings?.invoice_printer ?? "",
       barcode_printer: parsed.settings?.barcode_printer ?? "",
+      receipt_title: parsed.settings?.receipt_title ?? "دنزل",
+      receipt_subtitle: parsed.settings?.receipt_subtitle ?? "للألبسة",
+      show_invoice_logo: parsed.settings?.show_invoice_logo ?? true,
+      ticket_width_chars: Math.min(48, Math.max(24, Number(parsed.settings?.ticket_width_chars ?? 32))),
+      barcode_label_width_mm: Math.min(100, Math.max(20, Number(parsed.settings?.barcode_label_width_mm ?? 40))),
+      barcode_label_height_mm: Math.min(80, Math.max(10, Number(parsed.settings?.barcode_label_height_mm ?? 20))),
       ui_font_scale: parsed.settings?.ui_font_scale ?? "normal",
       ui_zoom: Math.min(125, Math.max(80, Number(parsed.settings?.ui_zoom ?? 100))),
       ui_density: parsed.settings?.ui_density ?? "comfortable",
@@ -193,7 +208,7 @@ function normalizeSale(sale: Sale): Sale {
 }
 
 function writeDb(db: Db) {
-  localStorage.setItem("athena-shop-demo-db", JSON.stringify(db));
+  localStorage.setItem(demoDbKey, JSON.stringify(db));
 }
 
 function makeEmptyDb(): Db {
@@ -379,6 +394,12 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       max_discount_amount: Math.max(0, Number(input.max_discount_amount || 0)),
       invoice_printer: input.invoice_printer ?? "",
       barcode_printer: input.barcode_printer ?? "",
+      receipt_title: input.receipt_title?.trim() || "دنزل",
+      receipt_subtitle: input.receipt_subtitle?.trim() || "للألبسة",
+      show_invoice_logo: input.show_invoice_logo ?? true,
+      ticket_width_chars: Math.min(48, Math.max(24, Number(input.ticket_width_chars || 32))),
+      barcode_label_width_mm: Math.min(100, Math.max(20, Number(input.barcode_label_width_mm || 40))),
+      barcode_label_height_mm: Math.min(80, Math.max(10, Number(input.barcode_label_height_mm || 20))),
       ui_font_scale: input.ui_font_scale ?? "normal",
       ui_zoom: Math.min(125, Math.max(80, Number(input.ui_zoom || 100))),
       ui_density: input.ui_density ?? "comfortable",
@@ -826,20 +847,34 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 
   if (command === "checkout") {
     const input = args?.input as CheckoutInput;
-    const shift = activeDemoShift(db);
-    if (input.sale_type !== "delivery" && !shift) throw new Error("???? ??????? ??? ????????");
+    const selectedDate = input.sale_date && /^\d{4}-\d{2}-\d{2}$/.test(input.sale_date)
+      ? input.sale_date
+      : todayInputValue();
+    if (selectedDate > todayInputValue()) throw new Error("لا يمكن إنشاء فاتورة بتاريخ مستقبلي");
+    const shift = input.sale_type === "delivery"
+      ? undefined
+      : selectedDate === todayInputValue()
+        ? activeDemoShift(db)
+        : [...db.shifts]
+            .filter((item) => item.opened_at.slice(0, 10) === selectedDate)
+            .sort((a, b) => b.opened_at.localeCompare(a.opened_at))[0];
+    if (input.sale_type !== "delivery" && selectedDate === todayInputValue() && !shift) {
+      throw new Error("افتح الصندوق قبل المتابعة");
+    }
+    const createdAt = `${selectedDate}T${new Date().toTimeString().slice(0, 8)}`;
     const items = input.items.map((item) => {
       const product = db.products.find((candidate) => candidate.id === item.product_id);
       if (!product) throw new Error("?????? ??? ?????");
       if (product.quantity < item.quantity && !db.settings.allow_negative_stock) throw new Error(`المخزون غير كاف للمنتج ${product.name}`);
+      const unitPrice = Number.isFinite(item.unit_price) ? Math.max(0, item.unit_price) : product.sale_price;
       product.quantity -= item.quantity;
       return {
         product_id: product.id,
         product_name: product.name,
         barcode: product.barcode,
         quantity: item.quantity,
-        unit_price: product.sale_price,
-        line_total: product.sale_price * item.quantity
+        unit_price: unitPrice,
+        line_total: unitPrice * item.quantity
       };
     });
     const perfumeItems = (input.perfume_items ?? []).map((item) => {
@@ -886,7 +921,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       credit_note: input.credit_note,
       credit_status: input.sale_type === "delivery" ? "delivery_pending" : remaining <= 0 ? "paid" : paid > 0 ? "partial" : "open",
       cashier: input.cashier,
-      created_at: new Date().toISOString(),
+      created_at: createdAt,
       items: [...items, ...perfumeItems]
     };
     db.sales.unshift(sale);
@@ -945,7 +980,8 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     if (!sale) throw new Error("??????? ??? ??????");
     const updatedItems = sale.items.map((item) => ({
       product_id: item.product_id,
-      quantity: item.product_id === input.product_id ? item.quantity - input.quantity : item.quantity
+      quantity: item.product_id === input.product_id ? item.quantity - input.quantity : item.quantity,
+      unit_price: item.unit_price
     })).filter((item) => item.quantity > 0);
     if (!sale.items.some((item) => item.product_id === input.product_id)) throw new Error("?????? ??? ????? ?? ???????");
     if (!updatedItems.length) throw new Error("??????? ?????? ?????? ??? ???????");
@@ -1114,6 +1150,7 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
       && (sale.sale_type !== "delivery" || sale.credit_status === "delivery_paid")
     );
     const expenses = db.expenses.filter((expense) => between(expense.expense_date, start, end));
+    const supplierPayments = db.supplierPayments.filter((payment) => between(payment.paid_at.slice(0, 10), start, end));
     const payments = db.creditPayments.filter((payment) => between(payment.paid_at.slice(0, 10), start, end));
     const paymentsBySale = db.creditPayments.reduce<Record<number, number>>((totals, payment) => {
       totals[payment.sale_id] = (totals[payment.sale_id] ?? 0) + payment.amount;
@@ -1137,7 +1174,8 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
       const sale = db.sales.find((item) => item.id === payment.sale_id);
       return sale ? sum + realizedProfit(sale, payment.amount) : sum;
     }, 0);
-    const sortie = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+    const sortie = expenses.reduce((sum, expense) => sum + expense.amount, 0)
+      + supplierPayments.reduce((sum, payment) => sum + payment.amount, 0);
     return {
       label,
       start_date: start,
@@ -1176,9 +1214,15 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
     delivery_collected: filteredSales
       .filter((sale) => sale.sale_type === "delivery" && sale.credit_status === "delivery_paid")
       .reduce((sum, sale) => sum + sale.total, 0),
-    supplier_purchases: 0,
-    supplier_payments: 0,
-    supplier_remaining: 0,
+    supplier_purchases: db.purchaseOrders
+      .filter((order) => order.status !== "draft" && between((order.confirmed_at || order.created_at).slice(0, 10), from, to))
+      .reduce((sum, order) => sum + order.subtotal, 0),
+    supplier_payments: db.supplierPayments
+      .filter((payment) => between(payment.paid_at.slice(0, 10), from, to))
+      .reduce((sum, payment) => sum + payment.amount, 0),
+    supplier_remaining: db.purchaseOrders
+      .filter((order) => order.status !== "draft")
+      .reduce((sum, order) => sum + order.remaining_amount, 0),
     stock_purchase_value: db.products.reduce((sum, product) => sum + product.purchase_price * product.quantity, 0),
     stock_sale_value: db.products.reduce((sum, product) => sum + product.sale_price * product.quantity, 0)
   };
@@ -1272,13 +1316,16 @@ function buildDemoShift(db: Db, shift: CashShift): CashShift {
   const expenses = db.expenses
     .filter((expense) => expense.shift_id === shift.id)
     .reduce((sum, expense) => sum + expense.amount, 0);
+  const supplierPayments = db.supplierPayments
+    .filter((payment) => payment.shift_id === shift.id)
+    .reduce((sum, payment) => sum + payment.amount, 0);
   return {
     ...shift,
     cash_sales: cashSales,
     credit_payments: creditPayments,
     expenses,
-    supplier_payments: 0,
-    expected_amount: shift.opening_amount + cashSales + creditPayments - expenses
+    supplier_payments: supplierPayments,
+    expected_amount: shift.opening_amount + cashSales + creditPayments - expenses - supplierPayments
   };
 }
 
@@ -1335,7 +1382,7 @@ function realizedProfit(sale: Sale, collected: number) {
   return sale.profit * Math.min(collected / sale.total, 1);
 }
 
-function replaceDemoSaleItems(db: Db, saleId: number, items: Array<{ product_id: number; quantity: number }>) {
+function replaceDemoSaleItems(db: Db, saleId: number, items: SaleUpdateInput["items"]) {
   const sale = db.sales.find((item) => item.id === saleId);
   if (!sale) throw new Error("??????? ??? ??????");
   if (!items.length || items.every((item) => item.quantity <= 0)) throw new Error("??? ?? ???? ??????? ????? ???? ??? ?????");
@@ -1352,17 +1399,23 @@ function replaceDemoSaleItems(db: Db, saleId: number, items: Array<{ product_id:
     if (!product) throw new Error("?????? ??? ?????");
     if (product.quantity < input.quantity && !db.settings.allow_negative_stock) throw new Error(`المخزون غير كاف للمنتج ${oldItem.product_name}`);
     product.quantity -= input.quantity;
+    const unitPrice = Math.max(0, input.unit_price ?? oldItem.unit_price);
     return {
       ...oldItem,
       quantity: input.quantity,
-      line_total: oldItem.unit_price * input.quantity
+      unit_price: unitPrice,
+      line_total: unitPrice * input.quantity
     };
   });
 
   const subtotal = nextItems.reduce((sum, item) => sum + item.line_total, 0);
   const discount = Math.min(Math.max(sale.discount, 0), subtotal);
   const total = Math.max(0, subtotal - discount);
-  const profit = total;
+  const grossProfit = nextItems.reduce((sum, item) => {
+    const product = db.products.find((candidate) => candidate.id === item.product_id);
+    return sum + (item.unit_price - (product?.purchase_price ?? 0)) * item.quantity;
+  }, 0);
+  const profit = Math.max(0, grossProfit - discount);
   const paid = sale.sale_type === "cash" ? total : Math.min(sale.paid_amount, total);
   sale.items = nextItems;
   sale.subtotal = subtotal;
@@ -1412,7 +1465,7 @@ export const api = {
   emptyDatabase: () => call<void>("empty_database"),
   openCashDrawer: () => call<void>("open_cash_drawer"),
   openExternalUrl: (url: string) => call<void>("open_external_url", { url }),
-  printReceiptText: (content: string) => call<void>("print_receipt_text", { content }),
+  printReceiptText: (content: string, qrDataUrl = "") => call<void>("print_receipt_text", { content, qr_data_url: qrDataUrl }),
   printBarcodeLabels: (input: BarcodePrintInput) => call<void>("print_barcode_labels", { input }),
   currentShift: () => call<CashShift | null>("current_shift"),
   openShift: (input: OpenShiftInput) => call<CashShift>("open_shift", { input }),
@@ -1444,12 +1497,6 @@ export const api = {
   saveExpense: (input: ExpenseInput) => call<Expense>("save_expense", { input }),
   deleteExpense: (id: number) => call<void>("delete_expense", { id }),
   checkout: (input: CheckoutInput) => call<Sale>("checkout", { input }),
-  flacons: () => call<Flacon[]>("list_flacons"),
-  saveFlacon: (input: FlaconInput) => call<Flacon>("save_flacon", { input }),
-  perfumes: () => call<Perfume[]>("list_perfumes"),
-  savePerfume: (input: PerfumeInput) => call<Perfume>("save_perfume", { input }),
-  perfumePurchases: () => call<PerfumePurchase[]>("list_perfume_purchases"),
-  savePerfumePurchase: (input: PerfumePurchaseInput) => call<PerfumePurchase>("save_perfume_purchase", { input }),
   sales: () => call<Sale[]>("list_sales"),
   deliveries: () => call<Sale[]>("list_delivery_sales"),
   collectDelivery: (id: number) => call<Sale>("collect_delivery", { id }),

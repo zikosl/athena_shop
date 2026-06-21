@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, PackageCheck, RotateCcw, Truck } from "lucide-react";
+import { CheckCircle as CheckCircle2, Package as PackageCheck, ArrowCounterClockwise as RotateCcw, Truck } from "@phosphor-icons/react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { showToast } from "../../shared/toast";

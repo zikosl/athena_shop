@@ -1,16 +1,18 @@
 import { FormEvent, useState } from "react";
-import { LockKeyhole, User } from "lucide-react";
+import { LockKey as LockKeyhole, User } from "@phosphor-icons/react";
 import { api } from "../../shared/api";
 import { useText } from "../../shared/i18n";
 import { Language, UserSession } from "../../shared/types";
-import annaStoreLogo from "../../assets/anna-store-logo.png";
+import denzelLogoDark from "../../assets/denzel-logo-dark.png";
+import denzelLogo from "../../assets/denzel-logo.png";
 
 interface Props {
   language: Language;
+  theme: "dark" | "light";
   onLogin: (session: UserSession) => void;
 }
 
-export function LoginPage({ language, onLogin }: Props) {
+export function LoginPage({ language, theme, onLogin }: Props) {
   const t = useText(language);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -31,10 +33,10 @@ export function LoginPage({ language, onLogin }: Props) {
       <div className="particles" />
       <form className="login-card" onSubmit={submit}>
         <div className="login-brand">
-          <img src={annaStoreLogo} alt="ياسين لافار لأقمصة والعطور" className="brand-logo" />
+          <img src={theme === "dark" ? denzelLogoDark : denzelLogo} alt="دنزل" className="brand-logo" />
           <div>
-            <h1>ياسين لافار لأقمصة والعطور</h1>
-            <p>متجر الأقمصة والعطور</p>
+            <h1>دنزل</h1>
+            <p>متجر الألبسة</p>
           </div>
         </div>
         <h2>{t.login}</h2>

@@ -7,7 +7,6 @@ const arabicText = {
   subtitle: "إدارة المتجر بسهولة ووضوح",
   dashboard: "الرئيسية",
   stock: "المخزون",
-  perfumery: "العطور",
   pos: "نقطة البيع",
   delivery: "التوصيل",
   revenue: "المداخيل",
@@ -84,8 +83,6 @@ const arabicText = {
   modules: {
     stockTitle: "المخزون",
     stockText: "إدارة المنتجات والكميات وتنبيهات نقص المخزون.",
-    perfumeryTitle: "العطور",
-    perfumeryText: "إدارة العطور والقوارير والأحجام والأسعار.",
     posTitle: "نقطة البيع",
     posText: "بيع سريع، دفع نقدي أو دين، وطباعة التذاكر.",
     deliveryTitle: "التوصيل",
@@ -95,7 +92,7 @@ const arabicText = {
     reportsTitle: "التقارير",
     reportsText: "فهم البيع والشراء والمصاريف والفائدة برسوم واضحة.",
     suppliersTitle: "الموردون",
-    suppliersText: "إدارة الموردين، قسيمات شراء، الدفعات، والديون المتبقية.",
+    suppliersText: "إدارة الموردين، قسائم الشراء، الدفعات، والديون المتبقية.",
     expensesTitle: "المصاريف",
     expensesText: "إضافة ومتابعة كل مصاريف المتجر.",
     creditsTitle: "الدين",
@@ -119,7 +116,7 @@ const arabicText = {
   paidCash: "مدفوع نقدا",
   creditRemaining: "باقي الدين",
   requiredCreditCustomer: "اسم الزبون إجباري للبيع بالدين.",
-  discountMax: "التخفيض يجب أن يكون بين 0 و 200.",
+  discountMax: "التخفيض يجب أن يكون ضمن الحد المسموح.",
   discountTooHigh: "لا يمكن أن يتجاوز التخفيض المجموع الفرعي.",
   print: "طباعة",
   close: "إغلاق",
@@ -139,7 +136,7 @@ const arabicText = {
   adminAccount: "حساب المدير",
   defaultUser: "المستخدم الافتراضي: admin / admin123",
   database: "قاعدة البيانات",
-  databaseInfo: "PostgreSQL يتم ضبطها عند أول تشغيل.",
+  databaseInfo: "يتم ضبط PostgreSQL عند أول تشغيل.",
   languagePair: "العربية"
 } as const;
 

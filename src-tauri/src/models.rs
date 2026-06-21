@@ -23,6 +23,12 @@ pub struct AppSettings {
     pub max_discount_amount: f64,
     pub invoice_printer: String,
     pub barcode_printer: String,
+    pub receipt_title: String,
+    pub receipt_subtitle: String,
+    pub show_invoice_logo: bool,
+    pub ticket_width_chars: i64,
+    pub barcode_label_width_mm: i64,
+    pub barcode_label_height_mm: i64,
     pub ui_font_scale: String,
     pub ui_zoom: i64,
     pub ui_density: String,
@@ -203,6 +209,8 @@ pub struct ExpenseInput {
 pub struct CheckoutItemInput {
     pub product_id: i64,
     pub quantity: i64,
+    #[serde(default)]
+    pub unit_price: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -220,6 +228,8 @@ pub struct CheckoutInput {
     pub discount: f64,
     pub sale_type: String,
     pub paid_amount: f64,
+    #[serde(default)]
+    pub sale_date: String,
     pub customer_name: String,
     pub customer_phone: String,
     pub due_date: String,
@@ -231,6 +241,8 @@ pub struct CheckoutInput {
 pub struct SaleItemUpdateInput {
     pub product_id: i64,
     pub quantity: i64,
+    #[serde(default)]
+    pub unit_price: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -244,88 +256,6 @@ pub struct SaleReturnInput {
     pub sale_id: i64,
     pub product_id: i64,
     pub quantity: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct Flacon {
-    pub id: i64,
-    pub name: String,
-    pub flacon_type: String,
-    pub volume_ml: f64,
-    pub sale_price: f64,
-    pub active: bool,
-    pub created_at: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct FlaconInput {
-    pub id: Option<i64>,
-    pub name: String,
-    pub flacon_type: String,
-    pub volume_ml: f64,
-    pub sale_price: f64,
-    pub active: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PerfumePurchase {
-    pub id: i64,
-    pub perfume_id: Option<i64>,
-    pub perfume_name: String,
-    pub title: String,
-    pub amount: f64,
-    pub volume_ml: f64,
-    pub note: String,
-    pub created_at: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PerfumePurchaseInput {
-    pub perfume_id: Option<i64>,
-    pub title: String,
-    pub amount: f64,
-    pub volume_ml: f64,
-    pub note: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PerfumePrice {
-    pub flacon_id: i64,
-    pub flacon_name: String,
-    pub volume_ml: f64,
-    pub sale_price: f64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct Perfume {
-    pub id: i64,
-    pub name: String,
-    pub family: String,
-    pub total_volume_ml: f64,
-    pub remaining_volume_ml: f64,
-    pub total_purchase_price: f64,
-    pub cost_per_ml: f64,
-    pub low_stock_ml: f64,
-    pub created_at: String,
-    pub updated_at: String,
-    pub prices: Vec<PerfumePrice>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PerfumePriceInput {
-    pub flacon_id: i64,
-    pub sale_price: f64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PerfumeInput {
-    pub id: Option<i64>,
-    pub name: String,
-    pub family: String,
-    pub added_volume_ml: f64,
-    pub total_purchase_price: f64,
-    pub low_stock_ml: f64,
-    pub prices: Vec<PerfumePriceInput>,
 }
 
 #[derive(Debug, Serialize)]

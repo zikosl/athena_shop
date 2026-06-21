@@ -19,6 +19,13 @@ fn hide_console(command: &mut Command) -> &mut Command {
     command.creation_flags(CREATE_NO_WINDOW)
 }
 
+fn write_utf8_bom(path: &std::path::Path, content: &str) -> AppResult<()> {
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(content.as_bytes());
+    fs::write(path, bytes)?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn save_database(db: State<Database>) -> AppResult<()> {
     db.save_now()
@@ -77,6 +84,45 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             )?
             .map(|row| row.get::<_, String>(0))
             .unwrap_or_default();
+        let receipt_title = client
+            .query_opt("SELECT value FROM app_meta WHERE key = 'receipt_title'", &[])?
+            .map(|row| row.get::<_, String>(0))
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "دنزل".into());
+        let receipt_subtitle = client
+            .query_opt("SELECT value FROM app_meta WHERE key = 'receipt_subtitle'", &[])?
+            .map(|row| row.get::<_, String>(0))
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "للألبسة".into());
+        let show_invoice_logo = client
+            .query_opt("SELECT value FROM app_meta WHERE key = 'show_invoice_logo'", &[])?
+            .map(|row| row.get::<_, String>(0))
+            .map(|value| value == "true")
+            .unwrap_or(true);
+        let ticket_width_chars = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'ticket_width_chars'",
+                &[],
+            )?
+            .and_then(|row| row.get::<_, String>(0).parse::<i64>().ok())
+            .unwrap_or(32)
+            .clamp(24, 48);
+        let barcode_label_width_mm = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'barcode_label_width_mm'",
+                &[],
+            )?
+            .and_then(|row| row.get::<_, String>(0).parse::<i64>().ok())
+            .unwrap_or(40)
+            .clamp(20, 100);
+        let barcode_label_height_mm = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'barcode_label_height_mm'",
+                &[],
+            )?
+            .and_then(|row| row.get::<_, String>(0).parse::<i64>().ok())
+            .unwrap_or(20)
+            .clamp(10, 80);
         let ui_font_scale = client
             .query_opt(
                 "SELECT value FROM app_meta WHERE key = 'ui_font_scale'",
@@ -123,6 +169,12 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             max_discount_amount,
             invoice_printer,
             barcode_printer,
+            receipt_title,
+            receipt_subtitle,
+            show_invoice_logo,
+            ticket_width_chars,
+            barcode_label_width_mm,
+            barcode_label_height_mm,
             ui_font_scale,
             ui_zoom,
             ui_density,
@@ -146,6 +198,9 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
         return Err(AppError::Message("Taille de police invalide".into()));
     }
     let ui_zoom = input.ui_zoom.clamp(80, 125);
+    let ticket_width_chars = input.ticket_width_chars.clamp(24, 48);
+    let barcode_label_width_mm = input.barcode_label_width_mm.clamp(20, 100);
+    let barcode_label_height_mm = input.barcode_label_height_mm.clamp(10, 80);
     if !matches!(input.ui_density.as_str(), "compact" | "comfortable" | "spacious") {
         return Err(AppError::Message("Densite interface invalide".into()));
     }
@@ -192,6 +247,50 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
         )?;
         client.execute(
             "INSERT INTO app_meta (key, value)
+             VALUES ('receipt_title', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&input.receipt_title.trim()],
+        )?;
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('receipt_subtitle', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&input.receipt_subtitle.trim()],
+        )?;
+        let show_invoice_logo = if input.show_invoice_logo {
+            "true"
+        } else {
+            "false"
+        };
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('show_invoice_logo', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&show_invoice_logo],
+        )?;
+        let ticket_width_chars_value = ticket_width_chars.to_string();
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('ticket_width_chars', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&ticket_width_chars_value],
+        )?;
+        let barcode_label_width_value = barcode_label_width_mm.to_string();
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('barcode_label_width_mm', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&barcode_label_width_value],
+        )?;
+        let barcode_label_height_value = barcode_label_height_mm.to_string();
+        client.execute(
+            "INSERT INTO app_meta (key, value)
+             VALUES ('barcode_label_height_mm', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&barcode_label_height_value],
+        )?;
+        client.execute(
+            "INSERT INTO app_meta (key, value)
              VALUES ('ui_font_scale', $1)
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             &[&input.ui_font_scale.as_str()],
@@ -224,6 +323,9 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
         )?;
         Ok(AppSettings {
             ui_zoom,
+            ticket_width_chars,
+            barcode_label_width_mm,
+            barcode_label_height_mm,
             pos_cart_width,
             ..input
         })
@@ -277,7 +379,7 @@ pub fn list_printers() -> AppResult<Vec<String>> {
 }
 
 #[tauri::command]
-pub fn print_receipt_text(db: State<Database>, content: String) -> AppResult<()> {
+pub fn print_receipt_text(db: State<Database>, content: String, qr_data_url: String) -> AppResult<()> {
     if content.trim().is_empty() {
         return Err(AppError::Message("Ticket vide".into()));
     }
@@ -287,12 +389,12 @@ pub fn print_receipt_text(db: State<Database>, content: String) -> AppResult<()>
         .duration_since(UNIX_EPOCH)
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
-    let path = std::env::temp_dir().join(format!("athena-shop-ticket-{timestamp}.txt"));
+    let path = std::env::temp_dir().join(format!("denzel-pos-ticket-{timestamp}.txt"));
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
     bytes.extend_from_slice(content.as_bytes());
     fs::write(&path, bytes)?;
 
-    if let Err(error) = print_file(&path, settings.invoice_printer.as_str()) {
+    if let Err(error) = print_file(&path, settings.invoice_printer.as_str(), qr_data_url.as_str()) {
         let _ = fs::remove_file(&path);
         return Err(error);
     }
@@ -318,8 +420,8 @@ pub fn print_barcode_labels(db: State<Database>, input: BarcodePrintInput) -> Ap
         .duration_since(UNIX_EPOCH)
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
-    let script_path = std::env::temp_dir().join(format!("athena-shop-barcode-{timestamp}.ps1"));
-    fs::write(&script_path, barcode_print_script())?;
+    let script_path = std::env::temp_dir().join(format!("denzel-pos-barcode-{timestamp}.ps1"));
+    write_utf8_bom(&script_path, barcode_print_script())?;
 
     let output = hide_console(&mut Command::new("powershell.exe"))
         .args([
@@ -335,6 +437,8 @@ pub fn print_barcode_labels(db: State<Database>, input: BarcodePrintInput) -> Ap
         .arg(barcode)
         .arg(format!("{:.2}", input.price))
         .arg(count.to_string())
+        .arg(settings.barcode_label_width_mm.to_string())
+        .arg(settings.barcode_label_height_mm.to_string())
         .output()?;
     let _ = fs::remove_file(&script_path);
     if output.status.success() {
@@ -353,7 +457,7 @@ pub fn print_barcode_labels(db: State<Database>, input: BarcodePrintInput) -> Ap
 }
 
 #[cfg(target_os = "windows")]
-fn print_file(path: &std::path::Path, printer_name: &str) -> AppResult<()> {
+fn print_file(path: &std::path::Path, printer_name: &str, qr_data_url: &str) -> AppResult<()> {
     ensure_printer_available(printer_name)?;
 
     let timestamp = SystemTime::now()
@@ -361,9 +465,9 @@ fn print_file(path: &std::path::Path, printer_name: &str) -> AppResult<()> {
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
 
-    let script_path = std::env::temp_dir().join(format!("athena-shop-receipt-{timestamp}.ps1"));
+    let script_path = std::env::temp_dir().join(format!("denzel-pos-receipt-{timestamp}.ps1"));
 
-    fs::write(&script_path, receipt_print_script())?;
+    write_utf8_bom(&script_path, receipt_print_script())?;
 
     let output = hide_console(&mut Command::new("powershell.exe"))
         .args([
@@ -376,6 +480,7 @@ fn print_file(path: &std::path::Path, printer_name: &str) -> AppResult<()> {
         .arg(&script_path)
         .arg(path)
         .arg(printer_name.trim())
+        .arg(qr_data_url.trim())
         .output();
 
     let _ = fs::remove_file(&script_path);
@@ -404,10 +509,15 @@ fn receipt_print_script() -> &'static str {
     r#"
 param(
   [string]$Path,
-  [string]$PrinterName
+  [string]$PrinterName,
+  [string]$QrDataUrl
 )
 
 $ErrorActionPreference = 'Stop'
+
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
@@ -442,6 +552,18 @@ if (-not [System.IO.File]::Exists($Path)) {
 
 $content = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
 $lines = @($content -split "`r?`n")
+$qrImage = $null
+$qrStream = $null
+
+if (-not [string]::IsNullOrWhiteSpace($QrDataUrl)) {
+  $qrBase64 = $QrDataUrl
+  if ($QrDataUrl -match '^data:image/[^;]+;base64,(.+)$') {
+    $qrBase64 = $Matches[1]
+  }
+  $qrBytes = [Convert]::FromBase64String($qrBase64)
+  $qrStream = New-Object System.IO.MemoryStream(,$qrBytes)
+  $qrImage = [System.Drawing.Image]::FromStream($qrStream)
+}
 
 $doc = New-Object System.Drawing.Printing.PrintDocument
 
@@ -453,7 +575,7 @@ if (-not $doc.PrinterSettings.IsValid) {
   throw ("Imprimante invalide ou indisponible: '" + $PrinterName + "'. Imprimantes disponibles: " + ($installedPrinters -join ", "))
 }
 
-$doc.DocumentName = "Athena receipt"
+$doc.DocumentName = "Denzel receipt"
 $doc.OriginAtMargins = $false
 
 # Receipt printer width.
@@ -472,6 +594,10 @@ $doc.OriginAtMargins = $false
 
 [float]$receiptHeightMm = $topMarginMm + $bottomMarginMm + ($lineHeightMm * $lineCount)
 
+if ($null -ne $qrImage) {
+  $receiptHeightMm = $receiptHeightMm + 25.0
+}
+
 # Add small feed at bottom.
 $receiptHeightMm = $receiptHeightMm + 8.0
 
@@ -483,7 +609,7 @@ if ($paperHeight -lt 100) {
   $paperHeight = 100
 }
 
-$paper = New-Object System.Drawing.Printing.PaperSize("Athena Receipt", $paperWidth, $paperHeight)
+$paper = New-Object System.Drawing.Printing.PaperSize("Denzel Receipt", $paperWidth, $paperHeight)
 $doc.DefaultPageSettings.PaperSize = $paper
 $doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
 
@@ -534,10 +660,21 @@ $doc.add_PrintPage({
     $y = $y + $lineH
   }
 
+  if ($null -ne $qrImage) {
+    [float]$qrSize = 22.0 * $pxPerMmX
+    [float]$qrX = $x + (($contentW - $qrSize) / 2.0)
+    $y = $y + (2.0 * $pxPerMmY)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+    $g.DrawImage($qrImage, $qrX, $y, $qrSize, $qrSize)
+  }
+
   $event.HasMorePages = $false
 })
 
 $doc.Print()
+
+if ($null -ne $qrImage) { $qrImage.Dispose() }
+if ($null -ne $qrStream) { $qrStream.Dispose() }
 
 Remove-Item -LiteralPath $Path -ErrorAction SilentlyContinue
 "#
@@ -562,10 +699,16 @@ param(
   [string]$ProductName,
   [string]$Barcode,
   [string]$Price,
-  [int]$Count
+  [int]$Count,
+  [int]$LabelWidthMm,
+  [int]$LabelHeightMm
 )
 
 $ErrorActionPreference = 'Stop'
+
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
@@ -611,15 +754,50 @@ $patterns = @(
 function Get-Code128Patterns([string]$value) {
   $codes = New-Object System.Collections.Generic.List[int]
 
-  # Code 128 Set B
+  # Code 128 auto mode:
+  # - Start in Set B for mixed text.
+  # - Switch to Set C for long numeric chunks so small 40x20mm labels remain scannable.
   $codes.Add(104)
+  $set = "B"
+  $i = 0
 
-  foreach ($ch in $value.ToCharArray()) {
-    $code = [int][char]$ch
+  while ($i -lt $value.Length) {
+    $remaining = $value.Substring($i)
 
-    if ($code -ge 32 -and $code -le 126) {
-      $codes.Add($code - 32)
+    if ($remaining -match '^\d{4,}') {
+      $digitRun = [regex]::Match($remaining, '^\d+').Value
+      if (($digitRun.Length % 2) -eq 1) {
+        $digitRun = $digitRun.Substring(0, $digitRun.Length - 1)
+      }
+
+      if ($digitRun.Length -ge 4) {
+        if ($set -ne "C") {
+          $codes.Add(99)
+          $set = "C"
+        }
+
+        for ($pairIndex = 0; $pairIndex -lt $digitRun.Length; $pairIndex += 2) {
+          $codes.Add([int]$digitRun.Substring($pairIndex, 2))
+        }
+
+        $i += $digitRun.Length
+        continue
+      }
     }
+
+    if ($set -ne "B") {
+      $codes.Add(100)
+      $set = "B"
+    }
+
+    $code = [int][char]$value[$i]
+    if ($code -lt 32 -or $code -gt 126) {
+      $i += 1
+      continue
+    }
+
+    $codes.Add($code - 32)
+    $i += 1
   }
 
   $checksum = 104
@@ -646,14 +824,12 @@ if (-not $doc.PrinterSettings.IsValid) {
   throw ("Imprimante invalide ou indisponible: '" + $PrinterName + "'. Imprimantes disponibles: " + ($installedPrinters -join ", "))
 }
 
-$doc.DocumentName = "Athena barcode labels"
+$doc.DocumentName = "Denzel barcode labels"
 $doc.OriginAtMargins = $false
 
-# Label: 40mm x 20mm
-# Gap: physical space between labels.
-# Change ONLY this if vertical decalage happens.
-[float]$labelWidthMm = 40.0
-[float]$labelHeightMm = 20.0
+# Label size comes from app settings.
+[float]$labelWidthMm = [Math]::Max(20, $LabelWidthMm)
+[float]$labelHeightMm = [Math]::Max(10, $LabelHeightMm)
 [float]$gapMm = 2.0
 
 [int]$safeCount = [Math]::Max(1, [int]$Count)
@@ -730,18 +906,19 @@ $doc.add_PrintPage({
   [float]$xCorrectionMm = 0.0
   $contentX = $contentX + ($xCorrectionMm * $pxPerMmX)
 
-  # Vertical positions inside 20mm label
-  [float]$titleYmm = 0.9
-  [float]$titleHmm = 3.0
+  # Vertical positions inside 20mm label.
+  # Keep the barcode tall and simple; tiny decorations make scanners struggle.
+  [float]$titleYmm = 0.7
+  [float]$titleHmm = 2.4
 
-  [float]$barYmm = 4.4
-  [float]$barHmm = 8.4
+  [float]$barYmm = 3.7
+  [float]$barHmm = 10.2
 
-  [float]$barcodeTextYmm = 12.9
+  [float]$barcodeTextYmm = 14.2
   [float]$barcodeTextHmm = 2.6
 
-  [float]$priceYmm = 15.5
-  [float]$priceHmm = 3.4
+  [float]$priceYmm = 16.7
+  [float]$priceHmm = 2.8
 
   # Fine vertical correction inside each label.
   # Positive = move content down, negative = move up.
@@ -999,10 +1176,10 @@ pub fn open_cash_drawer(db: State<Database>) -> AppResult<()> {
         .duration_since(UNIX_EPOCH)
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
-    let path = std::env::temp_dir().join(format!("athena-shop-drawer-{timestamp}.bin"));
+    let path = std::env::temp_dir().join(format!("denzel-pos-drawer-{timestamp}.bin"));
     fs::write(&path, pulse)?;
 
-    if let Err(error) = print_file(&path, settings.invoice_printer.as_str()) {
+    if let Err(error) = print_file(&path, settings.invoice_printer.as_str(), "") {
         let _ = fs::remove_file(&path);
         return Err(error);
     }

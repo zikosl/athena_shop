@@ -1,5 +1,5 @@
 ﻿import { FormEvent, MouseEvent, ReactNode, useEffect, useMemo, useState } from "react";
-import { Barcode, ClipboardList, Coins, Edit3, History, ImagePlus, PackageMinus, PackagePlus, Plus, RefreshCcw, Save, Search, Trash2, X } from "lucide-react";
+import { Barcode, ClipboardText as ClipboardList, Coins, PencilSimple as Edit3, ClockCounterClockwise as History, ImageSquare as ImagePlus, Package as PackageMinus, Package as PackagePlus, Plus, ArrowsClockwise as RefreshCcw, FloppyDisk as Save, MagnifyingGlass as Search, Trash as Trash2, X } from "@phosphor-icons/react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
@@ -21,7 +21,7 @@ const emptyProduct: ProductInput = {
 const maxProductImageSize = 5 * 1024 * 1024;
 
 function createBarcode() {
-  return `AS${Date.now().toString().slice(-10)}${Math.floor(Math.random() * 90 + 10)}`;
+  return `${Date.now().toString().slice(-10)}${Math.floor(Math.random() * 90 + 10)}`;
 }
 
 function newProduct(): ProductInput {
@@ -577,6 +577,7 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
   const [barcodePrinter, setBarcodePrinter] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [printing, setPrinting] = useState(false);
   const labelCount = Math.max(1, Math.min(200, count || 1));
 
   useEffect(() => {
@@ -586,8 +587,10 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
   }, []);
 
   async function printLabels() {
+    if (printing) return;
     setStatus("");
     setError("");
+    setPrinting(true);
     try {
       await api.printBarcodeLabels({
         product_name: product.name,
@@ -599,10 +602,11 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
       setStatus(message);
       showToast(message, "success");
     } catch (err) {
-      console.log(err)
       const message = err instanceof Error ? err.message : "تعذرت طباعة الباركود";
       setError(message);
       showToast(message, "error");
+    } finally {
+      setPrinting(false);
     }
   }
 
@@ -638,8 +642,8 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
         {status && <p className="helper-text">{status}</p>}
         {error && <p className="error">{error}</p>}
         <div className="modal-actions">
-          <button className="gold-button" type="button" onClick={() => void printLabels()}><Barcode size={18} /> طباعة {labelCount}</button>
-          <button className="ghost-button" type="button" onClick={onClose}>إغلاق</button>
+          <button className="gold-button" type="button" disabled={printing} onClick={() => void printLabels()}><Barcode size={18} /> {printing ? "جار الطباعة..." : `طباعة ${labelCount}`}</button>
+          <button className="ghost-button" type="button" disabled={printing} onClick={onClose}>إغلاق</button>
         </div>
       </section>
     </div>

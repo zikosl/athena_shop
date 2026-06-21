@@ -1,28 +1,28 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bell,
-  Box,
-  ChartColumnIncreasing,
+  Cube as Box,
+  ChartBar as ChartColumnIncreasing,
   CreditCard,
-  ExternalLink,
-  CircleDollarSign,
+  ArrowSquareOut as ExternalLink,
+  CurrencyCircleDollar as CircleDollarSign,
   HandCoins,
-  Home,
+  House as Home,
   Info,
-  LogOut,
-  Menu,
+  SignOut as LogOut,
+  List as Menu,
   Moon,
-  ReceiptText,
-  Save,
-  Settings,
+  Receipt as ReceiptText,
+  FloppyDisk as Save,
+  Gear as Settings,
   ShoppingCart,
-  Scale,
-  SprayCan,
+  Scales as Scale,
   Sun,
   Truck,
+  UsersThree as UsersRound,
   Wallet,
   X
-} from "lucide-react";
+} from "@phosphor-icons/react";
 import { DatabaseSetupPage } from "../modules/auth/DatabaseSetupPage";
 import { LoginPage } from "../modules/auth/LoginPage";
 import { DashboardPage } from "../modules/dashboard/DashboardPage";
@@ -30,18 +30,19 @@ import { DeliveryPage } from "../modules/delivery/DeliveryPage";
 import { ExpensesPage } from "../modules/expenses/ExpensesPage";
 import { CreditsPage } from "../modules/credits/CreditsPage";
 import { PosPage } from "../modules/pos/PosPage";
-import { PerfumeryPage } from "../modules/perfumery/PerfumeryPage";
 import { ReportsPage } from "../modules/reports/ReportsPage";
 import { RevenuePage } from "../modules/revenue/RevenuePage";
 import { SettingsPage } from "../modules/settings/SettingsPage";
 import { StockPage } from "../modules/stock/StockPage";
+import { SuppliersPage } from "../modules/suppliers/SuppliersPage";
 import { ZakatPage } from "../modules/zakat/ZakatPage";
 import { api } from "../shared/api";
 import { appDateLabel, hijriDateLabel, money } from "../shared/format";
 import { useText } from "../shared/i18n";
 import { AppToast, showToast } from "../shared/toast";
 import { AppSettings, CashShift, Language, ProductStockFilter, UserSession, ViewKey } from "../shared/types";
-import annaStoreLogo from "../assets/anna-store-logo.png";
+import denzelLogoDark from "../assets/denzel-logo-dark.png";
+import denzelLogo from "../assets/denzel-logo.png";
 import openzeyLogo from "../assets/openzey-logo.png";
 import openzeyLogoWhite from "../assets/openzey-logo-white.png";
 
@@ -52,8 +53,8 @@ const nav = [
   { key: "revenue", icon: ChartColumnIncreasing },
   { key: "credits", icon: HandCoins },
   { key: "expenses", icon: Wallet },
+  { key: "suppliers", icon: UsersRound },
   { key: "stock", icon: Box },
-  { key: "perfumery", icon: SprayCan },
   { key: "reports", icon: ReceiptText },
   { key: "zakat", icon: Scale },
   { key: "settings", icon: Settings }
@@ -61,12 +62,38 @@ const nav = [
 
 type Theme = "dark" | "light";
 
+const storageKeys = {
+  theme: "denzel-pos-theme",
+  session: "denzel-pos-session",
+  lang: "denzel-pos-lang"
+} as const;
+
+const legacyStorageKeys = {
+  theme: "athena-shop-theme",
+  session: "athena-shop-session",
+  lang: "athena-shop-lang"
+} as const;
+
+function readStorage(key: string, legacyKey: string) {
+  const value = localStorage.getItem(key);
+  if (value !== null) return value;
+  const legacyValue = localStorage.getItem(legacyKey);
+  if (legacyValue !== null) localStorage.setItem(key, legacyValue);
+  return legacyValue;
+}
+
 const defaultAppSettings: AppSettings = {
   allow_negative_stock: true,
   cash_register_auto_close_time: "23:59",
   max_discount_amount: 200,
   invoice_printer: "",
   barcode_printer: "",
+  receipt_title: "دنزل",
+  receipt_subtitle: "للألبسة",
+  show_invoice_logo: true,
+  ticket_width_chars: 32,
+  barcode_label_width_mm: 40,
+  barcode_label_height_mm: 20,
   ui_font_scale: "normal",
   ui_zoom: 100,
   ui_density: "comfortable",
@@ -76,18 +103,19 @@ const defaultAppSettings: AppSettings = {
 
 export function App() {
   const [language] = useState<Language>("ar");
-  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("athena-shop-theme") as Theme) || "dark");
+  const [theme, setTheme] = useState<Theme>(() => (readStorage(storageKeys.theme, legacyStorageKeys.theme) as Theme) || "dark");
   const [view, setView] = useState<ViewKey>("dashboard");
   const [stockFilter, setStockFilter] = useState<ProductStockFilter>("all");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [databaseConfigured, setDatabaseConfigured] = useState<boolean | null>(null);
   const [user, setUser] = useState<UserSession | null>(() => {
-    const raw = localStorage.getItem("athena-shop-session");
+    const raw = readStorage(storageKeys.session, legacyStorageKeys.session);
     if (!raw) return null;
     try {
       return JSON.parse(raw) as UserSession;
     } catch {
-      localStorage.removeItem("athena-shop-session");
+      localStorage.removeItem(storageKeys.session);
+      localStorage.removeItem(legacyStorageKeys.session);
       return null;
     }
   });
@@ -104,13 +132,13 @@ export function App() {
   const t = useText(language);
 
   useEffect(() => {
-    localStorage.setItem("athena-shop-lang", language);
+    localStorage.setItem(storageKeys.lang, language);
     document.documentElement.lang = language;
     document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
   }, [language]);
 
   useEffect(() => {
-    localStorage.setItem("athena-shop-theme", theme);
+    localStorage.setItem(storageKeys.theme, theme);
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
@@ -186,25 +214,26 @@ export function App() {
 
   const logout = useCallback(async () => {
     await saveData();
-    localStorage.removeItem("athena-shop-session");
+    localStorage.removeItem(storageKeys.session);
+    localStorage.removeItem(legacyStorageKeys.session);
     setUser(null);
   }, [saveData]);
 
   const updateUserSession = useCallback((session: UserSession) => {
     setUser(session);
-    localStorage.setItem("athena-shop-session", JSON.stringify(session));
+    localStorage.setItem(storageKeys.session, JSON.stringify(session));
   }, []);
 
   const screen = useMemo(() => {
     if (!user) return null;
     if (view === "dashboard") return <DashboardPage language={language} onNavigate={setView} onOpenAlerts={openStockAlerts} refreshToken={refreshToken} />;
     if (view === "stock") return <StockPage language={language} onChanged={refresh} initialStockFilter={stockFilter} />;
-    if (view === "perfumery") return <PerfumeryPage language={language} onChanged={refresh} />;
     if (view === "pos") return <PosPage language={language} user={user} onSale={refresh} />;
     if (view === "delivery") return <DeliveryPage language={language} onChanged={refresh} />;
     if (view === "revenue") return <RevenuePage language={language} onChanged={refresh} />;
     if (view === "reports") return <ReportsPage language={language} />;
     if (view === "expenses") return <ExpensesPage language={language} onChanged={refresh} />;
+    if (view === "suppliers") return <SuppliersPage language={language} user={user} onChanged={refresh} />;
     if (view === "credits") return <CreditsPage language={language} user={user} onChanged={refresh} />;
     if (view === "zakat") return <ZakatPage language={language} />;
     return <SettingsPage language={language} user={user} onUserChanged={updateUserSession} onSettingsChanged={setAppSettings} />;
@@ -215,13 +244,13 @@ export function App() {
   }
 
   if (!databaseConfigured) {
-    return <DatabaseSetupPage onConfigured={() => setDatabaseConfigured(true)} />;
+    return <DatabaseSetupPage theme={theme} onConfigured={() => setDatabaseConfigured(true)} />;
   }
 
   if (!user) {
-    return <LoginPage language={language} onLogin={(session) => {
+    return <LoginPage language={language} theme={theme} onLogin={(session) => {
       setUser(session);
-      localStorage.setItem("athena-shop-session", JSON.stringify(session));
+      localStorage.setItem(storageKeys.session, JSON.stringify(session));
     }} />;
   }
 
@@ -243,7 +272,7 @@ export function App() {
       <aside className="sidebar">
         <div className="brand-mark">
           <div className="brand-logo-frame">
-            <img src={annaStoreLogo} alt="ياسين لافار لأقمصة والعطور" className="brand-logo" />
+            <img src={theme === "dark" ? denzelLogoDark : denzelLogo} alt="دنزل" className="brand-logo" />
           </div>
         </div>
 
@@ -305,7 +334,7 @@ export function App() {
             </button>
             <section className="title-lockup">
               <div>
-                <h1>ياسين لافار</h1>
+                <h1>دنزل</h1>
               </div>
             </section>
           </section>
@@ -418,9 +447,12 @@ function CashShiftModal({
   const [openingAmount, setOpeningAmount] = useState(0);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
 
 
   async function openCaisse() {
+    if (busy) return;
+    setBusy(true);
     setError("");
     setStatus("");
     try {
@@ -434,11 +466,14 @@ function CashShiftModal({
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       showToast(message, "error");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function closeCaisse() {
-    if (!shift) return;
+    if (!shift || busy) return;
+    setBusy(true);
     setError("");
     setStatus("");
     try {
@@ -452,6 +487,8 @@ function CashShiftModal({
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       showToast(message, "error");
+    } finally {
+      setBusy(false);
     }
   }
 

@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
-import { DatabaseZap, LayoutPanelLeft, PackageMinus, Printer, Save, SlidersHorizontal, Trash2, UserRound } from "lucide-react";
+import { Database as DatabaseZap, Layout as LayoutPanelLeft, Package as PackageMinus, Printer, FloppyDisk as Save, SlidersHorizontal, Trash as Trash2, UserCircle as UserRound } from "@phosphor-icons/react";
 import { api } from "../../shared/api";
 import { useText } from "../../shared/i18n";
 import { AppSettings, Language, UserSession } from "../../shared/types";
 
 const zoomStep = 5;
+type SettingsTab = "profile" | "interface" | "printing" | "system";
 
 const defaultSettings: AppSettings = {
   allow_negative_stock: true,
@@ -12,6 +13,12 @@ const defaultSettings: AppSettings = {
   max_discount_amount: 200,
   invoice_printer: "",
   barcode_printer: "",
+  receipt_title: "دنزل",
+  receipt_subtitle: "للألبسة",
+  show_invoice_logo: true,
+  ticket_width_chars: 32,
+  barcode_label_width_mm: 40,
+  barcode_label_height_mm: 20,
   ui_font_scale: "normal",
   ui_zoom: 100,
   ui_density: "comfortable",
@@ -44,6 +51,11 @@ export function SettingsPage({
   const [printers, setPrinters] = useState<string[]>([]);
   const [settingsStatus, setSettingsStatus] = useState("");
   const [settingsError, setSettingsError] = useState("");
+  const [tab, setTab] = useState<SettingsTab>("profile");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [resettingData, setResettingData] = useState(false);
+  const [emptyingData, setEmptyingData] = useState(false);
 
   useEffect(() => {
     api.appSettings()
@@ -72,8 +84,10 @@ export function SettingsPage({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (savingProfile) return;
     setStatus("");
     setError("");
+    setSavingProfile(true);
     try {
       const updated = await api.updateProfile({
         id: user.id,
@@ -86,12 +100,16 @@ export function SettingsPage({
       setStatus("تم حفظ الحساب");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingProfile(false);
     }
   }
 
   async function saveSettings() {
+    if (savingSettings) return;
     setSettingsStatus("");
     setSettingsError("");
+    setSavingSettings(true);
     try {
       const saved = await api.saveAppSettings(settings);
       const normalized = { ...defaultSettings, ...saved };
@@ -100,6 +118,8 @@ export function SettingsPage({
       setSettingsStatus("تم حفظ الإعدادات");
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingSettings(false);
     }
   }
 
@@ -130,8 +150,14 @@ export function SettingsPage({
   return (
     <section className="panel settings-panel">
       <div className="section-title"><h2>{t.settings}</h2><span /></div>
+      <div className="segmented wide settings-tabs">
+        <button type="button" className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>الحساب</button>
+        <button type="button" className={tab === "interface" ? "active" : ""} onClick={() => setTab("interface")}>الواجهة</button>
+        <button type="button" className={tab === "printing" ? "active" : ""} onClick={() => setTab("printing")}>الطباعة والتذاكر</button>
+        <button type="button" className={tab === "system" ? "active" : ""} onClick={() => setTab("system")}>النظام</button>
+      </div>
 
-      <form className="setting-row profile-editor" onSubmit={submit}>
+      <form className="setting-row profile-editor" onSubmit={submit} style={{ display: tab === "profile" ? undefined : "none" }}>
         <div><UserRound size={22} /><strong>{t.adminAccount}</strong><span>{user.role}</span></div>
         <div className="profile-fields">
           <label><span>{t.username}</span><div className="field"><input value={profile.username} onChange={(event) => setProfile({ ...profile, username: event.target.value })} /></div></label>
@@ -143,7 +169,7 @@ export function SettingsPage({
         </div>
       </form>
 
-      <article className="setting-row profile-editor">
+      <article className="setting-row profile-editor" style={{ display: tab === "interface" ? undefined : "none" }}>
         <div>
           <SlidersHorizontal size={22} />
           <strong>مظهر الواجهة</strong>
@@ -181,7 +207,7 @@ export function SettingsPage({
         </div>
       </article>
 
-      <article className="setting-row profile-editor">
+      <article className="setting-row profile-editor" style={{ display: tab === "interface" ? undefined : "none" }}>
         <div>
           <LayoutPanelLeft size={22} />
           <strong>تخطيط نقطة البيع</strong>
@@ -214,7 +240,7 @@ export function SettingsPage({
         </div>
       </article>
 
-      <article className="setting-row profile-editor">
+      <article className="setting-row profile-editor" style={{ display: tab === "interface" ? undefined : "none" }}>
         <div>
           <PackageMinus size={22} />
           <strong>إعدادات المخزون</strong>
@@ -242,7 +268,7 @@ export function SettingsPage({
         </div>
       </article>
 
-      <article className="setting-row profile-editor">
+      <article className="setting-row profile-editor" style={{ display: tab === "printing" ? undefined : "none" }}>
         <div>
           <Printer size={22} />
           <strong>الطابعات</strong>
@@ -272,7 +298,49 @@ export function SettingsPage({
         </div>
       </article>
 
-      <article className="setting-row debug-reset-row">
+      <article className="setting-row profile-editor" style={{ display: tab === "printing" ? undefined : "none" }}>
+        <div>
+          <Printer size={22} />
+          <strong>ضبط التذكرة والباركود</strong>
+          <span>إعدادات منفصلة لتذكرة البيع وملصق الباركود، مناسبة لمقاسات 20x40 مم.</span>
+        </div>
+        <div className="profile-fields">
+          <label>
+            <span>عنوان الفاتورة</span>
+            <div className="field"><input value={settings.receipt_title} onChange={(event) => setSettings({ ...settings, receipt_title: event.target.value })} /></div>
+          </label>
+          <label>
+            <span>العنوان الفرعي</span>
+            <div className="field"><input value={settings.receipt_subtitle} onChange={(event) => setSettings({ ...settings, receipt_subtitle: event.target.value })} /></div>
+          </label>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={settings.show_invoice_logo}
+              onChange={(event) => setSettings({ ...settings, show_invoice_logo: event.target.checked })}
+            />
+            <span>إظهار الشعار في الفاتورة</span>
+          </label>
+          <label>
+            <span>عرض نص الفاتورة بالحروف</span>
+            <div className="field"><input type="number" min={24} max={48} value={settings.ticket_width_chars} onChange={(event) => setSettings({ ...settings, ticket_width_chars: Number(event.target.value) })} /></div>
+          </label>
+          <label>
+            <span>عرض ملصق الباركود بالملم</span>
+            <div className="field"><input type="number" min={20} max={100} value={settings.barcode_label_width_mm} onChange={(event) => setSettings({ ...settings, barcode_label_width_mm: Number(event.target.value) })} /></div>
+          </label>
+          <label>
+            <span>ارتفاع ملصق الباركود بالملم</span>
+            <div className="field"><input type="number" min={10} max={80} value={settings.barcode_label_height_mm} onChange={(event) => setSettings({ ...settings, barcode_label_height_mm: Number(event.target.value) })} /></div>
+          </label>
+          <p className="helper-text">لملصقات 20x40 مم اجعل العرض 40 والارتفاع 20. إذا كان الباركود لا يقرأ، جرّب تقليل طول اسم المنتج أو زيادة الارتفاع قليلا.</p>
+          {settingsError && <p className="error">{settingsError}</p>}
+          {settingsStatus && <p className="helper-text">{settingsStatus}</p>}
+          <button className="gold-button" type="button" disabled={savingSettings} onClick={() => void saveSettings()}><Save size={18} /> {savingSettings ? "جار الحفظ..." : t.save}</button>
+        </div>
+      </article>
+
+      <article className="setting-row debug-reset-row" style={{ display: tab === "system" ? undefined : "none" }}>
         <div>
           <DatabaseZap size={22} />
           <strong>إدارة بيانات التجربة</strong>

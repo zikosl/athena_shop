@@ -88,6 +88,28 @@ pub fn get_report(db: State<Database>, input: ReportFilter) -> AppResult<ReportD
                 &[&from_date, &to_date],
             )?
             .get(0);
+        summary.supplier_purchases = client
+            .query_one(
+                "SELECT COALESCE(SUM(subtotal), 0)::float8
+                 FROM purchase_orders
+                 WHERE status <> 'draft' AND confirmed_at::date BETWEEN $1 AND $2",
+                &[&from_date, &to_date],
+            )?
+            .get(0);
+        summary.supplier_payments = client
+            .query_one(
+                "SELECT COALESCE(SUM(amount), 0)::float8
+                 FROM supplier_payments WHERE paid_at::date BETWEEN $1 AND $2",
+                &[&from_date, &to_date],
+            )?
+            .get(0);
+        summary.supplier_remaining = client
+            .query_one(
+                "SELECT COALESCE(SUM(remaining_amount), 0)::float8
+                 FROM purchase_orders WHERE status <> 'draft' AND remaining_amount > 0",
+                &[],
+            )?
+            .get(0);
         let row = client.query_one(
             "SELECT
                COALESCE(SUM(purchase_price * quantity), 0)::float8,
@@ -186,7 +208,14 @@ fn bucket_totals(client: &mut Client, start: NaiveDate, end: NaiveDate) -> AppRe
             &[&start, &end],
         )?
         .get(0);
-    let sortie = expenses;
+    let supplier_payments: f64 = client
+        .query_one(
+            "SELECT COALESCE(SUM(amount), 0)::float8
+             FROM supplier_payments WHERE paid_at::date BETWEEN $1 AND $2",
+            &[&start, &end],
+        )?
+        .get(0);
+    let sortie = expenses + supplier_payments;
 
     Ok(BucketTotals {
         entry: sale_entry + credit_entry,

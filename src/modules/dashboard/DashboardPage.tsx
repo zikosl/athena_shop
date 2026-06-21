@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 import {
-  AlertTriangle,
-  Box,
-  ChartColumnIncreasing,
+  Warning as AlertTriangle,
+  Cube as Box,
+  ChartBar as ChartColumnIncreasing,
   Coins,
   HandCoins,
-  ReceiptText,
+  Receipt as ReceiptText,
   ShoppingCart,
-  SprayCan,
   Truck,
+  UsersThree as UsersRound,
   Wallet
-} from "lucide-react";
+} from "@phosphor-icons/react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
@@ -33,12 +33,12 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
 
   const modules = [
     { key: "stock" as ViewKey, title: t.modules.stockTitle, icon: Box, text: t.modules.stockText },
-    { key: "perfumery" as ViewKey, title: t.modules.perfumeryTitle, icon: SprayCan, text: t.modules.perfumeryText },
     { key: "pos" as ViewKey, title: t.modules.posTitle, icon: ShoppingCart, text: t.modules.posText },
     { key: "delivery" as ViewKey, title: t.modules.deliveryTitle, icon: Truck, text: t.modules.deliveryText },
     { key: "revenue" as ViewKey, title: t.modules.revenueTitle, icon: ChartColumnIncreasing, text: t.modules.revenueText },
     { key: "reports" as ViewKey, title: t.modules.reportsTitle, icon: ReceiptText, text: t.modules.reportsText },
     { key: "expenses" as ViewKey, title: t.modules.expensesTitle, icon: Wallet, text: t.modules.expensesText },
+    { key: "suppliers" as ViewKey, title: t.modules.suppliersTitle, icon: UsersRound, text: t.modules.suppliersText },
     { key: "credits" as ViewKey, title: t.modules.creditsTitle, icon: HandCoins, text: t.modules.creditsText }
   ];
 

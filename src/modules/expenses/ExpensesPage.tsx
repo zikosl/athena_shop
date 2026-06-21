@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Plus, Save, Search, Trash2, X } from "lucide-react";
+import { Plus, FloppyDisk as Save, MagnifyingGlass as Search, Trash as Trash2, X } from "@phosphor-icons/react";
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";

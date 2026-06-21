@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowDownCircle, CalendarDays, ChartColumnIncreasing, HandCoins, PackageSearch, ReceiptText, ShoppingCart, Truck, Wallet } from "lucide-react";
+import { Pulse as Activity, ArrowCircleDown as ArrowDownCircle, CalendarDots as CalendarDays, ChartBar as ChartColumnIncreasing, HandCoins, Package as PackageSearch, Receipt as ReceiptText, ShoppingCart, Truck, Wallet } from "@phosphor-icons/react";
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
 import { Language, ReportBucket, ReportData, ReportPeriod } from "../../shared/types";
@@ -97,6 +97,7 @@ export function ReportsPage({ language: _language }: { language: Language }) {
         <ReportCard icon={PackageSearch} label="الشراء" value={money(summary?.buying_total ?? 0)} helper="تكلفة السلع المباعة" tone="danger" />
         <ReportCard icon={ShoppingCart} label="البيع" value={money(summary?.selling_total ?? 0)} helper="مجموع التذاكر" tone="success" />
         <ReportCard icon={ArrowDownCircle} label="المصاريف" value={money(summary?.sortie ?? 0)} helper="مصاريف المتجر" tone="danger" />
+        <ReportCard icon={Wallet} label="الموردون" value={money(summary?.supplier_payments ?? 0)} helper={`مدفوع فعليا · شراء ${money(summary?.supplier_purchases ?? 0)} · دين ${money(summary?.supplier_remaining ?? 0)}`} tone="danger" />
         <ReportCard icon={ChartColumnIncreasing} label="الفائدة" value={money(summary?.gain_total ?? 0)} helper="البيع - الشراء - المصاريف" tone={(summary?.gain_total ?? 0) < 0 ? "danger" : "success"} />
         <ReportCard icon={ReceiptText} label="المبيعات" value={String(summary?.sales_count ?? 0)} helper={`متوسط التذكرة ${money(summary?.average_ticket ?? 0)}`} />
         <ReportCard icon={HandCoins} label="الدين المسترجع" value={money(summary?.credit_collected ?? 0)} helper={`المتبقي ${money(summary?.credit_remaining ?? 0)}`} />

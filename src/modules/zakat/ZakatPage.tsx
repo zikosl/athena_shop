@@ -1,5 +1,5 @@
 import { type ChangeEvent, useEffect, useMemo, useState } from "react";
-import { Calculator, CalendarDays, HandCoins, Landmark, PackageCheck, Scale, WalletCards } from "lucide-react";
+import { Calculator, CalendarDots as CalendarDays, HandCoins, Bank as Landmark, Package as PackageCheck, Scales as Scale, Cards as WalletCards } from "@phosphor-icons/react";
 import { api } from "../../shared/api";
 import { addHijriYear, hijriDateLabel, money, todayInputValue } from "../../shared/format";
 import { CashShift, CreditAccount, Language, Product } from "../../shared/types";
