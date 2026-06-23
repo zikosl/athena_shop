@@ -21,7 +21,15 @@ const emptyProduct: ProductInput = {
 const maxProductImageSize = 5 * 1024 * 1024;
 
 function createBarcode() {
-  return `AS${Date.now().toString().slice(-10)}${Math.floor(Math.random() * 90 + 10)}`;
+  const body = `2${Math.floor(Math.random() * 1_000_000).toString().padStart(6, "0")}`;
+  return `${body}${ean8CheckDigit(body)}`;
+}
+
+function ean8CheckDigit(body: string) {
+  const sum = body.split("").reduce((total, digit, index) => (
+    total + Number(digit) * (index % 2 === 0 ? 3 : 1)
+  ), 0);
+  return (10 - (sum % 10)) % 10;
 }
 
 function newProduct(): ProductInput {
@@ -63,6 +71,7 @@ export function StockPage({
   const [allowNegativeStock, setAllowNegativeStock] = useState(true);
   const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; product: Product } | null>(null);
+  const [regeneratingBarcodes, setRegeneratingBarcodes] = useState(false);
   const [error, setError] = useState("");
 
   const load = () => api.products({ query, category, stock: stockFilter }).then(setProducts);
@@ -112,6 +121,25 @@ export function StockPage({
   async function refreshCategories() {
     const items = await api.products();
     setCategories(Array.from(new Set(items.map((product) => product.category).filter(Boolean))).sort());
+  }
+
+  async function regenerateAllBarcodes() {
+    if (regeneratingBarcodes) return;
+    if (!window.confirm("سيتم استبدال باركود جميع المنتجات برموز EAN-8 جديدة. الملصقات القديمة لن تعمل بعد ذلك. هل تريد المتابعة؟")) return;
+    setRegeneratingBarcodes(true);
+    setError("");
+    try {
+      await api.regenerateAllBarcodes();
+      await load();
+      onChanged();
+      showToast("تم إنشاء باركود EAN-8 جديد لكل المنتجات", "success");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      showToast(message, "error");
+    } finally {
+      setRegeneratingBarcodes(false);
+    }
   }
 
   function openNewProduct() {
@@ -288,6 +316,9 @@ export function StockPage({
           <button className="gold-button compact-button" type="button" onClick={openNewProduct}>
             <Plus size={17} /> {t.newProduct}
           </button>
+          <button className="ghost-button compact-button" type="button" disabled={regeneratingBarcodes} onClick={() => void regenerateAllBarcodes()} title="إعادة إنشاء باركود EAN-8 لكل المخزون">
+            <Barcode size={16} /> {regeneratingBarcodes ? "جاري التوليد..." : "تجديد الباركود"}
+          </button>
           <button className={inventoryMode ? "gold-button compact-button" : "ghost-button compact-button"} onClick={toggleInventory}>
             <ClipboardList size={17} /> {t.inventory}
           </button>
@@ -400,7 +431,7 @@ export function StockPage({
             </div>
             <div className="form-grid">
               <Input label={t.product} value={form.name} onChange={(name) => setForm({ ...form, name })} />
-              <Input label={t.barcode} value={form.barcode} icon={<Barcode size={16} />} onChange={(barcode) => setForm({ ...form, barcode })} />
+              <Input label={t.barcode} value={form.barcode} icon={<Barcode size={16} />} onChange={(barcode) => setForm({ ...form, barcode: barcode.replace(/\D/g, "").slice(0, 8) })} />
               <Input label={t.category} value={form.category} list="product-categories" onChange={(category) => setForm({ ...form, category })} />
               <Input label={t.size} value={form.size} onChange={(size) => setForm({ ...form, size })} />
               <Input label={t.color} value={form.color} onChange={(color) => setForm({ ...form, color })} />
@@ -577,6 +608,7 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
   const [barcodePrinter, setBarcodePrinter] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [printing, setPrinting] = useState(false);
   const labelCount = Math.max(1, Math.min(200, count || 1));
 
   useEffect(() => {
@@ -586,8 +618,10 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
   }, []);
 
   async function printLabels() {
+    if (printing) return;
     setStatus("");
     setError("");
+    setPrinting(true);
     try {
       await api.printBarcodeLabels({
         product_name: product.name,
@@ -599,10 +633,11 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
       setStatus(message);
       showToast(message, "success");
     } catch (err) {
-      console.log(err)
       const message = err instanceof Error ? err.message : "تعذرت طباعة الباركود";
       setError(message);
       showToast(message, "error");
+    } finally {
+      setPrinting(false);
     }
   }
 
@@ -638,8 +673,8 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
         {status && <p className="helper-text">{status}</p>}
         {error && <p className="error">{error}</p>}
         <div className="modal-actions">
-          <button className="gold-button" type="button" onClick={() => void printLabels()}><Barcode size={18} /> طباعة {labelCount}</button>
-          <button className="ghost-button" type="button" onClick={onClose}>إغلاق</button>
+          <button className="gold-button" type="button" disabled={printing} onClick={() => void printLabels()}><Barcode size={18} /> {printing ? "جار الطباعة..." : `طباعة ${labelCount}`}</button>
+          <button className="ghost-button" type="button" disabled={printing} onClick={onClose}>إغلاق</button>
         </div>
       </section>
     </div>
@@ -658,9 +693,21 @@ function BarcodeLabel({ product }: { product: Product }) {
 }
 
 function Code128Svg({ value }: { value: string }) {
+  if (/^\d{8}$/.test(value)) {
+    const bits = encodeEan8(value);
+    const quietZone = 7;
+    return (
+      <svg className="barcode-svg" viewBox={`0 0 ${bits.length + quietZone * 2} 54`} role="img" aria-label={value} preserveAspectRatio="none">
+        {bits.split("").map((bit, index) => bit === "1"
+          ? <rect key={index} x={index + quietZone} y={0} width={1} height={54} />
+          : null)}
+      </svg>
+    );
+  }
   const encoded = encodeCode128B(value || " ");
   const barHeight = 54;
-  let x = 0;
+  const quietZone = 10;
+  let x = quietZone;
   const bars: JSX.Element[] = [];
   encoded.forEach((pattern, index) => {
     for (let i = 0; i < pattern.length; i += 1) {
@@ -672,10 +719,16 @@ function Code128Svg({ value }: { value: string }) {
     }
   });
   return (
-    <svg className="barcode-svg" viewBox={`0 0 ${x} ${barHeight}`} role="img" aria-label={value} preserveAspectRatio="none">
+    <svg className="barcode-svg" viewBox={`0 0 ${x + quietZone} ${barHeight}`} role="img" aria-label={value} preserveAspectRatio="none">
       {bars}
     </svg>
   );
+}
+
+function encodeEan8(value: string) {
+  const left = ["0001101", "0011001", "0010011", "0111101", "0100011", "0110001", "0101111", "0111011", "0110111", "0001011"];
+  const right = ["1110010", "1100110", "1101100", "1000010", "1011100", "1001110", "1010000", "1000100", "1001000", "1110100"];
+  return `101${value.slice(0, 4).split("").map((digit) => left[Number(digit)]).join("")}01010${value.slice(4).split("").map((digit) => right[Number(digit)]).join("")}101`;
 }
 
 function encodeCode128B(value: string) {

@@ -188,7 +188,11 @@ pub fn confirm_purchase_order(
         }
 
         let remaining = (order.subtotal - paid_amount).max(0.0);
-        let status = if remaining <= 0.0 { "paid" } else { "confirmed" };
+        let status = if remaining <= 0.0 {
+            "paid"
+        } else {
+            "confirmed"
+        };
         client.execute(
             "UPDATE purchase_orders
              SET paid_amount = $1, remaining_amount = $2, status = $3,
@@ -209,7 +213,9 @@ pub fn add_supplier_payment(
     input: SupplierPaymentInput,
 ) -> AppResult<PurchaseOrder> {
     if input.amount <= 0.0 {
-        return Err(AppError::Message("مبلغ الدفع يجب أن يكون أكبر من صفر".into()));
+        return Err(AppError::Message(
+            "مبلغ الدفع يجب أن يكون أكبر من صفر".into(),
+        ));
     }
     if input.cashier.trim().is_empty() {
         return Err(AppError::Message("اسم المستخدم إجباري".into()));
@@ -220,7 +226,9 @@ pub fn add_supplier_payment(
             return Err(AppError::Message("أكد البون قبل إضافة دفعة".into()));
         }
         if input.amount > order.remaining_amount {
-            return Err(AppError::Message("مبلغ الدفع أكبر من المبلغ المتبقي".into()));
+            return Err(AppError::Message(
+                "مبلغ الدفع أكبر من المبلغ المتبقي".into(),
+            ));
         }
         insert_supplier_payment(
             client,
@@ -231,7 +239,11 @@ pub fn add_supplier_payment(
         )?;
         let paid = order.paid_amount + input.amount;
         let remaining = (order.remaining_amount - input.amount).max(0.0);
-        let status = if remaining <= 0.0 { "paid" } else { "confirmed" };
+        let status = if remaining <= 0.0 {
+            "paid"
+        } else {
+            "confirmed"
+        };
         client.execute(
             "UPDATE purchase_orders
              SET paid_amount = $1, remaining_amount = $2, status = $3

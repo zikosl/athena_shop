@@ -34,8 +34,11 @@ pub fn add_credit_payment(
     db: State<Database>,
     input: CreditPaymentInput,
 ) -> AppResult<CreditAccount> {
-    if input.amount <= 0.0 {
+    if !input.amount.is_finite() || input.amount <= 0.0 {
         return Err(AppError::Message("Montant de versement invalide".into()));
+    }
+    if input.cashier.trim().is_empty() {
+        return Err(AppError::Message("Caissier obligatoire".into()));
     }
 
     db.with_client(|client| {

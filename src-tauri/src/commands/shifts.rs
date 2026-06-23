@@ -1,4 +1,4 @@
-use chrono::{Local, NaiveTime, TimeZone};
+use chrono::{Local, NaiveDate, NaiveTime, TimeZone};
 use postgres::{Client, Row};
 use tauri::State;
 
@@ -16,7 +16,7 @@ pub fn current_shift(db: State<Database>) -> AppResult<Option<CashShift>> {
 
 #[tauri::command]
 pub fn open_shift(db: State<Database>, input: OpenShiftInput) -> AppResult<CashShift> {
-    if input.opening_amount < 0.0 {
+    if !input.opening_amount.is_finite() || input.opening_amount < 0.0 {
         return Err(AppError::Message("Montant d'ouverture invalide".into()));
     }
     if input.cashier.trim().is_empty() {
@@ -64,14 +64,19 @@ pub fn open_shift(db: State<Database>, input: OpenShiftInput) -> AppResult<CashS
 #[tauri::command]
 pub fn close_shift(db: State<Database>, input: CloseShiftInput) -> AppResult<CashShift> {
     db.with_client(|client| {
-        let expected = get_shift(client, input.id)?.expected_amount;
+        auto_close_due_shift(client)?;
+        let target_id = client
+            .query_opt("SELECT id FROM cash_shifts WHERE id = $1", &[&input.id])?
+            .map(|row| row.get::<_, i64>(0))
+            .ok_or_else(|| AppError::Message("La caisse demandee n'existe plus".into()))?;
+        let expected = get_shift(client, target_id)?.expected_amount;
         client.execute(
             "UPDATE cash_shifts
              SET status = 'closed', closed_at = COALESCE(closed_at, NOW()), closing_amount = $1
              WHERE id = $2 AND status = 'open'",
-            &[&expected, &input.id],
+            &[&expected, &target_id],
         )?;
-        get_shift(client, input.id)
+        get_shift(client, target_id)
     })
 }
 
@@ -82,9 +87,31 @@ pub fn require_open_shift(client: &mut Client) -> AppResult<i64> {
         .ok_or_else(|| AppError::Message("Ouvrez la caisse avant de continuer".into()))
 }
 
-pub fn optional_open_shift_id(client: &mut Client) -> AppResult<Option<i64>> {
+pub fn shift_id_for_date(client: &mut Client, date: NaiveDate) -> AppResult<Option<i64>> {
     auto_close_due_shift(client)?;
-    Ok(current_shift_for_client(client)?.map(|shift| shift.id))
+    if date == Local::now().date_naive() {
+        return Ok(current_shift_for_client(client)?.map(|shift| shift.id));
+    }
+    Ok(client
+        .query_opt(
+            "SELECT id FROM cash_shifts WHERE opened_at::date = $1 ORDER BY opened_at DESC LIMIT 1",
+            &[&date],
+        )?
+        .map(|row| row.get(0)))
+}
+
+pub fn refresh_closed_shift(client: &mut Client, shift_id: Option<i64>) -> AppResult<()> {
+    let Some(shift_id) = shift_id else {
+        return Ok(());
+    };
+    let shift = get_shift(client, shift_id)?;
+    if shift.status == "closed" {
+        client.execute(
+            "UPDATE cash_shifts SET closing_amount = $1 WHERE id = $2 AND status = 'closed'",
+            &[&shift.expected_amount, &shift_id],
+        )?;
+    }
+    Ok(())
 }
 
 pub fn auto_close_due_shift(client: &mut Client) -> AppResult<()> {
@@ -135,17 +162,21 @@ fn get_shift(client: &mut Client, id: i64) -> AppResult<CashShift> {
          ),
          expense_totals AS (
            SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount FROM expenses GROUP BY shift_id
+         ),
+         supplier_payment_totals AS (
+           SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount FROM supplier_payments GROUP BY shift_id
          )
          SELECT cs.id, cs.opened_at::text, COALESCE(cs.closed_at::text, ''), cs.auto_close_at::text,
                 cs.opening_amount, cs.closing_amount,
-                cs.opening_amount + COALESCE(st.amount, 0) + COALESCE(pt.amount, 0) - COALESCE(et.amount, 0),
+                cs.opening_amount + COALESCE(st.amount, 0) + COALESCE(pt.amount, 0) - COALESCE(et.amount, 0) - COALESCE(spt.amount, 0),
                 COALESCE(st.amount, 0), COALESCE(pt.amount, 0), COALESCE(et.amount, 0),
-                0::float8,
+                COALESCE(spt.amount, 0),
                 cs.status, cs.cashier
          FROM cash_shifts cs
          LEFT JOIN sales_totals st ON st.shift_id = cs.id
          LEFT JOIN payment_totals pt ON pt.shift_id = cs.id
          LEFT JOIN expense_totals et ON et.shift_id = cs.id
+         LEFT JOIN supplier_payment_totals spt ON spt.shift_id = cs.id
          WHERE cs.id = $1",
         &[&id],
     )?;

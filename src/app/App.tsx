@@ -61,12 +61,40 @@ const nav = [
 
 type Theme = "dark" | "light";
 
+const storageKeys = {
+  theme: "athena-shop-theme",
+  session: "athena-shop-session",
+  lang: "athena-shop-lang"
+} as const;
+
+const legacyStorageKeys = {
+  theme: "denzel-pos-theme",
+  session: "denzel-pos-session",
+  lang: "denzel-pos-lang"
+} as const;
+
+function readStorage(key: string, legacyKey: string) {
+  const value = localStorage.getItem(key);
+  if (value !== null) return value;
+  const legacyValue = localStorage.getItem(legacyKey);
+  if (legacyValue !== null) localStorage.setItem(key, legacyValue);
+  return legacyValue;
+}
+
 const defaultAppSettings: AppSettings = {
   allow_negative_stock: true,
   cash_register_auto_close_time: "23:59",
   max_discount_amount: 200,
   invoice_printer: "",
   barcode_printer: "",
+  receipt_title: "ياسين لافار",
+  receipt_subtitle: "للأقمصة والعطور",
+  show_invoice_logo: true,
+  ticket_width_chars: 32,
+  barcode_label_width_mm: 40,
+  barcode_label_height_mm: 20,
+  barcode_darkness: 5,
+  barcode_speed: "slow",
   ui_font_scale: "normal",
   ui_zoom: 100,
   ui_density: "comfortable",
@@ -76,18 +104,19 @@ const defaultAppSettings: AppSettings = {
 
 export function App() {
   const [language] = useState<Language>("ar");
-  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("athena-shop-theme") as Theme) || "dark");
+  const [theme, setTheme] = useState<Theme>(() => (readStorage(storageKeys.theme, legacyStorageKeys.theme) as Theme) || "dark");
   const [view, setView] = useState<ViewKey>("dashboard");
   const [stockFilter, setStockFilter] = useState<ProductStockFilter>("all");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [databaseConfigured, setDatabaseConfigured] = useState<boolean | null>(null);
   const [user, setUser] = useState<UserSession | null>(() => {
-    const raw = localStorage.getItem("athena-shop-session");
+    const raw = readStorage(storageKeys.session, legacyStorageKeys.session);
     if (!raw) return null;
     try {
       return JSON.parse(raw) as UserSession;
     } catch {
-      localStorage.removeItem("athena-shop-session");
+      localStorage.removeItem(storageKeys.session);
+      localStorage.removeItem(legacyStorageKeys.session);
       return null;
     }
   });
@@ -104,13 +133,13 @@ export function App() {
   const t = useText(language);
 
   useEffect(() => {
-    localStorage.setItem("athena-shop-lang", language);
+    localStorage.setItem(storageKeys.lang, language);
     document.documentElement.lang = language;
     document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
   }, [language]);
 
   useEffect(() => {
-    localStorage.setItem("athena-shop-theme", theme);
+    localStorage.setItem(storageKeys.theme, theme);
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
@@ -186,13 +215,14 @@ export function App() {
 
   const logout = useCallback(async () => {
     await saveData();
-    localStorage.removeItem("athena-shop-session");
+    localStorage.removeItem(storageKeys.session);
+    localStorage.removeItem(legacyStorageKeys.session);
     setUser(null);
   }, [saveData]);
 
   const updateUserSession = useCallback((session: UserSession) => {
     setUser(session);
-    localStorage.setItem("athena-shop-session", JSON.stringify(session));
+    localStorage.setItem(storageKeys.session, JSON.stringify(session));
   }, []);
 
   const screen = useMemo(() => {
@@ -221,7 +251,7 @@ export function App() {
   if (!user) {
     return <LoginPage language={language} onLogin={(session) => {
       setUser(session);
-      localStorage.setItem("athena-shop-session", JSON.stringify(session));
+      localStorage.setItem(storageKeys.session, JSON.stringify(session));
     }} />;
   }
 
@@ -243,7 +273,7 @@ export function App() {
       <aside className="sidebar">
         <div className="brand-mark">
           <div className="brand-logo-frame">
-            <img src={annaStoreLogo} alt="ياسين لافار لأقمصة والعطور" className="brand-logo" />
+            <img src={annaStoreLogo} alt="ياسين لافار للأقمصة والعطور" className="brand-logo" />
           </div>
         </div>
 
@@ -305,7 +335,7 @@ export function App() {
             </button>
             <section className="title-lockup">
               <div>
-                <h1>ياسين لافار</h1>
+                <h1>ياسين لافار للأقمصة والعطور</h1>
               </div>
             </section>
           </section>
@@ -418,9 +448,12 @@ function CashShiftModal({
   const [openingAmount, setOpeningAmount] = useState(0);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
 
 
   async function openCaisse() {
+    if (busy) return;
+    setBusy(true);
     setError("");
     setStatus("");
     try {
@@ -434,11 +467,14 @@ function CashShiftModal({
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       showToast(message, "error");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function closeCaisse() {
-    if (!shift) return;
+    if (!shift || busy) return;
+    setBusy(true);
     setError("");
     setStatus("");
     try {
@@ -452,6 +488,8 @@ function CashShiftModal({
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       showToast(message, "error");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -471,8 +509,8 @@ function CashShiftModal({
             </div>
             <p className="helper-text">{"عند الغلق سيسجل النظام المبلغ المتوقع تلقائيا بدون إدخال مبلغ."}</p>
             <div className="modal-actions">
-              <button className="gold-button" type="button" onClick={() => void closeCaisse()}>غلق الصندوق</button>
-              <button className="ghost-button" type="button" onClick={onClose}>إغلاق</button>
+              <button className="gold-button" type="button" disabled={busy} onClick={() => void closeCaisse()}>{busy ? "جار الغلق..." : "غلق الصندوق"}</button>
+              <button className="ghost-button" type="button" disabled={busy} onClick={onClose}>إغلاق</button>
             </div>
           </div>
         ) : (
@@ -480,8 +518,8 @@ function CashShiftModal({
             <label><span>مبلغ الفتح</span><div className="field"><input type="number" min={0} value={openingAmount === 0 ? "" : openingAmount} onChange={(event) => setOpeningAmount(Number(event.target.value))} /></div></label>
             <p className="helper-text">{"وقت الغلق التلقائي يحدده المدير من الإعدادات."}</p>
             <div className="modal-actions">
-              <button className="gold-button" type="button" onClick={() => void openCaisse()}>فتح الصندوق</button>
-              <button className="ghost-button" type="button" onClick={onClose}>إغلاق</button>
+              <button className="gold-button" type="button" disabled={busy} onClick={() => void openCaisse()}>{busy ? "جار الفتح..." : "فتح الصندوق"}</button>
+              <button className="ghost-button" type="button" disabled={busy} onClick={onClose}>إغلاق</button>
             </div>
           </div>
         )}

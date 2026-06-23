@@ -4,8 +4,7 @@ use tauri::State;
 use crate::db::Database;
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    Flacon, FlaconInput, Perfume, PerfumeInput, PerfumePrice, PerfumePurchase,
-    PerfumePurchaseInput,
+    Flacon, FlaconInput, Perfume, PerfumeInput, PerfumePrice, PerfumePurchase, PerfumePurchaseInput,
 };
 
 #[tauri::command]
@@ -187,7 +186,9 @@ pub fn save_perfume_purchase(
     input: PerfumePurchaseInput,
 ) -> AppResult<PerfumePurchase> {
     if input.title.trim().is_empty() || input.amount < 0.0 || input.volume_ml < 0.0 {
-        return Err(AppError::Message("عنوان الشراء والمبلغ صحيحان إجباريان".into()));
+        return Err(AppError::Message(
+            "عنوان الشراء والمبلغ صحيحان إجباريان".into(),
+        ));
     }
     db.with_client(|client| {
         let mut tx = client.transaction()?;

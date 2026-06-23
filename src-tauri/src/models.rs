@@ -23,6 +23,14 @@ pub struct AppSettings {
     pub max_discount_amount: f64,
     pub invoice_printer: String,
     pub barcode_printer: String,
+    pub receipt_title: String,
+    pub receipt_subtitle: String,
+    pub show_invoice_logo: bool,
+    pub ticket_width_chars: i64,
+    pub barcode_label_width_mm: i64,
+    pub barcode_label_height_mm: i64,
+    pub barcode_darkness: i64,
+    pub barcode_speed: String,
     pub ui_font_scale: String,
     pub ui_zoom: i64,
     pub ui_density: String,
@@ -203,6 +211,8 @@ pub struct ExpenseInput {
 pub struct CheckoutItemInput {
     pub product_id: i64,
     pub quantity: i64,
+    #[serde(default)]
+    pub unit_price: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -220,6 +230,8 @@ pub struct CheckoutInput {
     pub discount: f64,
     pub sale_type: String,
     pub paid_amount: f64,
+    #[serde(default)]
+    pub sale_date: String,
     pub customer_name: String,
     pub customer_phone: String,
     pub due_date: String,
@@ -231,6 +243,8 @@ pub struct CheckoutInput {
 pub struct SaleItemUpdateInput {
     pub product_id: i64,
     pub quantity: i64,
+    #[serde(default)]
+    pub unit_price: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]

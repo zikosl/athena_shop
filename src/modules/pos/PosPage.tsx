@@ -1,10 +1,43 @@
 import { useEffect, useMemo, useState } from "react";
+import * as QRCode from "qrcode";
 import { Barcode, Minus, Plus, Printer, Search, ShoppingBag, SprayCan, Trash2 } from "lucide-react";
 import { api } from "../../shared/api";
-import { money } from "../../shared/format";
+import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";
 import { showToast } from "../../shared/toast";
-import { CartItem, Language, Perfume, PerfumeCartItem, Product, Sale, UserSession } from "../../shared/types";
+import { AppSettings, CartItem, Language, Perfume, PerfumeCartItem, Product, Sale, UserSession } from "../../shared/types";
+import annaStoreLogo from "../../assets/anna-store-logo.png";
+
+const orderQrPrefix = "POS:";
+const legacyOrderQrPrefix = "POS_ORDER:";
+
+function orderQrPayload(sale: Sale) {
+  return `${orderQrPrefix}${sale.id}`;
+}
+
+function parseOrderQr(value: string) {
+  const text = value.trim();
+  const prefix = text.startsWith(orderQrPrefix)
+    ? orderQrPrefix
+    : text.startsWith(legacyOrderQrPrefix)
+      ? legacyOrderQrPrefix
+      : null;
+  if (!prefix) return null;
+  const [idPart, receiptNo] = text.slice(prefix.length).split(":");
+  const id = Number(idPart);
+  return Number.isFinite(id) && id > 0 ? { id, receiptNo } : null;
+}
+
+function formatSaleDate(value: string, language: Language, includeTime = true) {
+  const parsed = new Date(value.includes("T") ? value : value.replace(" ", "T"));
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat(language === "ar" ? "ar-DZ-u-nu-arab" : "fr-DZ", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    ...(includeTime ? { hour: "2-digit", minute: "2-digit" } : {})
+  }).format(parsed);
+}
 
 function displayCategory(category: string) {
   if (category === "Products") return "المنتجات";
@@ -18,11 +51,13 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const [category, setCategory] = useState("");
   const [assortment, setAssortment] = useState<"all" | "home" | "perfumery">("all");
   const [products, setProducts] = useState<Product[]>([]);
+  const [productCatalog, setProductCatalog] = useState<Product[]>([]);
   const [perfumes, setPerfumes] = useState<Perfume[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [perfumeCart, setPerfumeCart] = useState<PerfumeCartItem[]>([]);
   const [discount, setDiscount] = useState(0);
+  const [saleDate, setSaleDate] = useState(todayInputValue);
   const [saleType, setSaleType] = useState<"cash" | "credit" | "delivery">("cash");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -31,6 +66,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const [creditNote, setCreditNote] = useState("");
   const [receipt, setReceipt] = useState<Sale | null>(null);
   const [error, setError] = useState("");
+  const [checkingOut, setCheckingOut] = useState(false);
   const [allowNegativeStock, setAllowNegativeStock] = useState(true);
   const [maxDiscount, setMaxDiscount] = useState(200);
 
@@ -63,12 +99,15 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
 
   useEffect(() => {
     api.products()
-      .then((items) => setCategories(Array.from(new Set(items.map((product) => product.category))).sort()))
+      .then((items) => {
+        setProductCatalog(items);
+        setCategories(Array.from(new Set(items.map((product) => product.category))).sort());
+      })
       .catch((err) => setError(String(err)));
   }, []);
 
   const subtotal = useMemo(
-    () => cart.reduce((sum, item) => sum + item.product.sale_price * item.quantity, 0)
+    () => cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)
       + perfumeCart.reduce((sum, item) => sum + item.price.sale_price * item.quantity, 0),
     [cart, perfumeCart]
   );
@@ -82,6 +121,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const creditRemaining = saleType === "credit" ? Math.max(0, total - normalizedPaid) : 0;
   const checkoutBlocked =
     (!cart.length && !perfumeCart.length) ||
+    cart.some((item) => !Number.isFinite(item.unit_price) || item.unit_price < 0) ||
     discount < 0 ||
     discount > maxDiscount ||
     discount > subtotal ||
@@ -98,8 +138,42 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
             : item
         );
       }
-      return [...items, { product, quantity: 1 }];
+      return [...items, { product, quantity: 1, unit_price: product.sale_price }];
     });
+  }
+
+  async function addScannedBarcode(value: string) {
+    const barcode = value.trim();
+    if (!barcode) return;
+    try {
+      const orderRef = parseOrderQr(barcode);
+      if (orderRef) {
+        const matchedSale = await api.sale(orderRef.id);
+        setReceipt(matchedSale);
+        setQuery("");
+        showToast("تم فتح الفاتورة", "success");
+        return;
+      }
+
+      let product = productCatalog.find((item) => item.barcode.trim().toLowerCase() === barcode.toLowerCase());
+      if (!product) {
+        const matches = await api.products({ query: barcode, stock: "all" });
+        product = matches.find((item) => item.barcode.trim().toLowerCase() === barcode.toLowerCase());
+      }
+      if (!product) {
+        showToast("لم يتم العثور على منتج بهذا الباركود", "error");
+        return;
+      }
+      if (!allowNegativeStock && product.quantity <= 0) {
+        showToast("هذا المنتج غير متوفر في المخزون", "error");
+        setQuery("");
+        return;
+      }
+      addProduct(product);
+      setQuery("");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "تعذرت قراءة الباركود", "error");
+    }
   }
 
   function setQty(productId: number, quantity: number) {
@@ -108,6 +182,13 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
         ? { ...item, quantity: allowNegativeStock ? Math.max(1, quantity) : Math.max(1, Math.min(quantity, item.product.quantity)) }
         : item)
       .filter((item) => item.quantity > 0));
+  }
+
+  function setItemPrice(productId: number, unitPrice: number) {
+    const safePrice = Number.isFinite(unitPrice) ? Math.max(0, unitPrice) : 0;
+    setCart((items) => items.map((item) => item.product.id === productId
+      ? { ...item, unit_price: safePrice }
+      : item));
   }
 
   function addPerfume(perfume: Perfume, flaconId: number) {
@@ -137,10 +218,16 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   }
 
   async function checkout() {
+    if (checkingOut) return;
     setError("");
+    setCheckingOut(true);
     try {
       const sale = await api.checkout({
-        items: cart.map((item) => ({ product_id: item.product.id, quantity: item.quantity })),
+        items: cart.map((item) => ({
+          product_id: item.product.id,
+          quantity: item.quantity,
+          unit_price: item.unit_price
+        })),
         perfume_items: perfumeCart.map((item) => ({
           perfume_id: item.perfume.id,
           flacon_id: item.price.flacon_id,
@@ -153,6 +240,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
         customer_phone: customerPhone,
         due_date: dueDate,
         credit_note: creditNote,
+        sale_date: saleDate,
         cashier: user.display_name
       });
       setReceipt(sale);
@@ -165,15 +253,21 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       setPaidAmount(0);
       setDueDate("");
       setCreditNote("");
+      setSaleDate(todayInputValue());
       const nextProducts = await api.products({ query, category, stock: "all" });
       setProducts(nextProducts.filter((product) =>
         (allowNegativeStock || product.quantity > 0) && assortment !== "perfumery" && (assortment !== "home" || product.category !== "Perfumerie")
       ));
       const nextPerfumes = await api.perfumes();
       setPerfumes(nextPerfumes.filter((perfume) => perfume.remaining_volume_ml > 0));
+      setProductCatalog(await api.products({ stock: "all" }));
       onSale();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      showToast(message, "error");
+    } finally {
+      setCheckingOut(false);
     }
   }
 
@@ -186,7 +280,21 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
           <button className={assortment === "perfumery" ? "active" : ""} type="button" onClick={() => setAssortment("perfumery")}>العطور</button>
         </div>
         <div className="filter-row">
-          <div className="searchbar"><Search size={18} /><input autoFocus placeholder={t.search} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
+          <div className="searchbar">
+            <Search size={18} />
+            <input
+              autoFocus
+              placeholder={t.search}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void addScannedBarcode(query);
+                }
+              }}
+            />
+          </div>
           <select aria-label={t.category} value={category} disabled={assortment === "perfumery"} onChange={(event) => setCategory(event.target.value)}>
             <option value="">{t.allCategories}</option>
             {categories
@@ -239,7 +347,17 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
                 <b>{item.quantity}</b>
                 <button onClick={() => setQty(item.product.id, item.quantity + 1)}><Plus size={14} /></button>
               </div>
-              <strong>{money(item.product.sale_price * item.quantity)}</strong>
+              <label className="cart-price-field">
+                <span>سعر البيع</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={item.unit_price === 0 ? "" : item.unit_price}
+                  onChange={(event) => setItemPrice(item.product.id, Number(event.target.value))}
+                />
+              </label>
+              <strong>{money(item.unit_price * item.quantity)}</strong>
               <button className="plain-icon" onClick={() => setCart(cart.filter((line) => line.product.id !== item.product.id))}><Trash2 size={16} /></button>
             </article>
           ))}
@@ -266,6 +384,18 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
             </article>
           ))}
         </div>
+        <label>
+          <span>تاريخ الفاتورة</span>
+          <div className="field">
+            <input
+              type="date"
+              max={todayInputValue()}
+              value={saleDate}
+              onChange={(event) => setSaleDate(event.target.value || todayInputValue())}
+            />
+          </div>
+          <small>{formatSaleDate(`${saleDate}T12:00:00`, language, false)}</small>
+        </label>
         <label>
           <span>{t.discount}</span>
           <div className="field">
@@ -306,7 +436,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
         {discount > maxDiscount && <p className="error">{t.discountMax.replace("200", String(maxDiscount))}</p>}
         {discount > subtotal && <p className="error">{t.discountTooHigh}</p>}
         {error && <p className="error">{error}</p>}
-        <button className="gold-button" disabled={checkoutBlocked} onClick={checkout}>{t.checkout}</button>
+        <button className="gold-button" disabled={checkoutBlocked || checkingOut} onClick={checkout}>{checkingOut ? "جار التسجيل..." : t.checkout}</button>
       </aside>
 
       {receipt && <ReceiptModal sale={receipt} language={language} onClose={() => setReceipt(null)} />}
@@ -318,12 +448,68 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
   const t = useText(language);
   const [printStatus, setPrintStatus] = useState("");
   const [printError, setPrintError] = useState("");
+  const [printing, setPrinting] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [qrGenerating, setQrGenerating] = useState(true);
+  const [settings, setSettings] = useState<Pick<AppSettings, "receipt_title" | "receipt_subtitle" | "show_invoice_logo" | "ticket_width_chars">>({
+    receipt_title: "ياسين لافار",
+    receipt_subtitle: "للأقمصة والعطور",
+    show_invoice_logo: true,
+    ticket_width_chars: 32
+  });
+
+  useEffect(() => {
+    api.appSettings()
+      .then((saved) => setSettings({
+        receipt_title: saved.receipt_title || "ياسين لافار",
+        receipt_subtitle: saved.receipt_subtitle || "للأقمصة والعطور",
+        show_invoice_logo: saved.show_invoice_logo ?? true,
+        ticket_width_chars: Math.min(48, Math.max(24, saved.ticket_width_chars || 32))
+      }))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setQrGenerating(true);
+    setQrDataUrl("");
+    QRCode.toDataURL(orderQrPayload(sale), {
+      errorCorrectionLevel: "H",
+      margin: 4,
+      scale: 6,
+      type: "image/png",
+      color: { dark: "#000000", light: "#ffffff" }
+    })
+      .then((dataUrl) => {
+        if (!cancelled) {
+          setQrDataUrl(dataUrl);
+          setQrGenerating(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setQrDataUrl("");
+          setQrGenerating(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sale]);
 
   async function printReceipt() {
+    if (printing || qrGenerating) return;
+    if (!qrDataUrl) {
+      const message = "تعذر إنشاء رمز QR للفاتورة";
+      setPrintError(message);
+      showToast(message, "error");
+      return;
+    }
     setPrintStatus("");
     setPrintError("");
+    setPrinting(true);
     try {
-      await api.printReceiptText(formatReceiptText(sale, t));
+      await api.printReceiptText(formatReceiptText(sale, t, settings), qrDataUrl);
       const message = "\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629 \u0644\u0644\u0637\u0628\u0627\u0639\u0629";
       setPrintStatus(message);
       showToast(message, "success");
@@ -332,6 +518,8 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
       const message = detail || "\u0644\u0627 \u064a\u0645\u0643\u0646 \u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629. \u062a\u0623\u0643\u062f \u0645\u0646 \u0648\u062c\u0648\u062f \u0637\u0627\u0628\u0639\u0629.";
       setPrintError(message);
       showToast(message, "error");
+    } finally {
+      setPrinting(false);
     }
   }
 
@@ -339,9 +527,10 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
     <div className="modal-backdrop">
       <section className="receipt-modal">
         <div className="receipt-paper" id="receipt">
-          <h2>J'3JF D'A'1</h2>
-          <p>E*,1 'D#BE5) H'D97H1</p>
-          <small>{sale.receipt_no} · {sale.created_at}</small>
+          {settings.show_invoice_logo && <img src={annaStoreLogo} alt="ياسين لافار" className="receipt-logo" />}
+          <h2>{settings.receipt_title}</h2>
+          <p>{settings.receipt_subtitle}</p>
+          <small>{sale.receipt_no} · {formatSaleDate(sale.created_at, language)}</small>
           <hr />
           {sale.items.map((item, index) => (
             <div className="receipt-line" key={`${item.product_id}-${item.barcode}-${index}`}>
@@ -360,27 +549,28 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
             </>
           )}
           <div className="receipt-line total"><span>{t.total}</span><strong>{money(sale.total)}</strong></div>
+          {qrDataUrl && <img src={qrDataUrl} alt="QR facture" className="receipt-qr" />}
           <p className="thanks">{t.thankYou}</p>
         </div>
         {printStatus && <p className="helper-text">{printStatus}</p>}
         {printError && <p className="error">{printError}</p>}
         <div className="modal-actions">
-          <button className="gold-button" onClick={() => void printReceipt()}><Printer size={18} /> {t.print}</button>
-          <button className="ghost-button" onClick={onClose}>{t.close}</button>
+          <button className="gold-button" disabled={printing || qrGenerating} onClick={() => void printReceipt()}><Printer size={18} /> {qrGenerating ? "تحضير QR..." : printing ? "جار الطباعة..." : t.print}</button>
+          <button className="ghost-button" disabled={printing} onClick={onClose}>{t.close}</button>
         </div>
       </section>
     </div>
   );
 }
 
-function formatReceiptText(sale: Sale, t: ReturnType<typeof useText>) {
-  const width = 36;
+function formatReceiptText(sale: Sale, t: ReturnType<typeof useText>, settings: Pick<AppSettings, "receipt_title" | "receipt_subtitle" | "ticket_width_chars">) {
+  const width = Math.min(48, Math.max(24, settings.ticket_width_chars || 32));
   const lines = [
-    center("ياسين لافار", width),
-    center("متجر الأقمصة والعطور", width),
+    center(settings.receipt_title || "ياسين لافار", width),
+    center(settings.receipt_subtitle || "للأقمصة والعطور", width),
     "-".repeat(width),
     sale.receipt_no,
-    sale.created_at,
+    formatSaleDate(sale.created_at, "ar"),
     "-".repeat(width),
     ...sale.items.flatMap((item) => [
       item.product_name,

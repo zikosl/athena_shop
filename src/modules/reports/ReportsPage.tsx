@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, ArrowDownCircle, CalendarDays, ChartColumnIncreasing, HandCoins, PackageSearch, ReceiptText, ShoppingCart, Truck, Wallet } from "lucide-react";
 import { api } from "../../shared/api";
-import { money, todayInputValue } from "../../shared/format";
+import { dateInputValue, money, todayInputValue } from "../../shared/format";
 import { Language, ReportBucket, ReportData, ReportPeriod } from "../../shared/types";
 
 type Preset = "daily" | "weekly" | "monthly" | "custom";
@@ -21,8 +21,8 @@ export function ReportsPage({ language: _language }: { language: Language }) {
     if (preset === "weekly") from.setDate(today.getDate() - 6);
     if (preset === "monthly") from.setMonth(today.getMonth(), 1);
     setPeriod(preset);
-    setFromDate(inputDate(from));
-    setToDate(inputDate(today));
+    setFromDate(dateInputValue(from));
+    setToDate(dateInputValue(today));
   }, [preset]);
 
   useEffect(() => {
@@ -184,10 +184,6 @@ function ReportCard({
       </div>
     </article>
   );
-}
-
-function inputDate(date: Date) {
-  return date.toISOString().slice(0, 10);
 }
 
 function LineChart({ buckets }: { buckets: ReportBucket[] }) {

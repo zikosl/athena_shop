@@ -1,5 +1,5 @@
 export type Language = "fr" | "ar";
-export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "delivery" | "revenue" | "reports" | "expenses" | "credits" | "suppliers" | "zakat" | "settings";
+export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "delivery" | "revenue" | "reports" | "expenses" | "credits" | "zakat" | "settings";
 
 export interface UserSession {
   id: number;
@@ -29,6 +29,14 @@ export interface AppSettings {
   max_discount_amount: number;
   invoice_printer: string;
   barcode_printer: string;
+  receipt_title: string;
+  receipt_subtitle: string;
+  show_invoice_logo: boolean;
+  ticket_width_chars: number;
+  barcode_label_width_mm: number;
+  barcode_label_height_mm: number;
+  barcode_darkness: number;
+  barcode_speed: "slow" | "normal" | "fast";
   ui_font_scale: "small" | "normal" | "large";
   ui_zoom: number;
   ui_density: "compact" | "comfortable" | "spacious";
@@ -284,6 +292,7 @@ export interface ReportData {
 export interface CartItem {
   product: Product;
   quantity: number;
+  unit_price: number;
 }
 
 export interface Flacon {
@@ -367,11 +376,12 @@ export interface PerfumeCartItem {
 }
 
 export interface CheckoutInput {
-  items: Array<{ product_id: number; quantity: number }>;
+  items: Array<{ product_id: number; quantity: number; unit_price: number }>;
   perfume_items: Array<{ perfume_id: number; flacon_id: number; quantity: number }>;
   discount: number;
   sale_type: "cash" | "credit" | "delivery";
   paid_amount: number;
+  sale_date: string;
   customer_name: string;
   customer_phone: string;
   due_date: string;
@@ -382,6 +392,7 @@ export interface CheckoutInput {
 export interface SaleItemUpdateInput {
   product_id: number;
   quantity: number;
+  unit_price: number;
 }
 
 export interface SaleUpdateInput {
@@ -423,6 +434,7 @@ export interface Sale {
   credit_status: "open" | "partial" | "paid" | "delivery_pending" | "delivery_paid" | "delivery_returned";
   cashier: string;
   created_at: string;
+  collected_at?: string;
   items: SaleItem[];
 }
 

@@ -91,7 +91,11 @@ fn day_stats(client: &mut postgres::Client, day_sql: &str) -> AppResult<DayStats
            ), 0)::float8
          FROM sales s
          LEFT JOIN payment_totals p ON p.sale_id = s.id
-         WHERE s.created_at::date = {day_sql}
+         WHERE (CASE
+                  WHEN s.sale_type = 'delivery' AND s.credit_status = 'delivery_paid'
+                    THEN COALESCE(s.collected_at, s.created_at)
+                  ELSE s.created_at
+                END)::date = {day_sql}
            AND (s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid')"
     );
     let row = client.query_one(&sales_query, &[])?;
@@ -120,7 +124,7 @@ fn day_stats(client: &mut postgres::Client, day_sql: &str) -> AppResult<DayStats
          FROM sales
          WHERE sale_type = 'delivery'
            AND credit_status = 'delivery_paid'
-           AND created_at::date = {day_sql}"
+           AND COALESCE(collected_at, created_at)::date = {day_sql}"
     );
     let delivery_collected: f64 = client.query_one(&delivery_query, &[])?.get(0);
 

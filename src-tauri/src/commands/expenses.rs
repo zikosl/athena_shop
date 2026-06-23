@@ -1,4 +1,4 @@
-use chrono::NaiveDate;
+use chrono::{Local, NaiveDate};
 use postgres::Row;
 use tauri::State;
 
@@ -20,7 +20,7 @@ pub fn list_expenses(db: State<Database>) -> AppResult<Vec<Expense>> {
 
 #[tauri::command]
 pub fn save_expense(db: State<Database>, input: ExpenseInput) -> AppResult<Expense> {
-    if input.label.trim().is_empty() || input.amount <= 0.0 {
+    if input.label.trim().is_empty() || !input.amount.is_finite() || input.amount <= 0.0 {
         return Err(AppError::Message(
             "Libelle et montant valides obligatoires".into(),
         ));
@@ -38,14 +38,27 @@ pub fn save_expense(db: State<Database>, input: ExpenseInput) -> AppResult<Expen
     let note = input.note.trim().to_string();
     let expense_date = NaiveDate::parse_from_str(input.expense_date.trim(), "%Y-%m-%d")
         .map_err(|_| AppError::Message("Date invalide".into()))?;
+    if expense_date > Local::now().date_naive() {
+        return Err(AppError::Message(
+            "La date de depense ne peut pas etre dans le futur".into(),
+        ));
+    }
 
     db.with_client(|client| {
-        let shift_id = super::shifts::optional_open_shift_id(client)?;
+        let shift_id = super::shifts::shift_id_for_date(client, expense_date)?;
+        let previous_shift_id = if let Some(id) = input.id {
+            client
+                .query_opt("SELECT shift_id FROM expenses WHERE id = $1", &[&id])?
+                .and_then(|row| row.get(0))
+        } else {
+            None
+        };
         let id: i64 = if let Some(id) = input.id {
             client.execute(
-                "UPDATE expenses SET label = $1, category = $2, amount = $3, note = $4, expense_date = $5
-                 WHERE id = $6",
+                "UPDATE expenses SET shift_id = $1, label = $2, category = $3, amount = $4, note = $5, expense_date = $6
+                 WHERE id = $7",
                 &[
+                    &shift_id,
                     &label,
                     &category,
                     &input.amount,
@@ -72,6 +85,10 @@ pub fn save_expense(db: State<Database>, input: ExpenseInput) -> AppResult<Expen
                 )?
                 .get(0)
         };
+        super::shifts::refresh_closed_shift(client, previous_shift_id)?;
+        if shift_id != previous_shift_id {
+            super::shifts::refresh_closed_shift(client, shift_id)?;
+        }
         get_expense(client, id)
     })
 }
@@ -79,7 +96,11 @@ pub fn save_expense(db: State<Database>, input: ExpenseInput) -> AppResult<Expen
 #[tauri::command]
 pub fn delete_expense(db: State<Database>, id: i64) -> AppResult<()> {
     db.with_client(|client| {
+        let shift_id = client
+            .query_opt("SELECT shift_id FROM expenses WHERE id = $1", &[&id])?
+            .and_then(|row| row.get(0));
         client.execute("DELETE FROM expenses WHERE id = $1", &[&id])?;
+        super::shifts::refresh_closed_shift(client, shift_id)?;
         Ok(())
     })
 }

@@ -16,7 +16,6 @@ export function RevenuePage({ language, onChanged }: { language: Language; onCha
   const [toDate, setToDate] = useState(todayInputValue);
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [error, setError] = useState("");
-
   const load = useCallback(() => {
     setError("");
     return Promise.all([api.sales(), api.expenses(), api.credits()])
@@ -205,12 +204,28 @@ function TicketDetails({
   const [quantities, setQuantities] = useState<Record<number, number>>(
     Object.fromEntries(sale.items.map((item) => [item.product_id, item.quantity]))
   );
+  const [prices, setPrices] = useState<Record<number, number>>(
+    Object.fromEntries(sale.items.map((item) => [item.product_id, item.unit_price]))
+  );
   const [error, setError] = useState("");
+  const editableItems = sale.items.filter((item) => item.product_id > 0);
+  const editSubtotal = sale.items.filter((item) => item.product_id < 0).reduce((sum, item) => sum + item.line_total, 0)
+    + editableItems.reduce((sum, item) => (
+    sum + (prices[item.product_id] ?? item.unit_price) * (quantities[item.product_id] ?? item.quantity)
+  ), 0);
+  const editDiscount = Math.min(Math.max(sale.discount, 0), editSubtotal);
+  const editTotal = Math.max(0, editSubtotal - editDiscount);
+
+  useEffect(() => {
+    setQuantities(Object.fromEntries(sale.items.map((item) => [item.product_id, item.quantity])));
+    setPrices(Object.fromEntries(sale.items.map((item) => [item.product_id, item.unit_price])));
+  }, [sale]);
 
   function resetEdit() {
     setEditing(false);
     setError("");
     setQuantities(Object.fromEntries(sale.items.map((item) => [item.product_id, item.quantity])));
+    setPrices(Object.fromEntries(sale.items.map((item) => [item.product_id, item.unit_price])));
   }
 
   async function saveEdit() {
@@ -218,9 +233,10 @@ function TicketDetails({
     try {
       const updated = await api.updateSale({
         sale_id: sale.id,
-        items: sale.items.map((item) => ({
+        items: editableItems.map((item) => ({
           product_id: item.product_id,
-          quantity: quantities[item.product_id] ?? item.quantity
+          quantity: quantities[item.product_id] ?? item.quantity,
+          unit_price: prices[item.product_id] ?? item.unit_price
         }))
       });
       setEditing(false);
@@ -268,7 +284,7 @@ function TicketDetails({
               </>
             ) : (
               <>
-                <button className="ghost-button compact-button" type="button" onClick={() => setEditing(true)}><Edit3 size={16} /> تعديل</button>
+                {editableItems.length > 0 && <button className="ghost-button compact-button" type="button" onClick={() => setEditing(true)}><Edit3 size={16} /> تعديل</button>}
                 <button className="ghost-button compact-button danger-action" type="button" onClick={() => void deleteTicket()}><Trash2 size={16} /> حذف</button>
                 <button className="ghost-button compact-button" type="button" onClick={onClose}>{t.close}</button>
               </>
@@ -296,23 +312,48 @@ function TicketDetails({
                   <td><strong>{item.product_name}</strong></td>
                   <td>{item.barcode}</td>
                   <td>
-                    {editing ? (
+                    {editing && item.product_id > 0 ? (
                       <input
                         className="quantity-input"
                         type="number"
                         min={1}
+                        step={1}
                         value={quantities[item.product_id] ?? item.quantity}
-                        onChange={(event) => setQuantities({
-                          ...quantities,
-                          [item.product_id]: Number(event.target.value)
-                        })}
+                        onChange={(event) => {
+                          const value = event.currentTarget.valueAsNumber;
+                          setQuantities({
+                            ...quantities,
+                            [item.product_id]: Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : 1
+                          });
+                        }}
                       />
                     ) : item.quantity}
                   </td>
-                  <td>{money(item.unit_price)}</td>
-                  <td>{money(item.line_total)}</td>
+                  <td>
+                    {editing && item.product_id > 0 ? (
+                      <input
+                        className="price-input"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={(prices[item.product_id] ?? item.unit_price) === 0 ? "" : (prices[item.product_id] ?? item.unit_price)}
+                        onChange={(event) => {
+                          const value = event.currentTarget.valueAsNumber;
+                          setPrices({
+                            ...prices,
+                            [item.product_id]: Number.isFinite(value) ? Math.max(0, value) : 0
+                          });
+                        }}
+                      />
+                    ) : money(item.unit_price)}
+                  </td>
+                  <td>{money(
+                    editing && item.product_id > 0
+                      ? (prices[item.product_id] ?? item.unit_price) * (quantities[item.product_id] ?? item.quantity)
+                      : item.line_total
+                  )}</td>
                   <td className="row-actions">
-                    <button type="button" title="Retour" onClick={() => void returnOne(item.product_id)} disabled={editing}>
+                    <button type="button" title="Retour" onClick={() => void returnOne(item.product_id)} disabled={editing || item.product_id < 0}>
                       <RotateCcw size={16} />
                     </button>
                   </td>
@@ -324,9 +365,9 @@ function TicketDetails({
         {error && <p className="error">{error}</p>}
 
         <div className="ticket-totals">
-          <span>{t.subtotal}<strong>{money(sale.subtotal)}</strong></span>
-          <span>{t.discount}<strong>{money(sale.discount)}</strong></span>
-          <span>{t.total}<strong>{money(sale.total)}</strong></span>
+          <span>{t.subtotal}<strong>{money(editing ? editSubtotal : sale.subtotal)}</strong></span>
+          <span>{t.discount}<strong>{money(editing ? editDiscount : sale.discount)}</strong></span>
+          <span>{t.total}<strong>{money(editing ? editTotal : sale.total)}</strong></span>
         </div>
       </section>
     </div>

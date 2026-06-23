@@ -122,7 +122,7 @@ pub fn adjust_product_stock(db: State<Database>, input: StockMovementInput) -> A
     if input.quantity <= 0 {
         return Err(AppError::Message("الكمية يجب أن تكون أكبر من صفر".into()));
     }
-    if input.purchase_price < 0.0 {
+    if !input.purchase_price.is_finite() || input.purchase_price < 0.0 {
         return Err(AppError::Message("سعر الشراء يجب أن يكون موجبا".into()));
     }
 
@@ -198,7 +198,10 @@ pub fn list_stock_movements(db: State<Database>, product_id: i64) -> AppResult<V
 pub fn delete_product(db: State<Database>, id: i64) -> AppResult<()> {
     db.with_client(|client| {
         let used = client.query_opt(
-            "SELECT id FROM sale_items WHERE product_id = $1 LIMIT 1",
+            "SELECT product_id FROM sale_items WHERE product_id = $1
+             UNION ALL
+             SELECT product_id FROM purchase_order_items WHERE product_id = $1
+             LIMIT 1",
             &[&id],
         )?;
         if used.is_some() {
@@ -206,11 +209,60 @@ pub fn delete_product(db: State<Database>, id: i64) -> AppResult<()> {
                 "Produit deja vendu: suppression impossible".into(),
             ));
         }
-        client.execute("DELETE FROM products WHERE id = $1", &[&id])?;
+        client.execute("DELETE FROM stock_movements WHERE product_id = $1", &[&id])?;
+        let deleted = client.execute("DELETE FROM products WHERE id = $1", &[&id])?;
+        if deleted == 0 {
+            return Err(AppError::Message("Produit introuvable".into()));
+        }
         Ok(())
     })
 }
 
+#[tauri::command]
+pub fn regenerate_all_barcodes(db: State<Database>) -> AppResult<Vec<Product>> {
+    db.with_client(|client| {
+        let mut tx = client.transaction()?;
+        let rows = tx.query("SELECT id FROM products ORDER BY id", &[])?;
+        if rows.iter().any(|row| row.get::<_, i64>(0) > 999_999) {
+            return Err(AppError::Message(
+                "Nombre de produits trop eleve pour les codes a 8 chiffres".into(),
+            ));
+        }
+
+        for row in &rows {
+            let id: i64 = row.get(0);
+            tx.execute(
+                "UPDATE products SET barcode = $1 WHERE id = $2",
+                &[&format!("TMP-{id}"), &id],
+            )?;
+        }
+
+        for row in &rows {
+            let id: i64 = row.get(0);
+            let barcode = ean8_from_sequence(id as usize);
+            tx.execute(
+                "UPDATE products SET barcode = $1, updated_at = NOW() WHERE id = $2",
+                &[&barcode, &id],
+            )?;
+        }
+        tx.commit()?;
+
+        let rows = client.query(
+            "SELECT id, name, barcode, category, size, color, quantity, low_stock_threshold,
+                    purchase_price, sale_price, image_data, created_at::text, updated_at::text
+             FROM products ORDER BY updated_at DESC, id DESC",
+            &[],
+        )?;
+        Ok(rows.iter().map(product_from_row).collect())
+    })
+}
+
+fn ean8_from_sequence(sequence: usize) -> String {
+    let body = format!("2{:06}", sequence % 1_000_000);
+    ean8_from_body(&body)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn insert_stock_movement(
     client: &mut postgres::Client,
     product_id: i64,
@@ -242,6 +294,21 @@ fn validate_product(client: &mut postgres::Client, input: &ProductInput) -> AppR
     if input.name.trim().is_empty() || input.barcode.trim().is_empty() {
         return Err(AppError::Message("Nom et code-barres obligatoires".into()));
     }
+    if !is_valid_ean8(input.barcode.trim()) {
+        let unchanged_legacy_barcode = if let Some(id) = input.id {
+            client
+                .query_opt("SELECT barcode FROM products WHERE id = $1", &[&id])?
+                .map(|row| row.get::<_, String>(0) == input.barcode.trim())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        if !unchanged_legacy_barcode {
+            return Err(AppError::Message(
+                "Le code-barres doit etre un EAN-8 valide compose de 8 chiffres".into(),
+            ));
+        }
+    }
     if input.quantity < 0 && !allow_negative_stock(client)? {
         return Err(AppError::Message(
             "المخزون السالب غير مفعل في الإعدادات".into(),
@@ -252,10 +319,39 @@ fn validate_product(client: &mut postgres::Client, input: &ProductInput) -> AppR
             "Les quantites doivent etre positives".into(),
         ));
     }
-    if input.purchase_price < 0.0 || input.sale_price < 0.0 {
+    if !input.purchase_price.is_finite()
+        || !input.sale_price.is_finite()
+        || input.purchase_price < 0.0
+        || input.sale_price < 0.0
+    {
         return Err(AppError::Message("Les prix doivent etre positifs".into()));
     }
     Ok(())
+}
+
+fn is_valid_ean8(value: &str) -> bool {
+    if value.len() != 8 || !value.bytes().all(|digit| digit.is_ascii_digit()) {
+        return false;
+    }
+    let expected = ean8_from_body(&value[..7]);
+    expected == value
+}
+
+fn ean8_from_body(body: &str) -> String {
+    let sum: u32 = body
+        .bytes()
+        .enumerate()
+        .map(|(index, digit)| {
+            let value = u32::from(digit - b'0');
+            if index % 2 == 0 {
+                value * 3
+            } else {
+                value
+            }
+        })
+        .sum();
+    let check = (10 - (sum % 10)) % 10;
+    format!("{body}{check}")
 }
 
 fn allow_negative_stock(client: &mut postgres::Client) -> AppResult<bool> {
@@ -309,5 +405,25 @@ fn stock_movement_from_row(row: &Row) -> StockMovement {
         unit_purchase_price: row.get(8),
         note: row.get(9),
         created_at: row.get(10),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ean8_from_sequence, is_valid_ean8};
+
+    #[test]
+    fn generates_short_numeric_ean8_barcodes() {
+        let barcode = ean8_from_sequence(1);
+        assert_eq!(barcode, "20000011");
+        assert_eq!(barcode.len(), 8);
+        assert!(barcode.bytes().all(|digit| digit.is_ascii_digit()));
+        assert!(is_valid_ean8(&barcode));
+    }
+
+    #[test]
+    fn rejects_invalid_ean8_checksum() {
+        assert!(!is_valid_ean8("20000012"));
+        assert!(!is_valid_ean8("AS100001"));
     }
 }

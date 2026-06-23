@@ -37,9 +37,11 @@ import {
   SaleUpdateInput,
   UserSession
 } from "./types";
-import { todayInputValue } from "./format";
+import { dateInputValue, todayInputValue } from "./format";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
+const demoDbKey = "athena-shop-demo-db";
+const legacyDemoDbKey = "denzel-pos-demo-db";
 
 function defaultSettings(): AppSettings {
   return {
@@ -48,6 +50,14 @@ function defaultSettings(): AppSettings {
     max_discount_amount: 200,
     invoice_printer: "",
     barcode_printer: "",
+    receipt_title: "ياسين لافار",
+    receipt_subtitle: "للأقمصة والعطور",
+    show_invoice_logo: true,
+    ticket_width_chars: 32,
+    barcode_label_width_mm: 40,
+    barcode_label_height_mm: 20,
+    barcode_darkness: 5,
+    barcode_speed: "slow",
     ui_font_scale: "normal",
     ui_zoom: 100,
     ui_density: "comfortable",
@@ -128,11 +138,12 @@ function sampleProduct(
 }
 
 function readDb(): Db {
-  const raw = localStorage.getItem("athena-shop-demo-db");
+  const raw = localStorage.getItem(demoDbKey) ?? localStorage.getItem(legacyDemoDbKey);
   if (!raw) {
-    localStorage.setItem("athena-shop-demo-db", JSON.stringify(seed));
+    localStorage.setItem(demoDbKey, JSON.stringify(seed));
     return structuredClone(seed);
   }
+  if (!localStorage.getItem(demoDbKey)) localStorage.setItem(demoDbKey, raw);
   const parsed = JSON.parse(raw) as Partial<Db>;
   return {
     products: (parsed.products ?? seed.products).map(normalizeProduct),
@@ -153,6 +164,16 @@ function readDb(): Db {
       max_discount_amount: parsed.settings?.max_discount_amount ?? 200,
       invoice_printer: parsed.settings?.invoice_printer ?? "",
       barcode_printer: parsed.settings?.barcode_printer ?? "",
+      receipt_title: parsed.settings?.receipt_title ?? "ياسين لافار",
+      receipt_subtitle: parsed.settings?.receipt_subtitle ?? "للأقمصة والعطور",
+      show_invoice_logo: parsed.settings?.show_invoice_logo ?? true,
+      ticket_width_chars: Math.min(48, Math.max(24, Number(parsed.settings?.ticket_width_chars ?? 32))),
+      barcode_label_width_mm: Math.min(100, Math.max(20, Number(parsed.settings?.barcode_label_width_mm ?? 40))),
+      barcode_label_height_mm: Math.min(80, Math.max(10, Number(parsed.settings?.barcode_label_height_mm ?? 20))),
+      barcode_darkness: Math.min(5, Math.max(1, Number(parsed.settings?.barcode_darkness ?? 5))),
+      barcode_speed: ["slow", "normal", "fast"].includes(parsed.settings?.barcode_speed ?? "")
+        ? (parsed.settings?.barcode_speed as AppSettings["barcode_speed"])
+        : "slow",
       ui_font_scale: parsed.settings?.ui_font_scale ?? "normal",
       ui_zoom: Math.min(125, Math.max(80, Number(parsed.settings?.ui_zoom ?? 100))),
       ui_density: parsed.settings?.ui_density ?? "comfortable",
@@ -193,7 +214,7 @@ function normalizeSale(sale: Sale): Sale {
 }
 
 function writeDb(db: Db) {
-  localStorage.setItem("athena-shop-demo-db", JSON.stringify(db));
+  localStorage.setItem(demoDbKey, JSON.stringify(db));
 }
 
 function makeEmptyDb(): Db {
@@ -379,6 +400,14 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       max_discount_amount: Math.max(0, Number(input.max_discount_amount || 0)),
       invoice_printer: input.invoice_printer ?? "",
       barcode_printer: input.barcode_printer ?? "",
+      receipt_title: input.receipt_title?.trim() || "ياسين لافار",
+      receipt_subtitle: input.receipt_subtitle?.trim() || "للأقمصة والعطور",
+      show_invoice_logo: input.show_invoice_logo ?? true,
+      ticket_width_chars: Math.min(48, Math.max(24, Number(input.ticket_width_chars || 32))),
+      barcode_label_width_mm: Math.min(100, Math.max(20, Number(input.barcode_label_width_mm || 40))),
+      barcode_label_height_mm: Math.min(80, Math.max(10, Number(input.barcode_label_height_mm || 20))),
+      barcode_darkness: Math.min(5, Math.max(1, Number(input.barcode_darkness || 5))),
+      barcode_speed: ["slow", "normal", "fast"].includes(input.barcode_speed) ? input.barcode_speed : "slow",
       ui_font_scale: input.ui_font_scale ?? "normal",
       ui_zoom: Math.min(125, Math.max(80, Number(input.ui_zoom || 100))),
       ui_density: input.ui_density ?? "comfortable",
@@ -595,8 +624,15 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     const input = args?.input as ProductInput;
     const now = new Date().toISOString();
     if (input.quantity < 0 && !db.settings.allow_negative_stock) throw new Error("المخزون السالب غير مفعل في الإعدادات");
+    const currentProduct = input.id ? db.products.find((product) => product.id === input.id) : undefined;
+    if (!isDemoEan8(input.barcode) && currentProduct?.barcode !== input.barcode) {
+      throw new Error("الباركود يجب أن يكون EAN-8 صالحا من 8 أرقام");
+    }
+    if (db.products.some((product) => product.id !== input.id && product.barcode === input.barcode)) {
+      throw new Error("هذا الباركود مستخدم من قبل");
+    }
     if (input.id) {
-      const existing = db.products.find((product) => product.id === input.id);
+      const existing = currentProduct;
       db.products = db.products.map((product) =>
         product.id === input.id ? { ...product, ...input, updated_at: now } as Product : product
       );
@@ -626,7 +662,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "adjust_product_stock") {
     const input = args?.input as StockMovementInput;
     const product = db.products.find((item) => item.id === input.product_id);
-    if (!product) throw new Error("?????? ??? ?????");
+    if (!product) throw new Error("المنتج غير موجود");
     if (input.quantity <= 0) throw new Error("الكمية يجب أن تكون أكبر من صفر");
     const before = product.quantity;
     const delta = input.movement_type === "entry" ? input.quantity : -input.quantity;
@@ -758,12 +794,12 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     const paidAmount = Math.max(0, Number(args?.paidAmount ?? args?.paid_amount ?? 0));
     const cashier = String(args?.cashier ?? "");
     const order = db.purchaseOrders.find((item) => item.id === id);
-    if (!order) throw new Error("????? ?????? ??? ??????");
-    if (order.status !== "draft") throw new Error("?? ????? ??? ??????? ?? ???");
-    if (paidAmount > order.subtotal) throw new Error("???? ????? ???? ?? ???? ???????");
-    if (paidAmount > 0 && !activeDemoShift(db)) throw new Error("???? ??????? ??? ????????");
+    if (!order) throw new Error("قسيمة الشراء غير موجودة");
+    if (order.status !== "draft") throw new Error("تم تأكيد هذه القسيمة من قبل");
+    if (paidAmount > order.subtotal) throw new Error("المبلغ المدفوع أكبر من مجموع القسيمة");
+    if (paidAmount > 0 && !activeDemoShift(db)) throw new Error("افتح الصندوق قبل المتابعة");
     for (const item of order.items) applyDemoPurchaseStock(db, order.id, item);
-    const payment = paidAmount > 0 ? makeDemoSupplierPayment(db, order, paidAmount, "???? ??? ????? ???????", cashier) : undefined;
+    const payment = paidAmount > 0 ? makeDemoSupplierPayment(db, order, paidAmount, "دفعة عند تأكيد القسيمة", cashier) : undefined;
     if (payment) db.supplierPayments.unshift(payment);
     order.paid_amount = paidAmount;
     order.remaining_amount = Math.max(0, order.subtotal - paidAmount);
@@ -777,10 +813,10 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "add_supplier_payment") {
     const input = args?.input as SupplierPaymentInput;
     const order = db.purchaseOrders.find((item) => item.id === input.purchase_order_id);
-    if (!order) throw new Error("????? ?????? ??? ??????");
-    if (order.status === "draft") throw new Error("??? ??????? ??? ????? ????");
-    if (input.amount <= 0 || input.amount > order.remaining_amount) throw new Error("???? ????? ??? ????");
-    if (!activeDemoShift(db)) throw new Error("???? ??????? ??? ????????");
+    if (!order) throw new Error("قسيمة الشراء غير موجودة");
+    if (order.status === "draft") throw new Error("أكد القسيمة قبل إضافة دفعة");
+    if (input.amount <= 0 || input.amount > order.remaining_amount) throw new Error("مبلغ الدفعة غير صالح");
+    if (!activeDemoShift(db)) throw new Error("افتح الصندوق قبل المتابعة");
     const payment = makeDemoSupplierPayment(db, order, input.amount, input.note, input.cashier);
     db.supplierPayments.unshift(payment);
     order.paid_amount += input.amount;
@@ -826,30 +862,49 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 
   if (command === "checkout") {
     const input = args?.input as CheckoutInput;
-    const shift = activeDemoShift(db);
-    if (input.sale_type !== "delivery" && !shift) throw new Error("???? ??????? ??? ????????");
+    const selectedDate = input.sale_date && /^\d{4}-\d{2}-\d{2}$/.test(input.sale_date)
+      ? input.sale_date
+      : todayInputValue();
+    if (selectedDate > todayInputValue()) throw new Error("لا يمكن إنشاء فاتورة بتاريخ مستقبلي");
+    const shift = input.sale_type === "delivery"
+      ? undefined
+      : selectedDate === todayInputValue()
+        ? activeDemoShift(db)
+        : [...db.shifts]
+            .filter((item) => item.opened_at.slice(0, 10) === selectedDate)
+            .sort((a, b) => b.opened_at.localeCompare(a.opened_at))[0];
+    if (input.sale_type !== "delivery" && selectedDate === todayInputValue() && !shift) {
+      throw new Error("افتح الصندوق قبل المتابعة");
+    }
+    const createdAt = `${selectedDate}T${new Date().toTimeString().slice(0, 8)}`;
+    let grossProfit = 0;
     const items = input.items.map((item) => {
       const product = db.products.find((candidate) => candidate.id === item.product_id);
-      if (!product) throw new Error("?????? ??? ?????");
+      if (!product) throw new Error("المنتج غير موجود");
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) throw new Error("الكمية غير صالحة");
       if (product.quantity < item.quantity && !db.settings.allow_negative_stock) throw new Error(`المخزون غير كاف للمنتج ${product.name}`);
+      const unitPrice = Number.isFinite(item.unit_price) ? Math.max(0, item.unit_price) : product.sale_price;
       product.quantity -= item.quantity;
+      grossProfit += (unitPrice - product.purchase_price) * item.quantity;
       return {
         product_id: product.id,
         product_name: product.name,
         barcode: product.barcode,
         quantity: item.quantity,
-        unit_price: product.sale_price,
-        line_total: product.sale_price * item.quantity
+        unit_price: unitPrice,
+        line_total: unitPrice * item.quantity
       };
     });
     const perfumeItems = (input.perfume_items ?? []).map((item) => {
       const perfume = db.perfumes.find((candidate) => candidate.id === item.perfume_id);
-      if (!perfume) throw new Error("????? ??? ?????");
+      if (!perfume) throw new Error("العطر غير موجود");
       const price = perfume.prices.find((candidate) => candidate.flacon_id === item.flacon_id);
-      if (!price) throw new Error("???????? ??? ??????");
+      if (!price) throw new Error("القارورة غير موجودة");
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) throw new Error("الكمية غير صالحة");
       const needed = price.volume_ml * item.quantity;
       if (perfume.remaining_volume_ml < needed) throw new Error(`المخزون غير كاف للعطر ${perfume.name}`);
       perfume.remaining_volume_ml -= needed;
+      grossProfit += (price.sale_price - perfume.cost_per_ml * price.volume_ml) * item.quantity;
       return {
         product_id: -perfume.id,
         product_name: `${perfume.name} - ${price.flacon_name}`,
@@ -860,12 +915,12 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       };
     });
     const subtotal = [...items, ...perfumeItems].reduce((sum, item) => sum + item.line_total, 0);
-    if (input.discount < 0) throw new Error("??????? ??? ????");
-    if (input.discount > db.settings.max_discount_amount) throw new Error(`???? ????? ?? ${db.settings.max_discount_amount}`);
+    if (!Number.isFinite(input.discount) || input.discount < 0) throw new Error("التخفيض غير صالح");
+    if (input.discount > db.settings.max_discount_amount) throw new Error(`أقصى تخفيض هو ${db.settings.max_discount_amount}`);
     const total = Math.max(0, subtotal - input.discount);
-    if (input.sale_type === "delivery" && !input.customer_name.trim()) throw new Error("??? ?????? ??????");
-    if (input.sale_type === "credit" && !input.customer_name.trim()) throw new Error("??? ?????? ?????? ????? ??????");
-    if (input.paid_amount > total) throw new Error("?????? ??????? ???? ?? ???????");
+    if (input.sale_type === "delivery" && !input.customer_name.trim()) throw new Error("اسم الزبون إجباري");
+    if (input.sale_type === "credit" && !input.customer_name.trim()) throw new Error("اسم الزبون إجباري للبيع بالدين");
+    if (!Number.isFinite(input.paid_amount) || input.paid_amount < 0 || input.paid_amount > total) throw new Error("المبلغ المدفوع غير صالح");
     const paid = input.sale_type === "cash" ? total : input.sale_type === "delivery" ? 0 : input.paid_amount;
     const remaining = Math.max(0, total - paid);
     const sale: Sale = {
@@ -875,7 +930,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       subtotal,
       discount: input.discount,
       total,
-      profit: total,
+      profit: grossProfit - input.discount,
       payment_method: "نقدا",
       sale_type: input.sale_type,
       customer_name: input.customer_name,
@@ -886,7 +941,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       credit_note: input.credit_note,
       credit_status: input.sale_type === "delivery" ? "delivery_pending" : remaining <= 0 ? "paid" : paid > 0 ? "partial" : "open",
       cashier: input.cashier,
-      created_at: new Date().toISOString(),
+      created_at: createdAt,
       items: [...items, ...perfumeItems]
     };
     db.sales.unshift(sale);
@@ -896,6 +951,23 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 
   if (command === "list_sales") return db.sales as T;
 
+  if (command === "get_sale") {
+    const sale = db.sales.find((item) => item.id === args?.id);
+    if (!sale) throw new Error("الفاتورة غير موجودة");
+    return sale as T;
+  }
+
+  if (command === "regenerate_all_barcodes") {
+    [...db.products]
+      .sort((a, b) => a.id - b.id)
+      .forEach((product, index) => {
+        product.barcode = demoEan8(index + 1);
+        product.updated_at = new Date().toISOString();
+      });
+    writeDb(db);
+    return db.products as T;
+  }
+
   if (command === "list_delivery_sales") {
     return db.sales.filter((sale) => sale.sale_type === "delivery") as T;
   }
@@ -903,15 +975,15 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "collect_delivery") {
     const id = args?.id as number;
     const shift = activeDemoShift(db);
-    if (!shift) throw new Error("???? ??????? ??? ????????");
+    if (!shift) throw new Error("افتح الصندوق قبل المتابعة");
     const sale = db.sales.find((item) => item.id === id && item.sale_type === "delivery");
-    if (!sale) throw new Error("??? ??????? ??? ?????");
-    if (sale.credit_status !== "delivery_pending") throw new Error("??? ?????? ??? ??????? ?? ???");
+    if (!sale) throw new Error("طلب التوصيل غير موجود");
+    if (sale.credit_status !== "delivery_pending") throw new Error("تمت معالجة طلب التوصيل من قبل");
     sale.shift_id = shift.id;
     sale.paid_amount = sale.total;
     sale.remaining_amount = 0;
     sale.credit_status = "delivery_paid";
-    sale.created_at = new Date().toISOString();
+    sale.collected_at = new Date().toISOString();
     writeDb(db);
     return sale as T;
   }
@@ -919,8 +991,8 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "return_delivery") {
     const id = args?.id as number;
     const sale = db.sales.find((item) => item.id === id && item.sale_type === "delivery");
-    if (!sale) throw new Error("??? ??????? ??? ?????");
-    if (sale.credit_status !== "delivery_pending") throw new Error("??? ?????? ??? ??????? ?? ???");
+    if (!sale) throw new Error("طلب التوصيل غير موجود");
+    if (sale.credit_status !== "delivery_pending") throw new Error("تمت معالجة طلب التوصيل من قبل");
     for (const item of sale.items) {
       const product = db.products.find((product) => product.id === item.product_id);
       if (product) product.quantity += item.quantity;
@@ -942,13 +1014,14 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "return_sale_item") {
     const input = args?.input as SaleReturnInput;
     const sale = db.sales.find((item) => item.id === input.sale_id);
-    if (!sale) throw new Error("??????? ??? ??????");
+    if (!sale) throw new Error("الفاتورة غير موجودة");
     const updatedItems = sale.items.map((item) => ({
       product_id: item.product_id,
-      quantity: item.product_id === input.product_id ? item.quantity - input.quantity : item.quantity
-    })).filter((item) => item.quantity > 0);
-    if (!sale.items.some((item) => item.product_id === input.product_id)) throw new Error("?????? ??? ????? ?? ???????");
-    if (!updatedItems.length) throw new Error("??????? ?????? ?????? ??? ???????");
+      quantity: item.product_id === input.product_id ? item.quantity - input.quantity : item.quantity,
+      unit_price: item.unit_price
+    })).filter((item) => item.product_id > 0 && item.quantity > 0);
+    if (!sale.items.some((item) => item.product_id === input.product_id)) throw new Error("المنتج غير موجود في الفاتورة");
+    if (!updatedItems.length) throw new Error("للإرجاع الكامل احذف الفاتورة");
     const updatedSale = replaceDemoSaleItems(db, input.sale_id, updatedItems);
     writeDb(db);
     return updatedSale as T;
@@ -957,7 +1030,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "delete_sale") {
     const id = args?.id as number;
     const sale = db.sales.find((item) => item.id === id);
-    if (!sale) throw new Error("??????? ??? ??????");
+    if (!sale) throw new Error("الفاتورة غير موجودة");
     for (const item of sale.items) {
       const product = db.products.find((product) => product.id === item.product_id);
       if (product) product.quantity += item.quantity;
@@ -980,11 +1053,11 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
   if (command === "add_credit_payment") {
     const input = args?.input as CreditPaymentInput;
     const shift = activeDemoShift(db);
-    if (!shift) throw new Error("???? ??????? ??? ????????");
+    if (!shift) throw new Error("افتح الصندوق قبل المتابعة");
     const sale = db.sales.find((item) => item.id === input.sale_id);
-    if (!sale) throw new Error("????? ??? ?????");
-    if (input.amount <= 0) throw new Error("???? ?????? ??? ????");
-    if (input.amount > sale.remaining_amount) throw new Error("?????? ???? ?? ?????? ???????");
+    if (!sale) throw new Error("الدين غير موجود");
+    if (input.amount <= 0) throw new Error("مبلغ الدفعة غير صالح");
+    if (input.amount > sale.remaining_amount) throw new Error("الدفعة أكبر من المبلغ المتبقي");
     sale.paid_amount += input.amount;
     sale.remaining_amount = Math.max(0, sale.remaining_amount - input.amount);
     sale.credit_status = sale.remaining_amount <= 0 ? "paid" : "partial";
@@ -1090,7 +1163,7 @@ function applyDemoPurchaseStock(db: Db, orderId: number, item: PurchaseOrder["it
 
 function makeDemoSupplierPayment(db: Db, order: PurchaseOrder, amount: number, note: string, cashier: string): SupplierPayment {
   const shift = activeDemoShift(db);
-  if (!shift) throw new Error("???? ??????? ??? ????????");
+  if (!shift) throw new Error("افتح الصندوق قبل المتابعة");
   return {
     id: Date.now() + Math.floor(Math.random() * 1000),
     supplier_id: order.supplier_id,
@@ -1110,10 +1183,11 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
   const to = input.to_date || from;
   const buckets = makeDateBuckets(input.period, from, to).map(({ label, start, end }) => {
     const sales = db.sales.filter((sale) =>
-      between(sale.created_at.slice(0, 10), start, end)
+      between(saleAccountingDate(sale), start, end)
       && (sale.sale_type !== "delivery" || sale.credit_status === "delivery_paid")
     );
     const expenses = db.expenses.filter((expense) => between(expense.expense_date, start, end));
+    const supplierPayments = db.supplierPayments.filter((payment) => between(payment.paid_at.slice(0, 10), start, end));
     const payments = db.creditPayments.filter((payment) => between(payment.paid_at.slice(0, 10), start, end));
     const paymentsBySale = db.creditPayments.reduce<Record<number, number>>((totals, payment) => {
       totals[payment.sale_id] = (totals[payment.sale_id] ?? 0) + payment.amount;
@@ -1137,7 +1211,8 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
       const sale = db.sales.find((item) => item.id === payment.sale_id);
       return sale ? sum + realizedProfit(sale, payment.amount) : sum;
     }, 0);
-    const sortie = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+    const sortie = expenses.reduce((sum, expense) => sum + expense.amount, 0)
+      + supplierPayments.reduce((sum, payment) => sum + payment.amount, 0);
     return {
       label,
       start_date: start,
@@ -1152,7 +1227,7 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
     };
   });
   const filteredSales = db.sales.filter((sale) =>
-    between(sale.created_at.slice(0, 10), from, to)
+    between(saleAccountingDate(sale), from, to)
     && (sale.sale_type !== "delivery" || sale.credit_status === "delivery_paid")
   );
   const grossSales = filteredSales.reduce((sum, sale) => sum + sale.total, 0);
@@ -1176,9 +1251,15 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
     delivery_collected: filteredSales
       .filter((sale) => sale.sale_type === "delivery" && sale.credit_status === "delivery_paid")
       .reduce((sum, sale) => sum + sale.total, 0),
-    supplier_purchases: 0,
-    supplier_payments: 0,
-    supplier_remaining: 0,
+    supplier_purchases: db.purchaseOrders
+      .filter((order) => order.status !== "draft" && between((order.confirmed_at || order.created_at).slice(0, 10), from, to))
+      .reduce((sum, order) => sum + order.subtotal, 0),
+    supplier_payments: db.supplierPayments
+      .filter((payment) => between(payment.paid_at.slice(0, 10), from, to))
+      .reduce((sum, payment) => sum + payment.amount, 0),
+    supplier_remaining: db.purchaseOrders
+      .filter((order) => order.status !== "draft")
+      .reduce((sum, order) => sum + order.remaining_amount, 0),
     stock_purchase_value: db.products.reduce((sum, product) => sum + product.purchase_price * product.quantity, 0),
     stock_sale_value: db.products.reduce((sum, product) => sum + product.sale_price * product.quantity, 0)
   };
@@ -1202,7 +1283,7 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
 
 function demoDashboardDay(db: Db, day: string) {
   const sales = db.sales.filter((sale) =>
-    sale.created_at.slice(0, 10) === day
+    saleAccountingDate(sale) === day
     && (sale.sale_type !== "delivery" || sale.credit_status === "delivery_paid")
   );
   const expenses = db.expenses.filter((expense) => expense.expense_date === day);
@@ -1239,6 +1320,13 @@ function demoDashboardDay(db: Db, day: string) {
   };
 }
 
+function saleAccountingDate(sale: Sale) {
+  if (sale.sale_type === "delivery" && sale.credit_status === "delivery_paid") {
+    return (sale.collected_at || sale.created_at).slice(0, 10);
+  }
+  return sale.created_at.slice(0, 10);
+}
+
 function activeDemoShift(db: Db) {
   const shift = db.shifts.find((item) => item.status === "open");
   return shift ? buildDemoShift(db, shift) : undefined;
@@ -1272,13 +1360,16 @@ function buildDemoShift(db: Db, shift: CashShift): CashShift {
   const expenses = db.expenses
     .filter((expense) => expense.shift_id === shift.id)
     .reduce((sum, expense) => sum + expense.amount, 0);
+  const supplierPayments = db.supplierPayments
+    .filter((payment) => payment.shift_id === shift.id)
+    .reduce((sum, payment) => sum + payment.amount, 0);
   return {
     ...shift,
     cash_sales: cashSales,
     credit_payments: creditPayments,
     expenses,
-    supplier_payments: 0,
-    expected_amount: shift.opening_amount + cashSales + creditPayments - expenses
+    supplier_payments: supplierPayments,
+    expected_amount: shift.opening_amount + cashSales + creditPayments - expenses - supplierPayments
   };
 }
 
@@ -1313,7 +1404,24 @@ function dateFromInput(value: string) {
 }
 
 function inputFromDate(value: Date) {
-  return value.toISOString().slice(0, 10);
+  return dateInputValue(value);
+}
+
+function demoEan8(sequence: number) {
+  const body = `2${Math.max(0, sequence % 1_000_000).toString().padStart(6, "0")}`;
+  const sum = body.split("").reduce((total, digit, index) => (
+    total + Number(digit) * (index % 2 === 0 ? 3 : 1)
+  ), 0);
+  return `${body}${(10 - (sum % 10)) % 10}`;
+}
+
+function isDemoEan8(value: string) {
+  if (!/^\d{8}$/.test(value)) return false;
+  const body = value.slice(0, 7);
+  const sum = body.split("").reduce((total, digit, index) => (
+    total + Number(digit) * (index % 2 === 0 ? 3 : 1)
+  ), 0);
+  return Number(value[7]) === (10 - (sum % 10)) % 10;
 }
 
 function between(value: string, from: string, to: string) {
@@ -1335,10 +1443,10 @@ function realizedProfit(sale: Sale, collected: number) {
   return sale.profit * Math.min(collected / sale.total, 1);
 }
 
-function replaceDemoSaleItems(db: Db, saleId: number, items: Array<{ product_id: number; quantity: number }>) {
+function replaceDemoSaleItems(db: Db, saleId: number, items: SaleUpdateInput["items"]) {
   const sale = db.sales.find((item) => item.id === saleId);
-  if (!sale) throw new Error("??????? ??? ??????");
-  if (!items.length || items.every((item) => item.quantity <= 0)) throw new Error("??? ?? ???? ??????? ????? ???? ??? ?????");
+  if (!sale) throw new Error("الفاتورة غير موجودة");
+  if (!items.length || items.every((item) => item.quantity <= 0)) throw new Error("يجب أن تحتوي الفاتورة على منتج واحد على الأقل");
 
   for (const item of sale.items) {
     const product = db.products.find((product) => product.id === item.product_id);
@@ -1347,31 +1455,53 @@ function replaceDemoSaleItems(db: Db, saleId: number, items: Array<{ product_id:
 
   const nextItems = items.filter((item) => item.quantity > 0).map((input) => {
     const oldItem = sale.items.find((item) => item.product_id === input.product_id);
-    if (!oldItem) throw new Error("??????? ????? ??????? ???????");
+    if (!oldItem) throw new Error("التعديل محدود بمنتجات الفاتورة");
     const product = db.products.find((product) => product.id === input.product_id);
-    if (!product) throw new Error("?????? ??? ?????");
+    if (!product) throw new Error("المنتج غير موجود");
     if (product.quantity < input.quantity && !db.settings.allow_negative_stock) throw new Error(`المخزون غير كاف للمنتج ${oldItem.product_name}`);
     product.quantity -= input.quantity;
+    const unitPrice = Math.max(0, input.unit_price ?? oldItem.unit_price);
     return {
       ...oldItem,
       quantity: input.quantity,
-      line_total: oldItem.unit_price * input.quantity
+      unit_price: unitPrice,
+      line_total: unitPrice * input.quantity
     };
   });
 
-  const subtotal = nextItems.reduce((sum, item) => sum + item.line_total, 0);
+  const preservedPerfumeItems = sale.items.filter((item) => item.product_id < 0);
+  const combinedItems = [...nextItems, ...preservedPerfumeItems];
+  const subtotal = combinedItems.reduce((sum, item) => sum + item.line_total, 0);
   const discount = Math.min(Math.max(sale.discount, 0), subtotal);
   const total = Math.max(0, subtotal - discount);
-  const profit = total;
-  const paid = sale.sale_type === "cash" ? total : Math.min(sale.paid_amount, total);
-  sale.items = nextItems;
+  const grossProfit = combinedItems.reduce((sum, item) => {
+    if (item.product_id > 0) {
+      const product = db.products.find((candidate) => candidate.id === item.product_id);
+      return sum + (item.unit_price - (product?.purchase_price ?? 0)) * item.quantity;
+    }
+    const perfume = db.perfumes.find((candidate) => candidate.id === Math.abs(item.product_id));
+    const barcodeParts = item.barcode.split("-");
+    const flaconId = Number(barcodeParts[barcodeParts.length - 1]);
+    const price = perfume?.prices.find((candidate) => candidate.flacon_id === flaconId);
+    const cost = (perfume?.cost_per_ml ?? 0) * (price?.volume_ml ?? 0);
+    return sum + (item.unit_price - cost) * item.quantity;
+  }, 0);
+  const profit = grossProfit - discount;
+  const paid = sale.sale_type === "cash" || (sale.sale_type === "delivery" && sale.credit_status === "delivery_paid")
+    ? total
+    : sale.sale_type === "delivery"
+      ? 0
+      : Math.min(sale.paid_amount, total);
+  sale.items = combinedItems;
   sale.subtotal = subtotal;
   sale.discount = discount;
   sale.total = total;
   sale.profit = profit;
   sale.paid_amount = paid;
   sale.remaining_amount = Math.max(0, total - paid);
-  sale.credit_status = sale.remaining_amount <= 0 ? "paid" : paid > 0 ? "partial" : "open";
+  sale.credit_status = sale.sale_type === "delivery"
+    ? sale.credit_status === "delivery_paid" ? "delivery_paid" : "delivery_pending"
+    : sale.remaining_amount <= 0 ? "paid" : paid > 0 ? "partial" : "open";
   return sale;
 }
 
@@ -1412,7 +1542,7 @@ export const api = {
   emptyDatabase: () => call<void>("empty_database"),
   openCashDrawer: () => call<void>("open_cash_drawer"),
   openExternalUrl: (url: string) => call<void>("open_external_url", { url }),
-  printReceiptText: (content: string) => call<void>("print_receipt_text", { content }),
+  printReceiptText: (content: string, qrDataUrl = "") => call<void>("print_receipt_text", { content, qr_data_url: qrDataUrl }),
   printBarcodeLabels: (input: BarcodePrintInput) => call<void>("print_barcode_labels", { input }),
   currentShift: () => call<CashShift | null>("current_shift"),
   openShift: (input: OpenShiftInput) => call<CashShift>("open_shift", { input }),
@@ -1428,6 +1558,7 @@ export const api = {
     });
   },
   saveProduct: (input: ProductInput) => call<Product>("save_product", { input }),
+  regenerateAllBarcodes: () => call<Product[]>("regenerate_all_barcodes"),
   adjustProductStock: (input: StockMovementInput) => call<Product>("adjust_product_stock", { input }),
   stockMovements: (productId: number) => call<StockMovement[]>("list_stock_movements", { product_id: productId }),
   deleteProduct: (id: number) => call<void>("delete_product", { id }),
@@ -1451,6 +1582,7 @@ export const api = {
   perfumePurchases: () => call<PerfumePurchase[]>("list_perfume_purchases"),
   savePerfumePurchase: (input: PerfumePurchaseInput) => call<PerfumePurchase>("save_perfume_purchase", { input }),
   sales: () => call<Sale[]>("list_sales"),
+  sale: (id: number) => call<Sale>("get_sale", { id }),
   deliveries: () => call<Sale[]>("list_delivery_sales"),
   collectDelivery: (id: number) => call<Sale>("collect_delivery", { id }),
   returnDelivery: (id: number) => call<Sale>("return_delivery", { id }),

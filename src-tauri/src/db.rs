@@ -369,6 +369,7 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
         "
         ALTER TABLE products ADD COLUMN IF NOT EXISTS image_data TEXT NOT NULL DEFAULT '';
         ALTER TABLE sales ADD COLUMN IF NOT EXISTS shift_id BIGINT REFERENCES cash_shifts(id);
+        ALTER TABLE sales ADD COLUMN IF NOT EXISTS collected_at TIMESTAMPTZ;
         ALTER TABLE expenses ADD COLUMN IF NOT EXISTS shift_id BIGINT REFERENCES cash_shifts(id);
         ALTER TABLE credit_payments ADD COLUMN IF NOT EXISTS shift_id BIGINT REFERENCES cash_shifts(id);
         ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS reference_type TEXT NOT NULL DEFAULT '';

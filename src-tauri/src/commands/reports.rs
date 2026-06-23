@@ -47,7 +47,13 @@ pub fn get_report(db: State<Database>, input: ReportFilter) -> AppResult<ReportD
         let gross_sales: f64 = client
             .query_one(
                 "SELECT COALESCE(SUM(total), 0)::float8
-                 FROM sales WHERE created_at::date BETWEEN $1 AND $2",
+                 FROM sales
+                 WHERE (CASE
+                          WHEN sale_type = 'delivery' AND credit_status = 'delivery_paid'
+                            THEN COALESCE(collected_at, created_at)
+                          ELSE created_at
+                        END)::date BETWEEN $1 AND $2
+                   AND (sale_type <> 'delivery' OR credit_status = 'delivery_paid')",
                 &[&from_date, &to_date],
             )?
             .get(0);
@@ -84,8 +90,30 @@ pub fn get_report(db: State<Database>, input: ReportFilter) -> AppResult<ReportD
                  FROM sales
                  WHERE sale_type = 'delivery'
                    AND credit_status = 'delivery_paid'
-                   AND created_at::date BETWEEN $1 AND $2",
+                   AND COALESCE(collected_at, created_at)::date BETWEEN $1 AND $2",
                 &[&from_date, &to_date],
+            )?
+            .get(0);
+        summary.supplier_purchases = client
+            .query_one(
+                "SELECT COALESCE(SUM(subtotal), 0)::float8
+                 FROM purchase_orders
+                 WHERE status <> 'draft' AND confirmed_at::date BETWEEN $1 AND $2",
+                &[&from_date, &to_date],
+            )?
+            .get(0);
+        summary.supplier_payments = client
+            .query_one(
+                "SELECT COALESCE(SUM(amount), 0)::float8
+                 FROM supplier_payments WHERE paid_at::date BETWEEN $1 AND $2",
+                &[&from_date, &to_date],
+            )?
+            .get(0);
+        summary.supplier_remaining = client
+            .query_one(
+                "SELECT COALESCE(SUM(remaining_amount), 0)::float8
+                 FROM purchase_orders WHERE status <> 'draft' AND remaining_amount > 0",
+                &[],
             )?
             .get(0);
         let row = client.query_one(
@@ -151,7 +179,11 @@ fn bucket_totals(client: &mut Client, start: NaiveDate, end: NaiveDate) -> AppRe
            COALESCE(SUM(s.profit), 0)::float8
          FROM sales s
          LEFT JOIN payment_totals p ON p.sale_id = s.id
-         WHERE s.created_at::date BETWEEN $1 AND $2
+         WHERE (CASE
+                  WHEN s.sale_type = 'delivery' AND s.credit_status = 'delivery_paid'
+                    THEN COALESCE(s.collected_at, s.created_at)
+                  ELSE s.created_at
+                END)::date BETWEEN $1 AND $2
            AND (s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid')",
         &[&start, &end],
     )?;
@@ -186,7 +218,14 @@ fn bucket_totals(client: &mut Client, start: NaiveDate, end: NaiveDate) -> AppRe
             &[&start, &end],
         )?
         .get(0);
-    let sortie = expenses;
+    let supplier_payments: f64 = client
+        .query_one(
+            "SELECT COALESCE(SUM(amount), 0)::float8
+             FROM supplier_payments WHERE paid_at::date BETWEEN $1 AND $2",
+            &[&start, &end],
+        )?
+        .get(0);
+    let sortie = expenses + supplier_payments;
 
     Ok(BucketTotals {
         entry: sale_entry + credit_entry,
@@ -208,7 +247,11 @@ fn top_products(
         "SELECT si.product_name, SUM(si.quantity)::bigint, COALESCE(SUM(si.line_total), 0)::float8
          FROM sale_items si
          JOIN sales s ON s.id = si.sale_id
-         WHERE s.created_at::date BETWEEN $1 AND $2
+         WHERE (CASE
+                  WHEN s.sale_type = 'delivery' AND s.credit_status = 'delivery_paid'
+                    THEN COALESCE(s.collected_at, s.created_at)
+                  ELSE s.created_at
+                END)::date BETWEEN $1 AND $2
            AND (s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid')
          GROUP BY si.product_name
          ORDER BY COALESCE(SUM(si.line_total), 0) DESC, SUM(si.quantity) DESC

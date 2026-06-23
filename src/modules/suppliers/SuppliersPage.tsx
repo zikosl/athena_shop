@@ -218,9 +218,14 @@ export function SuppliersPage({
       {orderForm && (
         <PurchaseOrderForm
           order={orderForm === "new" ? null : orderForm}
-          suppliers={suppliers.filter((supplier) => supplier.active)}
+          suppliers={suppliers.filter((supplier) => (
+            supplier.active || (orderForm !== "new" && supplier.id === orderForm.supplier_id)
+          ))}
           products={products}
           cashier={user.display_name}
+          onSupplierCreated={(supplier) => setSuppliers((current) => (
+            current.some((item) => item.id === supplier.id) ? current : [supplier, ...current]
+          ))}
           onClose={() => setOrderForm(null)}
           onSaved={(order) => {
             setOrderForm(null);
@@ -251,6 +256,7 @@ function PurchaseOrderForm({
   suppliers,
   products,
   cashier,
+  onSupplierCreated,
   onClose,
   onSaved
 }: {
@@ -258,10 +264,17 @@ function PurchaseOrderForm({
   suppliers: Supplier[];
   products: Product[];
   cashier: string;
+  onSupplierCreated: (supplier: Supplier) => void;
   onClose: () => void;
   onSaved: (order: PurchaseOrder) => void;
 }) {
-  const [supplierId, setSupplierId] = useState(order?.supplier_id ?? suppliers[0]?.id ?? 0);
+  const [availableSuppliers, setAvailableSuppliers] = useState(suppliers);
+  const initialSupplier = suppliers.find((supplier) => supplier.id === order?.supplier_id) ?? suppliers[0];
+  const [supplierId, setSupplierId] = useState(order?.supplier_id ?? initialSupplier?.id ?? 0);
+  const [supplierSearch, setSupplierSearch] = useState(initialSupplier?.name ?? "");
+  const [supplierMenuOpen, setSupplierMenuOpen] = useState(false);
+  const [quickSupplier, setQuickSupplier] = useState<SupplierInput | null>(null);
+  const [savingSupplier, setSavingSupplier] = useState(false);
   const [note, setNote] = useState(order?.note ?? "");
   const [lines, setLines] = useState<DraftLine[]>(order?.items.map((item) => ({
     product_id: item.product_id,
@@ -271,6 +284,46 @@ function PurchaseOrderForm({
   })) ?? [{ product_id: products[0]?.id ?? 0, quantity: 1, purchase_price: 0, price_mode: "unit" }]);
   const [error, setError] = useState("");
   const subtotal = lines.reduce((sum, line) => sum + line.quantity * unitPrice(line), 0);
+  const supplierMatches = availableSuppliers.filter((supplier) => {
+    const search = supplierSearch.trim().toLowerCase();
+    return !search || [supplier.name, supplier.phone, supplier.address]
+      .some((value) => value.toLowerCase().includes(search));
+  }).slice(0, 7);
+  const hasExactSupplier = availableSuppliers.some((supplier) => (
+    supplier.name.trim().toLowerCase() === supplierSearch.trim().toLowerCase()
+  ));
+
+  useEffect(() => {
+    setAvailableSuppliers(suppliers);
+  }, [suppliers]);
+
+  function selectSupplier(supplier: Supplier) {
+    setSupplierId(supplier.id);
+    setSupplierSearch(supplier.name);
+    setSupplierMenuOpen(false);
+    setQuickSupplier(null);
+  }
+
+  function startQuickSupplier() {
+    setQuickSupplier({ ...emptySupplier, name: supplierSearch.trim() });
+    setSupplierMenuOpen(false);
+  }
+
+  async function createQuickSupplier() {
+    if (!quickSupplier?.name.trim() || savingSupplier) return;
+    setSavingSupplier(true);
+    setError("");
+    try {
+      const supplier = await api.saveSupplier(quickSupplier);
+      setAvailableSuppliers((current) => [supplier, ...current.filter((item) => item.id !== supplier.id)]);
+      onSupplierCreated(supplier);
+      selectSupplier(supplier);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingSupplier(false);
+    }
+  }
 
   function updateLine(index: number, next: DraftLine) {
     setLines(lines.map((line, lineIndex) => lineIndex === index ? next : line));
@@ -302,7 +355,76 @@ function PurchaseOrderForm({
       <form className="panel form-modal purchase-form-modal" onSubmit={submit}>
         <div className="section-title"><h2><ClipboardList size={18} /> قسيمة شراء</h2><span /><button className="ghost-button compact-button" type="button" onClick={onClose}><X size={16} /> إغلاق</button></div>
         <div className="form-grid">
-          <label><span>المورد</span><div className="field"><select value={supplierId} onChange={(event) => setSupplierId(Number(event.target.value))}>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></div></label>
+          <div className="supplier-picker-block">
+            <label><span>المورد</span></label>
+            <div className={`supplier-combobox ${supplierMenuOpen ? "open" : ""}`}>
+              <Search size={18} />
+              <input
+                role="combobox"
+                aria-expanded={supplierMenuOpen}
+                aria-controls="supplier-options"
+                autoComplete="off"
+                placeholder="اكتب اسم المورد أو رقم الهاتف..."
+                value={supplierSearch}
+                onFocus={() => setSupplierMenuOpen(true)}
+                onBlur={() => window.setTimeout(() => setSupplierMenuOpen(false), 120)}
+                onChange={(event) => {
+                  setSupplierSearch(event.target.value);
+                  setSupplierId(0);
+                  setSupplierMenuOpen(true);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setSupplierMenuOpen(false);
+                  if (event.key === "Enter" && supplierMenuOpen && supplierMatches.length > 0) {
+                    event.preventDefault();
+                    selectSupplier(supplierMatches[0]);
+                  } else if (event.key === "Enter" && supplierMenuOpen && !supplierMatches.length) {
+                    event.preventDefault();
+                    startQuickSupplier();
+                  }
+                }}
+              />
+              {supplierMenuOpen && (
+                <div className="supplier-options" id="supplier-options" role="listbox">
+                  {supplierMatches.map((supplier) => (
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={supplier.id === supplierId}
+                      key={supplier.id}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => selectSupplier(supplier)}
+                    >
+                      <UserRound size={18} />
+                      <span><strong>{supplier.name}</strong><small>{supplier.phone || "بدون رقم هاتف"}</small></span>
+                      {supplier.id === supplierId && <CheckCircle2 size={17} />}
+                    </button>
+                  ))}
+                  {!supplierMatches.length && <p>لا يوجد مورد مطابق.</p>}
+                  {(!hasExactSupplier || !availableSuppliers.length) && (
+                    <button className="supplier-create-option" type="button" onMouseDown={(event) => event.preventDefault()} onClick={startQuickSupplier}>
+                      <Plus size={18} />
+                      <span><strong>إنشاء مورد جديد</strong><small>{supplierSearch.trim() ? `باستعمال الاسم «${supplierSearch.trim()}»` : "إضافة مورد دون مغادرة القسيمة"}</small></span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            {quickSupplier && (
+              <div className="quick-supplier-panel">
+                <div className="quick-supplier-title"><span><Plus size={16} /> مورد جديد</span><button type="button" className="plain-icon" onClick={() => setQuickSupplier(null)}><X size={15} /></button></div>
+                <div className="quick-supplier-grid">
+                  <label><span>الاسم *</span><div className="field"><input autoFocus value={quickSupplier.name} onChange={(event) => setQuickSupplier({ ...quickSupplier, name: event.target.value })} /></div></label>
+                  <label><span>الهاتف</span><div className="field"><input value={quickSupplier.phone} onChange={(event) => setQuickSupplier({ ...quickSupplier, phone: event.target.value })} /></div></label>
+                  <label><span>العنوان</span><div className="field"><input value={quickSupplier.address} onChange={(event) => setQuickSupplier({ ...quickSupplier, address: event.target.value })} /></div></label>
+                </div>
+                <div className="button-row">
+                  <button className="gold-button compact-button" type="button" disabled={!quickSupplier.name.trim() || savingSupplier} onClick={() => void createQuickSupplier()}><Save size={16} /> {savingSupplier ? "جار الحفظ..." : "إنشاء واختيار"}</button>
+                  <button className="ghost-button compact-button" type="button" disabled={savingSupplier} onClick={() => setQuickSupplier(null)}>إلغاء</button>
+                </div>
+              </div>
+            )}
+          </div>
           <label><span>ملاحظة</span><div className="field"><input value={note} onChange={(event) => setNote(event.target.value)} /></div></label>
         </div>
         <div className="purchase-lines">
