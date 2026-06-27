@@ -1,8 +1,9 @@
 import { FormEvent, useState } from "react";
 import { Database, Server, User } from "lucide-react";
 import { api } from "../../shared/api";
+import { showErrorToast, showToast } from "../../shared/toast";
 import { PostgresConfig } from "../../shared/types";
-import annaStoreLogo from "../../assets/anna-store-logo.png";
+import openzeyLogo from "../../assets/openzey-logo.png";
 
 export function DatabaseSetupPage({ onConfigured }: { onConfigured: () => void }) {
   const [form, setForm] = useState<PostgresConfig>({
@@ -12,18 +13,17 @@ export function DatabaseSetupPage({ onConfigured }: { onConfigured: () => void }
     user: "postgres",
     password: ""
   });
-  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setError("");
     setSaving(true);
     try {
       await api.configureDatabase(form);
+      showToast("تم الاتصال بقاعدة البيانات وإعداد مساحة العمل", "success");
       onConfigured();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر الاتصال بقاعدة البيانات");
     } finally {
       setSaving(false);
     }
@@ -34,10 +34,10 @@ export function DatabaseSetupPage({ onConfigured }: { onConfigured: () => void }
       <div className="particles" />
       <form className="login-card setup-card" onSubmit={submit}>
         <div className="login-brand">
-          <img src={annaStoreLogo} alt="ياسين لافار لأقمصة والعطور" className="brand-logo" />
+          <img src={openzeyLogo} alt="OpenZey" className="brand-logo" />
           <div>
-            <h1>ياسين لافار لأقمصة والعطور</h1>
-            <p>إعداد قاعدة البيانات</p>
+            <h1>OpenSoft</h1>
+            <p>إعداد مساحة عمل المؤسسة</p>
           </div>
         </div>
         <h2>إعداد قاعدة البيانات</h2>
@@ -62,7 +62,6 @@ export function DatabaseSetupPage({ onConfigured }: { onConfigured: () => void }
           <span>كلمة المرور</span>
           <div className="field"><input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></div>
         </label>
-        {error && <p className="error">{error}</p>}
         <button className="gold-button" type="submit" disabled={saving}>
           {saving ? "جاري الاتصال..." : "حفظ الإعداد"}
         </button>

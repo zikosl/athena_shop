@@ -91,7 +91,7 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             )?
             .map(|row| row.get::<_, String>(0))
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "ياسين لافار".into());
+            .unwrap_or_else(|| "OpenSoft".into());
         let receipt_subtitle = client
             .query_opt(
                 "SELECT value FROM app_meta WHERE key = 'receipt_subtitle'",
@@ -99,7 +99,7 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             )?
             .map(|row| row.get::<_, String>(0))
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "للأقمصة والعطور".into());
+            .unwrap_or_else(|| "حلول إدارة الأعمال من OpenZey".into());
         let show_invoice_logo = client
             .query_opt(
                 "SELECT value FROM app_meta WHERE key = 'show_invoice_logo'",
@@ -148,6 +148,14 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             .map(|row| row.get::<_, String>(0))
             .filter(|value| matches!(value.as_str(), "slow" | "normal" | "fast"))
             .unwrap_or_else(|| "slow".into());
+        let theme_primary_color = client
+            .query_opt(
+                "SELECT value FROM app_meta WHERE key = 'theme_primary_color'",
+                &[],
+            )?
+            .map(|row| row.get::<_, String>(0))
+            .filter(|value| is_valid_hex_color(value))
+            .unwrap_or_else(|| "#2563eb".into());
         let ui_font_scale = client
             .query_opt(
                 "SELECT value FROM app_meta WHERE key = 'ui_font_scale'",
@@ -193,6 +201,7 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             barcode_label_height_mm,
             barcode_darkness,
             barcode_speed,
+            theme_primary_color,
             ui_font_scale,
             ui_zoom,
             ui_density,
@@ -222,6 +231,9 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
     let barcode_darkness = input.barcode_darkness.clamp(1, 5);
     if !matches!(input.barcode_speed.as_str(), "slow" | "normal" | "fast") {
         return Err(AppError::Message("Vitesse code-barres invalide".into()));
+    }
+    if !is_valid_hex_color(&input.theme_primary_color) {
+        return Err(AppError::Message("Couleur principale invalide".into()));
     }
     if !matches!(
         input.ui_density.as_str(),
@@ -329,6 +341,12 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
         )?;
         client.execute(
             "INSERT INTO app_meta (key, value)
+             VALUES ('theme_primary_color', $1)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            &[&input.theme_primary_color.as_str()],
+        )?;
+        client.execute(
+            "INSERT INTO app_meta (key, value)
              VALUES ('ui_font_scale', $1)
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             &[&input.ui_font_scale.as_str()],
@@ -369,6 +387,14 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
             ..input
         })
     })
+}
+
+fn is_valid_hex_color(value: &str) -> bool {
+    value.len() == 7
+        && value.starts_with('#')
+        && value[1..]
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
 }
 
 #[tauri::command]
@@ -432,7 +458,7 @@ pub fn print_receipt_text(
         .duration_since(UNIX_EPOCH)
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
-    let path = std::env::temp_dir().join(format!("anna-store-ticket-{timestamp}.txt"));
+    let path = std::env::temp_dir().join(format!("opensoft-ticket-{timestamp}.txt"));
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
     bytes.extend_from_slice(content.as_bytes());
     fs::write(&path, bytes)?;
@@ -468,7 +494,7 @@ pub fn print_barcode_labels(db: State<Database>, input: BarcodePrintInput) -> Ap
         .duration_since(UNIX_EPOCH)
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
-    let script_path = std::env::temp_dir().join(format!("anna-store-barcode-{timestamp}.ps1"));
+    let script_path = std::env::temp_dir().join(format!("opensoft-barcode-{timestamp}.ps1"));
     write_utf8_bom(&script_path, barcode_print_script())?;
 
     let output = hide_console(&mut Command::new("powershell.exe"))
@@ -514,7 +540,7 @@ fn print_file(
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
 
-    let script_path = std::env::temp_dir().join(format!("anna-store-receipt-{timestamp}.ps1"));
+    let script_path = std::env::temp_dir().join(format!("opensoft-receipt-{timestamp}.ps1"));
 
     write_utf8_bom(&script_path, receipt_print_script())?;
 
@@ -1310,7 +1336,7 @@ pub fn open_cash_drawer(db: State<Database>) -> AppResult<()> {
         .duration_since(UNIX_EPOCH)
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
-    let path = std::env::temp_dir().join(format!("anna-store-drawer-{timestamp}.bin"));
+    let path = std::env::temp_dir().join(format!("opensoft-drawer-{timestamp}.bin"));
     fs::write(&path, pulse)?;
 
     if let Err(error) = print_file(

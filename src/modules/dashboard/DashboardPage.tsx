@@ -5,15 +5,14 @@ import {
   ChartColumnIncreasing,
   Coins,
   HandCoins,
-  ReceiptText,
   ShoppingCart,
-  SprayCan,
   Truck,
   Wallet
 } from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
+import { showErrorToast } from "../../shared/toast";
 import { DashboardStats, Language, ViewKey } from "../../shared/types";
 
 interface Props {
@@ -28,19 +27,8 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
   const [stats, setStats] = useState<DashboardStats | null>(null);
 
   useEffect(() => {
-    api.dashboard().then(setStats).catch(console.error);
+    api.dashboard().then(setStats).catch((err) => showErrorToast(err, "تعذر تحميل لوحة المتابعة"));
   }, [refreshToken]);
-
-  const modules = [
-    { key: "stock" as ViewKey, title: t.modules.stockTitle, icon: Box, text: t.modules.stockText },
-    { key: "perfumery" as ViewKey, title: t.modules.perfumeryTitle, icon: SprayCan, text: t.modules.perfumeryText },
-    { key: "pos" as ViewKey, title: t.modules.posTitle, icon: ShoppingCart, text: t.modules.posText },
-    { key: "delivery" as ViewKey, title: t.modules.deliveryTitle, icon: Truck, text: t.modules.deliveryText },
-    { key: "revenue" as ViewKey, title: t.modules.revenueTitle, icon: ChartColumnIncreasing, text: t.modules.revenueText },
-    { key: "reports" as ViewKey, title: t.modules.reportsTitle, icon: ReceiptText, text: t.modules.reportsText },
-    { key: "expenses" as ViewKey, title: t.modules.expensesTitle, icon: Wallet, text: t.modules.expensesText },
-    { key: "credits" as ViewKey, title: t.modules.creditsTitle, icon: HandCoins, text: t.modules.creditsText }
-  ];
 
   const cards = [
     {
@@ -109,21 +97,6 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
   ];
 
   return (
-    <>
-      <section className="module-grid">
-        {modules.map((module) => {
-          const Icon = module.icon;
-          return (
-            <article className="module-card" key={module.key}>
-              <div className="module-icon"><Icon size={48} /></div>
-              <h3>{module.title}</h3>
-              <p>{module.text}</p>
-              <button onClick={() => onNavigate(module.key)}>{t.access}<span>←</span></button>
-            </article>
-          );
-        })}
-      </section>
-
       <section className="panel">
         <div className="section-title"><h2>{t.today}</h2><span /></div>
         <div className="stats-grid">
@@ -147,7 +120,6 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
           })}
         </div>
       </section>
-    </>
   );
 }
 

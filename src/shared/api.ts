@@ -40,8 +40,8 @@ import {
 import { dateInputValue, todayInputValue } from "./format";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
-const demoDbKey = "athena-shop-demo-db";
-const legacyDemoDbKey = "denzel-pos-demo-db";
+const demoDbKey = "opensoft-demo-db";
+const legacyDemoDbKeys = ["athena-shop-demo-db", "denzel-pos-demo-db"] as const;
 
 function defaultSettings(): AppSettings {
   return {
@@ -50,14 +50,15 @@ function defaultSettings(): AppSettings {
     max_discount_amount: 200,
     invoice_printer: "",
     barcode_printer: "",
-    receipt_title: "ياسين لافار",
-    receipt_subtitle: "للأقمصة والعطور",
+    receipt_title: "OpenSoft",
+    receipt_subtitle: "حلول إدارة الأعمال من OpenZey",
     show_invoice_logo: true,
     ticket_width_chars: 32,
     barcode_label_width_mm: 40,
     barcode_label_height_mm: 20,
     barcode_darkness: 5,
     barcode_speed: "slow",
+    theme_primary_color: "#2563eb",
     ui_font_scale: "normal",
     ui_zoom: 100,
     ui_density: "comfortable",
@@ -138,7 +139,8 @@ function sampleProduct(
 }
 
 function readDb(): Db {
-  const raw = localStorage.getItem(demoDbKey) ?? localStorage.getItem(legacyDemoDbKey);
+  const legacyRaw = legacyDemoDbKeys.map((key) => localStorage.getItem(key)).find(Boolean);
+  const raw = localStorage.getItem(demoDbKey) ?? legacyRaw;
   if (!raw) {
     localStorage.setItem(demoDbKey, JSON.stringify(seed));
     return structuredClone(seed);
@@ -164,8 +166,8 @@ function readDb(): Db {
       max_discount_amount: parsed.settings?.max_discount_amount ?? 200,
       invoice_printer: parsed.settings?.invoice_printer ?? "",
       barcode_printer: parsed.settings?.barcode_printer ?? "",
-      receipt_title: parsed.settings?.receipt_title ?? "ياسين لافار",
-      receipt_subtitle: parsed.settings?.receipt_subtitle ?? "للأقمصة والعطور",
+      receipt_title: parsed.settings?.receipt_title ?? "OpenSoft",
+      receipt_subtitle: parsed.settings?.receipt_subtitle ?? "حلول إدارة الأعمال من OpenZey",
       show_invoice_logo: parsed.settings?.show_invoice_logo ?? true,
       ticket_width_chars: Math.min(48, Math.max(24, Number(parsed.settings?.ticket_width_chars ?? 32))),
       barcode_label_width_mm: Math.min(100, Math.max(20, Number(parsed.settings?.barcode_label_width_mm ?? 40))),
@@ -174,6 +176,9 @@ function readDb(): Db {
       barcode_speed: ["slow", "normal", "fast"].includes(parsed.settings?.barcode_speed ?? "")
         ? (parsed.settings?.barcode_speed as AppSettings["barcode_speed"])
         : "slow",
+      theme_primary_color: /^#[0-9a-f]{6}$/i.test(parsed.settings?.theme_primary_color ?? "")
+        ? parsed.settings!.theme_primary_color
+        : "#2563eb",
       ui_font_scale: parsed.settings?.ui_font_scale ?? "normal",
       ui_zoom: Math.min(125, Math.max(80, Number(parsed.settings?.ui_zoom ?? 100))),
       ui_density: parsed.settings?.ui_density ?? "comfortable",
@@ -400,14 +405,15 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       max_discount_amount: Math.max(0, Number(input.max_discount_amount || 0)),
       invoice_printer: input.invoice_printer ?? "",
       barcode_printer: input.barcode_printer ?? "",
-      receipt_title: input.receipt_title?.trim() || "ياسين لافار",
-      receipt_subtitle: input.receipt_subtitle?.trim() || "للأقمصة والعطور",
+      receipt_title: input.receipt_title?.trim() || "OpenSoft",
+      receipt_subtitle: input.receipt_subtitle?.trim() || "حلول إدارة الأعمال من OpenZey",
       show_invoice_logo: input.show_invoice_logo ?? true,
       ticket_width_chars: Math.min(48, Math.max(24, Number(input.ticket_width_chars || 32))),
       barcode_label_width_mm: Math.min(100, Math.max(20, Number(input.barcode_label_width_mm || 40))),
       barcode_label_height_mm: Math.min(80, Math.max(10, Number(input.barcode_label_height_mm || 20))),
       barcode_darkness: Math.min(5, Math.max(1, Number(input.barcode_darkness || 5))),
       barcode_speed: ["slow", "normal", "fast"].includes(input.barcode_speed) ? input.barcode_speed : "slow",
+      theme_primary_color: /^#[0-9a-f]{6}$/i.test(input.theme_primary_color) ? input.theme_primary_color : "#2563eb",
       ui_font_scale: input.ui_font_scale ?? "normal",
       ui_zoom: Math.min(125, Math.max(80, Number(input.ui_zoom || 100))),
       ui_density: input.ui_density ?? "comfortable",
@@ -1142,7 +1148,7 @@ function withPurchaseRelations(db: Db, order: PurchaseOrder): PurchaseOrder {
 
 function applyDemoPurchaseStock(db: Db, orderId: number, item: PurchaseOrder["items"][number]) {
   const product = db.products.find((line) => line.id === item.product_id);
-  if (!product) throw new Error("'DEF*, :J1 EH,H/");
+  if (!product) throw new Error("المنتج المرتبط بقسيمة الشراء غير موجود");
   const before = product.quantity;
   const after = before + item.quantity;
   const oldValue = product.purchase_price * Math.max(0, before);

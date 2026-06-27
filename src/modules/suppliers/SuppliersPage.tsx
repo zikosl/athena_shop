@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ClipboardList, HandCoins, PackagePlus, Plus, Save, Search, UserRound, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
+import { showErrorToast, showToast } from "../../shared/toast";
 import {
   Language,
   Product,
@@ -34,7 +35,6 @@ export function SuppliersPage({
   const [supplierForm, setSupplierForm] = useState<SupplierInput | null>(null);
   const [orderForm, setOrderForm] = useState<PurchaseOrder | null | "new">(null);
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null);
-  const [error, setError] = useState("");
 
   const load = () => Promise.all([
     api.suppliers(),
@@ -49,7 +49,7 @@ export function SuppliersPage({
   });
 
   useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    load().catch((err) => showErrorToast(err, "تعذر تحميل الموردين"));
   }, []);
 
   const totals = useMemo(() => ({
@@ -74,33 +74,32 @@ export function SuppliersPage({
   async function saveSupplier(event: FormEvent) {
     event.preventDefault();
     if (!supplierForm) return;
-    setError("");
     try {
       await api.saveSupplier(supplierForm);
       setSupplierForm(null);
       await load();
+      showToast("تم حفظ المورد", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حفظ المورد");
     }
   }
 
   async function disableSupplier(supplier: Supplier) {
     if (!window.confirm(`هل تريد تعطيل المورد "${supplier.name}"؟`)) return;
-    setError("");
     try {
       await api.disableSupplier(supplier.id);
       await load();
+      showToast("تم تعطيل المورد", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر تعطيل المورد");
     }
   }
 
   async function openOrder(order: PurchaseOrder) {
-    setError("");
     try {
       setSelectedOrder(await api.purchaseOrder(order.id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر فتح قسيمة الشراء");
     }
   }
 
@@ -132,7 +131,6 @@ export function SuppliersPage({
       </div>
 
       <div className="searchbar"><Search size={18} /><input placeholder="بحث..." value={query} onChange={(event) => setQuery(event.target.value)} /></div>
-      {error && <p className="error">{error}</p>}
 
       {tab === "suppliers" && (
         <div className="supplier-card-grid">
@@ -140,7 +138,7 @@ export function SuppliersPage({
             <article className="supplier-card" key={supplier.id}>
               <div className="delivery-card-head">
                 <strong>{supplier.name}</strong>
-                <span className={`status-pill ${supplier.active ? "ok" : "warning"}`}>{supplier.active ? "نشط" : "معطل"}</span>
+                <span className={`status-pill ${supplier.active ? "ok" : "neutral"}`}>{supplier.active ? "نشط" : "معطل"}</span>
               </div>
               <span>{supplier.phone || "بدون هاتف"}</span>
               <small>{supplier.address || "بدون عنوان"}</small>
@@ -168,7 +166,7 @@ export function SuppliersPage({
                 <tr key={order.id} onClick={() => void openOrder(order)}>
                   <td>{order.bon_no}<span>{order.created_at.slice(0, 10)}</span></td>
                   <td>{order.supplier_name}</td>
-                  <td><span className={`status-pill ${order.status === "paid" ? "ok" : order.status === "draft" ? "warning" : ""}`}>{orderStatus(order.status)}</span></td>
+                  <td><span className={`status-pill ${order.status === "paid" ? "ok" : order.status === "draft" ? "neutral" : "pending"}`}>{orderStatus(order.status)}</span></td>
                   <td>{money(order.subtotal)}</td>
                   <td>{money(order.paid_amount)}</td>
                   <td>{money(order.remaining_amount)}</td>
@@ -282,7 +280,6 @@ function PurchaseOrderForm({
     purchase_price: item.unit_purchase_price,
     price_mode: "unit"
   })) ?? [{ product_id: products[0]?.id ?? 0, quantity: 1, purchase_price: 0, price_mode: "unit" }]);
-  const [error, setError] = useState("");
   const subtotal = lines.reduce((sum, line) => sum + line.quantity * unitPrice(line), 0);
   const supplierMatches = availableSuppliers.filter((supplier) => {
     const search = supplierSearch.trim().toLowerCase();
@@ -312,14 +309,14 @@ function PurchaseOrderForm({
   async function createQuickSupplier() {
     if (!quickSupplier?.name.trim() || savingSupplier) return;
     setSavingSupplier(true);
-    setError("");
     try {
       const supplier = await api.saveSupplier(quickSupplier);
       setAvailableSuppliers((current) => [supplier, ...current.filter((item) => item.id !== supplier.id)]);
       onSupplierCreated(supplier);
       selectSupplier(supplier);
+      showToast("تم إنشاء المورد واختياره", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر إنشاء المورد");
     } finally {
       setSavingSupplier(false);
     }
@@ -331,7 +328,6 @@ function PurchaseOrderForm({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setError("");
     try {
       const saved = await api.savePurchaseOrderDraft({
         id: order?.id,
@@ -345,8 +341,9 @@ function PurchaseOrderForm({
         }))
       });
       onSaved(saved);
+      showToast("تم حفظ مسودة قسيمة الشراء", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حفظ قسيمة الشراء");
     }
   }
 
@@ -441,7 +438,6 @@ function PurchaseOrderForm({
         </div>
         <button className="ghost-button compact-button" type="button" onClick={() => setLines([...lines, { product_id: products[0]?.id ?? 0, quantity: 1, purchase_price: 0, price_mode: "unit" }])}><Plus size={16} /> إضافة منتج</button>
         <div className="totals"><span>الإجمالي <strong>{money(subtotal)}</strong></span></div>
-        {error && <p className="error">{error}</p>}
         <button className="gold-button" disabled={!supplierId || !products.length}><Save size={18} /> حفظ كمسودة</button>
       </form>
     </div>
@@ -464,19 +460,17 @@ function PurchaseOrderDetail({
   const [paidAmount, setPaidAmount] = useState(0);
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [paymentNote, setPaymentNote] = useState("");
-  const [error, setError] = useState("");
 
   async function confirmOrder() {
-    setError("");
     try {
       onChanged(await api.confirmPurchaseOrder(order.id, Math.max(0, paidAmount), cashier));
+      showToast("تم تأكيد قسيمة الشراء وتحديث المخزون", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر تأكيد قسيمة الشراء");
     }
   }
 
   async function addPayment() {
-    setError("");
     try {
       onChanged(await api.addSupplierPayment({
         purchase_order_id: order.id,
@@ -486,8 +480,9 @@ function PurchaseOrderDetail({
       }));
       setPaymentAmount(0);
       setPaymentNote("");
+      showToast("تم تسجيل دفعة المورد", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر تسجيل دفعة المورد");
     }
   }
 
@@ -525,7 +520,6 @@ function PurchaseOrderDetail({
             <table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>المستخدم</th><th>ملاحظة</th></tr></thead><tbody>{order.payments.map((payment) => <tr key={payment.id}><td>{payment.paid_at.slice(0, 16)}</td><td>{money(payment.amount)}</td><td>{payment.cashier}</td><td>{payment.note || "-"}</td></tr>)}</tbody></table>
           </div>
         )}
-        {error && <p className="error">{error}</p>}
       </section>
     </div>
   );

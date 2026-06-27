@@ -72,5 +72,5 @@ pub fn run() {
             commands::system::save_database,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Yassine POS");
+        .expect("error while running OpenSoft");
 }

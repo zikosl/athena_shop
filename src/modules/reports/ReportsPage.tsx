@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Activity, ArrowDownCircle, CalendarDays, ChartColumnIncreasing, HandCoins, PackageSearch, ReceiptText, ShoppingCart, Truck, Wallet } from "lucide-react";
 import { api } from "../../shared/api";
 import { dateInputValue, money, todayInputValue } from "../../shared/format";
+import { showErrorToast } from "../../shared/toast";
 import { Language, ReportBucket, ReportData, ReportPeriod } from "../../shared/types";
 
 type Preset = "daily" | "weekly" | "monthly" | "custom";
@@ -12,7 +13,6 @@ export function ReportsPage({ language: _language }: { language: Language }) {
   const [fromDate, setFromDate] = useState(todayInputValue);
   const [toDate, setToDate] = useState(todayInputValue);
   const [report, setReport] = useState<ReportData | null>(null);
-  const [error, setError] = useState("");
 
   useEffect(() => {
     if (preset === "custom") return;
@@ -26,10 +26,9 @@ export function ReportsPage({ language: _language }: { language: Language }) {
   }, [preset]);
 
   useEffect(() => {
-    setError("");
     api.report({ period, from_date: fromDate, to_date: toDate })
       .then(setReport)
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+      .catch((err) => showErrorToast(err, "تعذر تحميل التقرير"));
   }, [fromDate, period, toDate]);
 
   const health = useMemo(() => {
@@ -90,8 +89,6 @@ export function ReportsPage({ language: _language }: { language: Language }) {
         <label><span>من</span><input className="filter-input" type="date" value={fromDate} onChange={(event) => setCustomDate("from", event.target.value)} /></label>
         <label><span>إلى</span><input className="filter-input" type="date" value={toDate} onChange={(event) => setCustomDate("to", event.target.value)} /></label>
       </section>
-
-      {error && <p className="error">{error}</p>}
 
       <section className="stats-grid report-stat-grid business-stat-grid">
         <ReportCard icon={PackageSearch} label="الشراء" value={money(summary?.buying_total ?? 0)} helper="تكلفة السلع المباعة" tone="danger" />

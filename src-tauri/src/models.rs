@@ -31,6 +31,7 @@ pub struct AppSettings {
     pub barcode_label_height_mm: i64,
     pub barcode_darkness: i64,
     pub barcode_speed: String,
+    pub theme_primary_color: String,
     pub ui_font_scale: String,
     pub ui_zoom: i64,
     pub ui_density: String,

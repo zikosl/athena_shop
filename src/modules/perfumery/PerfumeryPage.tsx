@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Edit3, PackagePlus, Plus, Save, Search, SprayCan, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
+import { showErrorToast, showToast } from "../../shared/toast";
 import {
   Flacon,
   FlaconInput,
@@ -48,7 +49,6 @@ export function PerfumeryPage({ onChanged }: { language: Language; onChanged: ()
   const [purchaseForm, setPurchaseForm] = useState<PerfumePurchaseInput>(emptyPurchase);
   const [flaconForm, setFlaconForm] = useState<FlaconInput>(emptyFlacon);
   const [query, setQuery] = useState("");
-  const [error, setError] = useState("");
 
   async function load() {
     const [nextPerfumes, nextFlacons, nextPurchases] = await Promise.all([
@@ -62,7 +62,7 @@ export function PerfumeryPage({ onChanged }: { language: Language; onChanged: ()
   }
 
   useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    load().catch((err) => showErrorToast(err, "تعذر تحميل بيانات العطور"));
   }, []);
 
   const filteredPerfumes = useMemo(() => {
@@ -74,7 +74,6 @@ export function PerfumeryPage({ onChanged }: { language: Language; onChanged: ()
   const purchaseTotal = purchases.reduce((sum, purchase) => sum + purchase.amount, 0);
 
   function openNewPerfume() {
-    setError("");
     setPerfumeForm({
       ...emptyPerfume,
       prices: flacons.filter((flacon) => flacon.active).map((flacon) => ({
@@ -85,7 +84,6 @@ export function PerfumeryPage({ onChanged }: { language: Language; onChanged: ()
   }
 
   function openEditPerfume(perfume: Perfume) {
-    setError("");
     setPerfumeForm({
       id: perfume.id,
       name: perfume.name,
@@ -103,20 +101,19 @@ export function PerfumeryPage({ onChanged }: { language: Language; onChanged: ()
   async function savePerfume(event: FormEvent) {
     event.preventDefault();
     if (!perfumeForm) return;
-    setError("");
     try {
       await api.savePerfume(perfumeForm);
       setPerfumeForm(null);
       await load();
       onChanged();
+      showToast("تم حفظ العطر", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حفظ العطر");
     }
   }
 
   async function savePurchase(event: FormEvent) {
     event.preventDefault();
-    setError("");
     try {
       await api.savePerfumePurchase({
         ...purchaseForm,
@@ -125,21 +122,22 @@ export function PerfumeryPage({ onChanged }: { language: Language; onChanged: ()
       setPurchaseForm(emptyPurchase);
       await load();
       onChanged();
+      showToast("تم حفظ شراء العطر", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حفظ شراء العطر");
     }
   }
 
   async function saveFlacon(event: FormEvent) {
     event.preventDefault();
-    setError("");
     try {
       await api.saveFlacon(flaconForm);
       setFlaconForm(emptyFlacon);
       await load();
       onChanged();
+      showToast("تم حفظ القارورة", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حفظ القارورة");
     }
   }
 
@@ -157,7 +155,6 @@ export function PerfumeryPage({ onChanged }: { language: Language; onChanged: ()
         <button className={tab === "flacons" ? "active" : ""} type="button" onClick={() => setTab("flacons")}>القوارير</button>
       </div>
 
-      {error && <p className="error">{error}</p>}
 
       {tab === "perfumes" && (
         <>
@@ -253,7 +250,7 @@ export function PerfumeryPage({ onChanged }: { language: Language; onChanged: ()
                   <strong>{flacon.name} {flacon.flacon_type}</strong>
                   <small>{flacon.volume_ml} ml · {money(flacon.sale_price)}</small>
                 </span>
-                <span className={`status-pill ${flacon.active ? "ok" : "warning"}`}>{flacon.active ? "نشطة" : "متوقفة"}</span>
+                <span className={`status-pill ${flacon.active ? "ok" : "neutral"}`}>{flacon.active ? "نشطة" : "متوقفة"}</span>
               </button>
             ))}
             {!flacons.length && <p className="empty-state">لا توجد قوارير بعد.</p>}
@@ -274,7 +271,6 @@ export function PerfumeryPage({ onChanged }: { language: Language; onChanged: ()
               <label><span>العائلة</span><div className="field"><input value={perfumeForm.family} onChange={(event) => setPerfumeForm({ ...perfumeForm, family: event.target.value })} /></div></label>
             </div>
             <p className="helper-text">إدخال الكميات والمبالغ يتم من قسم مشتريات العطور.</p>
-            {error && <p className="error">{error}</p>}
             <button className="gold-button" disabled={!perfumeForm.name.trim()}><Save size={18} /> حفظ العطر</button>
           </form>
         </div>

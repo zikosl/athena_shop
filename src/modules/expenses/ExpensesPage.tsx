@@ -3,6 +3,7 @@ import { Plus, Save, Search, Trash2, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";
+import { showErrorToast, showToast } from "../../shared/toast";
 import { Expense, ExpenseInput, Language } from "../../shared/types";
 
 function newExpense(): ExpenseInput {
@@ -24,11 +25,9 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
   const [category, setCategory] = useState("");
   const [fromDate, setFromDate] = useState(todayInputValue);
   const [toDate, setToDate] = useState(todayInputValue);
-  const [error, setError] = useState("");
-
   const load = () => api.expenses().then(setExpenses);
   useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    load().catch((err) => showErrorToast(err, "تعذر تحميل المصاريف"));
   }, []);
 
   const categories = useMemo(
@@ -50,9 +49,8 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setError("");
     if (!form.label.trim() || form.amount <= 0) {
-      setError("التسمية والمبلغ الصحيحان إجباريان");
+      showToast("التسمية والمبلغ الصحيحان إجباريان", "warning");
       return;
     }
     try {
@@ -66,20 +64,21 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
       setFormOpen(false);
       await load();
       onChanged();
+      showToast("تم حفظ المصروف", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حفظ المصروف");
     }
   }
 
   async function remove(expense: Expense) {
-    setError("");
     if (!window.confirm(`هل تريد حذف المصروف "${expense.label}"؟ سيتم إنقاصه من سجلات المصاريف.`)) return;
     try {
       await api.deleteExpense(expense.id);
       await load();
       onChanged();
+      showToast("تم حذف المصروف", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حذف المصروف");
     }
   }
 
@@ -90,7 +89,6 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
   }
 
   function openNewExpense() {
-    setError("");
     setForm(newExpense());
     setFormOpen(true);
   }
@@ -105,7 +103,6 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
             <Plus size={17} /> {t.expenses}
           </button>
         </div>
-        {error && !formOpen && <p className="error">{error}</p>}
         <div className="filter-row">
           <div className="searchbar"><Search size={18} /><input placeholder={t.searchExpenses} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
           <select aria-label={t.category} value={category} onChange={(event) => setCategory(event.target.value)}>
@@ -147,7 +144,6 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
             <label><span>{t.amount}</span><div className="field"><input type="number" min={0} step="0.01" value={form.amount === 0 ? "" : form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} /></div></label>
             <label><span>{t.date}</span><div className="field"><input type="date" value={form.expense_date} onChange={(event) => setForm({ ...form, expense_date: event.target.value })} /></div></label>
             <label><span>{t.note}</span><textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>
-            {error && <p className="error">{error}</p>}
             <button className="gold-button" disabled={!form.label.trim() || form.amount <= 0}><Save size={18} /> {t.save}</button>
           </form>
         </div>

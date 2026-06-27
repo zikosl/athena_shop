@@ -1,12 +1,12 @@
 [package]
-name = "anna_store_pos"
+name = "opensoft"
 version = "0.1.0"
-description = "Yassine Arabic shop desktop POS"
-authors = ["Yassine Shop"]
+description = "OpenSoft modular business management platform"
+authors = ["OpenZey"]
 edition = "2021"
 
 [lib]
-name = "anna_store_pos_lib"
+name = "opensoft_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

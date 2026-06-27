@@ -3,7 +3,7 @@ import { Barcode, ClipboardList, Coins, Edit3, History, ImagePlus, PackageMinus,
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
-import { showToast } from "../../shared/toast";
+import { showErrorToast, showToast } from "../../shared/toast";
 import { Language, Product, ProductInput, ProductStockFilter, StockMovement } from "../../shared/types";
 
 const emptyProduct: ProductInput = {
@@ -72,12 +72,10 @@ export function StockPage({
   const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; product: Product } | null>(null);
   const [regeneratingBarcodes, setRegeneratingBarcodes] = useState(false);
-  const [error, setError] = useState("");
-
   const load = () => api.products({ query, category, stock: stockFilter }).then(setProducts);
 
   useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    load().catch((err) => showErrorToast(err, "تعذر تحميل المخزون"));
   }, [query, category, stockFilter]);
 
   useEffect(() => {
@@ -85,10 +83,13 @@ export function StockPage({
   }, [initialStockFilter]);
 
   useEffect(() => {
-    refreshCategories().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    refreshCategories().catch((err) => showErrorToast(err, "تعذر تحميل أصناف المنتجات"));
     api.appSettings()
       .then((settings) => setAllowNegativeStock(settings.allow_negative_stock))
-      .catch(() => setAllowNegativeStock(true));
+      .catch((err) => {
+        setAllowNegativeStock(true);
+        showErrorToast(err, "تعذر تحميل إعدادات المخزون");
+      });
   }, []);
 
   useEffect(() => {
@@ -127,35 +128,29 @@ export function StockPage({
     if (regeneratingBarcodes) return;
     if (!window.confirm("سيتم استبدال باركود جميع المنتجات برموز EAN-8 جديدة. الملصقات القديمة لن تعمل بعد ذلك. هل تريد المتابعة؟")) return;
     setRegeneratingBarcodes(true);
-    setError("");
     try {
       await api.regenerateAllBarcodes();
       await load();
       onChanged();
       showToast("تم إنشاء باركود EAN-8 جديد لكل المنتجات", "success");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      showToast(message, "error");
+      showErrorToast(err, "تعذر تجديد الباركود");
     } finally {
       setRegeneratingBarcodes(false);
     }
   }
 
   function openNewProduct() {
-    setError("");
     setForm(newProduct());
     setFormOpen(true);
   }
 
   function openEditProduct(product: Product) {
-    setError("");
     setForm(product);
     setFormOpen(true);
   }
 
   function openMovement(product: Product, type: "entry" | "destock") {
-    setError("");
     setMovementForm({
       product,
       type,
@@ -167,13 +162,12 @@ export function StockPage({
   }
 
   async function openHistory(product: Product) {
-    setError("");
     setHistoryProduct(product);
     setHistoryLoading(true);
     try {
       setMovements(await api.stockMovements(product.id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر تحميل حركات المخزون");
     } finally {
       setHistoryLoading(false);
     }
@@ -181,7 +175,6 @@ export function StockPage({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setError("");
     try {
       await api.saveProduct(form);
       setForm(newProduct());
@@ -189,26 +182,26 @@ export function StockPage({
       await load();
       await refreshCategories();
       onChanged();
+      showToast(form.id ? "تم تحديث المنتج" : "تم إنشاء المنتج", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حفظ المنتج");
     }
   }
 
   async function remove(product: Product) {
-    setError("");
     if (!window.confirm(`هل تريد حذف المنتج "${product.name}"؟ لا يمكن التراجع عن هذه العملية.`)) return;
     try {
       await api.deleteProduct(product.id);
       await load();
       await refreshCategories();
       onChanged();
+      showToast("تم حذف المنتج", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حذف المنتج");
     }
   }
 
   function toggleInventory() {
-    setError("");
     setInventoryMode((enabled) => {
       const next = !enabled;
       if (next) {
@@ -241,7 +234,6 @@ export function StockPage({
   async function submitMovement(event: FormEvent) {
     event.preventDefault();
     if (!movementForm) return;
-    setError("");
     try {
       const unitPurchasePrice = movementForm.type === "entry" && movementForm.purchase_price_mode === "total"
         ? movementForm.purchase_price / Math.max(1, movementForm.quantity)
@@ -256,20 +248,23 @@ export function StockPage({
       setMovementForm(null);
       await load();
       onChanged();
+      showToast(
+        movementForm.type === "entry" ? "تم إدخال الكمية إلى المخزون" : "تم إخراج الكمية من المخزون",
+        "success"
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر تنفيذ حركة المخزون");
     }
   }
 
   async function chooseImage(file: File | undefined) {
-    setError("");
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      setError("يرجى اختيار صورة صالحة");
+      showToast("يرجى اختيار صورة صالحة", "warning");
       return;
     }
     if (file.size > maxProductImageSize) {
-      setError("الصورة كبيرة جدا. الحد الأقصى 5 MB");
+      showToast("الصورة كبيرة جدًا. الحد الأقصى 5 MB", "warning");
       return;
     }
     const imageData = await readImage(file);
@@ -277,7 +272,6 @@ export function StockPage({
   }
 
   async function saveInventory() {
-    setError("");
     try {
       const changed = products.filter((product) => (inventoryCounts[product.id] ?? product.quantity) !== product.quantity);
       await Promise.all(changed.map((product) => {
@@ -303,8 +297,9 @@ export function StockPage({
       await load();
       setInventoryMode(false);
       onChanged();
+      showToast("تم حفظ الجرد وتحديث المخزون", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حفظ الجرد");
     }
   }
 
@@ -329,7 +324,6 @@ export function StockPage({
           <article><span>{t.stockMarginValue}</span><strong>{money(stockTotals.marginValue)}</strong></article>
           <article><span>{t.quantity}</span><strong><Coins size={16} /> {stockTotals.quantity}</strong></article>
         </div>
-        {error && !formOpen && <p className="error">{error}</p>}
         {inventoryMode && (
           <div className="inventory-toolbar">
             <span>{t.inventoryGap}: <strong>{inventoryDiff}</strong></span>
@@ -460,7 +454,6 @@ export function StockPage({
               </div>
             </div>
             <div className="profit-preview">{t.estimatedMargin} <strong>{money(margin)}</strong></div>
-            {error && <p className="error">{error}</p>}
             <div className="button-row">
               {!form.id && (
                 <button className="ghost-button" type="button" onClick={() => setForm({ ...form, barcode: createBarcode() })}>
@@ -535,7 +528,6 @@ export function StockPage({
                   : Math.max(0, movementForm.product.quantity - movementForm.quantity)}
               </strong>
             </div>
-            {error && <p className="error">{error}</p>}
             <div className="button-row">
               <button className="gold-button" type="submit" disabled={movementForm.quantity <= 0 || (!allowNegativeStock && movementForm.type === "destock" && movementForm.quantity > movementForm.product.quantity)}>
                 <Save size={18} /> تأكيد العملية
@@ -578,7 +570,7 @@ export function StockPage({
                     {movements.map((movement) => (
                       <tr key={movement.id}>
                         <td>{new Date(movement.created_at).toLocaleString("ar-DZ")}</td>
-                        <td><span className={`status-pill ${movement.quantity >= 0 ? "ok" : "warning"}`}>{movementLabel(movement.movement_type)}</span></td>
+                        <td><span className={`status-pill ${movement.quantity >= 0 ? "ok" : "danger"}`}>{movementLabel(movement.movement_type)}</span></td>
                         <td>{movement.quantity > 0 ? `+${movement.quantity}` : movement.quantity}</td>
                         <td>{movement.before_quantity}</td>
                         <td>{movement.after_quantity}</td>
@@ -606,8 +598,6 @@ export function StockPage({
 function BarcodePrintModal({ product, onClose }: { product: Product; onClose: () => void }) {
   const [count, setCount] = useState(1);
   const [barcodePrinter, setBarcodePrinter] = useState("");
-  const [status, setStatus] = useState("");
-  const [error, setError] = useState("");
   const [printing, setPrinting] = useState(false);
   const labelCount = Math.max(1, Math.min(200, count || 1));
 
@@ -619,8 +609,6 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
 
   async function printLabels() {
     if (printing) return;
-    setStatus("");
-    setError("");
     setPrinting(true);
     try {
       await api.printBarcodeLabels({
@@ -630,12 +618,9 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
         count: labelCount
       });
       const message = `تم إرسال ${labelCount} ملصق إلى طابعة الباركود`;
-      setStatus(message);
       showToast(message, "success");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "تعذرت طباعة الباركود";
-      setError(message);
-      showToast(message, "error");
+      showErrorToast(err, "تعذرت طباعة الباركود");
     } finally {
       setPrinting(false);
     }
@@ -670,8 +655,6 @@ function BarcodePrintModal({ product, onClose }: { product: Product; onClose: ()
             />
           </div>
         </label>
-        {status && <p className="helper-text">{status}</p>}
-        {error && <p className="error">{error}</p>}
         <div className="modal-actions">
           <button className="gold-button" type="button" disabled={printing} onClick={() => void printLabels()}><Barcode size={18} /> {printing ? "جار الطباعة..." : `طباعة ${labelCount}`}</button>
           <button className="ghost-button" type="button" disabled={printing} onClick={onClose}>إغلاق</button>

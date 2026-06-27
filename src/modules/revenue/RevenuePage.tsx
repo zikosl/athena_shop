@@ -3,6 +3,7 @@ import { Edit3, ReceiptText, RotateCcw, Save, Search, Trash2, X } from "lucide-r
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";
+import { showErrorToast, showToast } from "../../shared/toast";
 import { CreditAccount, Expense, Language, Sale } from "../../shared/types";
 
 export function RevenuePage({ language, onChanged }: { language: Language; onChanged?: () => void }) {
@@ -15,16 +16,14 @@ export function RevenuePage({ language, onChanged }: { language: Language; onCha
   const [fromDate, setFromDate] = useState(todayInputValue);
   const [toDate, setToDate] = useState(todayInputValue);
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
-  const [error, setError] = useState("");
   const load = useCallback(() => {
-    setError("");
     return Promise.all([api.sales(), api.expenses(), api.credits()])
       .then(([sales, expenses, credits]) => {
         setSales(sales);
         setExpenses(expenses);
         setCredits(credits);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+      .catch((err) => showErrorToast(err, "تعذر تحميل الطلبات"));
   }, []);
 
   useEffect(() => {
@@ -132,7 +131,6 @@ export function RevenuePage({ language, onChanged }: { language: Language; onCha
           <article><span>{t.dailyProfit}</span><strong>{money(totals.profit)}</strong></article>
           <article><span>{t.salesCount}</span><strong>{totals.count}</strong></article>
         </div>
-        {error && <p className="error">{error}</p>}
         <div className="filter-row">
           <div className="searchbar"><Search size={18} /><input placeholder={t.search} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
           <select aria-label={t.type} value={saleType} onChange={(event) => setSaleType(event.target.value as "all" | "cash" | "credit" | "delivery")}>
@@ -157,7 +155,7 @@ export function RevenuePage({ language, onChanged }: { language: Language; onCha
                     </button>
                   </td>
                   <td>{sale.created_at}</td>
-                  <td><span className={`status-pill ${sale.sale_type === "credit" ? "warning" : "ok"}`}>{sale.sale_type === "credit" ? t.credit : sale.sale_type === "delivery" ? "التوصيل" : t.cash}</span></td>
+                  <td><span className={`status-pill ${sale.sale_type === "credit" ? "pending" : sale.sale_type === "delivery" ? "info" : "ok"}`}>{sale.sale_type === "credit" ? t.credit : sale.sale_type === "delivery" ? "التوصيل" : t.cash}</span></td>
                   <td>{money(sale.paid_amount)}</td>
                   <td>{money(sale.remaining_amount)}</td>
                   <td>{money(sale.total)}</td>
@@ -207,7 +205,6 @@ function TicketDetails({
   const [prices, setPrices] = useState<Record<number, number>>(
     Object.fromEntries(sale.items.map((item) => [item.product_id, item.unit_price]))
   );
-  const [error, setError] = useState("");
   const editableItems = sale.items.filter((item) => item.product_id > 0);
   const editSubtotal = sale.items.filter((item) => item.product_id < 0).reduce((sum, item) => sum + item.line_total, 0)
     + editableItems.reduce((sum, item) => (
@@ -223,13 +220,11 @@ function TicketDetails({
 
   function resetEdit() {
     setEditing(false);
-    setError("");
     setQuantities(Object.fromEntries(sale.items.map((item) => [item.product_id, item.quantity])));
     setPrices(Object.fromEntries(sale.items.map((item) => [item.product_id, item.unit_price])));
   }
 
   async function saveEdit() {
-    setError("");
     try {
       const updated = await api.updateSale({
         sale_id: sale.id,
@@ -241,13 +236,13 @@ function TicketDetails({
       });
       setEditing(false);
       await onChanged(updated);
+      showToast("تم تحديث الفاتورة", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر تحديث الفاتورة");
     }
   }
 
   async function returnOne(productId: number) {
-    setError("");
     try {
       const updated = await api.returnSaleItem({
         sale_id: sale.id,
@@ -255,19 +250,20 @@ function TicketDetails({
         quantity: 1
       });
       await onChanged(updated);
+      showToast("تم إرجاع المنتج وتحديث الفاتورة", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر إرجاع المنتج");
     }
   }
 
   async function deleteTicket() {
-    setError("");
     if (!window.confirm("هل تريد حذف هذه التذكرة؟ سيتم إرجاع الكمية إلى المخزون وإنقاص المداخيل.")) return;
     try {
       await api.deleteSale(sale.id);
       await onDeleted();
+      showToast("تم حذف الفاتورة وإرجاع الكميات", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حذف الفاتورة");
     }
   }
 
@@ -362,7 +358,6 @@ function TicketDetails({
             </tbody>
           </table>
         </div>
-        {error && <p className="error">{error}</p>}
 
         <div className="ticket-totals">
           <span>{t.subtotal}<strong>{money(editing ? editSubtotal : sale.subtotal)}</strong></span>

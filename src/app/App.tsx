@@ -1,30 +1,27 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bell,
-  Box,
-  ChartColumnIncreasing,
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
   CreditCard,
   ExternalLink,
   CircleDollarSign,
-  HandCoins,
-  Home,
   Info,
   LogOut,
-  Menu,
   Moon,
   ReceiptText,
   Save,
-  Settings,
-  ShoppingCart,
   Scale,
-  SprayCan,
   Sun,
-  Truck,
   Wallet,
-  X
+  X,
+  XCircle
 } from "lucide-react";
 import { DatabaseSetupPage } from "../modules/auth/DatabaseSetupPage";
 import { LoginPage } from "../modules/auth/LoginPage";
+import { AppLauncherPage } from "../modules/apps/AppLauncherPage";
 import { DashboardPage } from "../modules/dashboard/DashboardPage";
 import { DeliveryPage } from "../modules/delivery/DeliveryPage";
 import { ExpensesPage } from "../modules/expenses/ExpensesPage";
@@ -39,32 +36,32 @@ import { ZakatPage } from "../modules/zakat/ZakatPage";
 import { api } from "../shared/api";
 import { appDateLabel, hijriDateLabel, money } from "../shared/format";
 import { useText } from "../shared/i18n";
-import { AppToast, showToast } from "../shared/toast";
+import { AppToast, showErrorToast, showToast } from "../shared/toast";
 import { AppSettings, CashShift, Language, ProductStockFilter, UserSession, ViewKey } from "../shared/types";
-import annaStoreLogo from "../assets/anna-store-logo.png";
 import openzeyLogo from "../assets/openzey-logo.png";
 import openzeyLogoWhite from "../assets/openzey-logo-white.png";
 
-const nav = [
-  { key: "dashboard", icon: Home },
-  { key: "pos", icon: ShoppingCart },
-  { key: "delivery", icon: Truck },
-  { key: "revenue", icon: ChartColumnIncreasing },
-  { key: "credits", icon: HandCoins },
-  { key: "expenses", icon: Wallet },
-  { key: "stock", icon: Box },
-  { key: "perfumery", icon: SprayCan },
-  { key: "reports", icon: ReceiptText },
-  { key: "zakat", icon: Scale },
-  { key: "settings", icon: Settings }
-] as const;
+const viewLabels: Record<ViewKey, string> = {
+  apps: "التطبيقات",
+  dashboard: "لوحة المتابعة",
+  pos: "المبيعات",
+  revenue: "الطلبات",
+  delivery: "التوصيل",
+  stock: "المخزون",
+  perfumery: "العطور",
+  credits: "العملاء والديون",
+  expenses: "المصاريف",
+  reports: "التقارير",
+  zakat: "الزكاة",
+  settings: "الإعدادات"
+};
 
 type Theme = "dark" | "light";
 
 const storageKeys = {
-  theme: "athena-shop-theme",
-  session: "athena-shop-session",
-  lang: "athena-shop-lang"
+  theme: "opensoft-theme",
+  session: "opensoft-session",
+  lang: "opensoft-lang"
 } as const;
 
 const legacyStorageKeys = {
@@ -81,20 +78,33 @@ function readStorage(key: string, legacyKey: string) {
   return legacyValue;
 }
 
+function normalizeThemeColor(value: string) {
+  return /^#[0-9a-f]{6}$/i.test(value) ? value : "#2563eb";
+}
+
+function shadeColor(value: string, amount: number) {
+  const normalized = normalizeThemeColor(value).slice(1);
+  const channels = [0, 2, 4].map((offset) =>
+    Math.max(0, Math.min(255, Number.parseInt(normalized.slice(offset, offset + 2), 16) + amount))
+  );
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+}
+
 const defaultAppSettings: AppSettings = {
   allow_negative_stock: true,
   cash_register_auto_close_time: "23:59",
   max_discount_amount: 200,
   invoice_printer: "",
   barcode_printer: "",
-  receipt_title: "ياسين لافار",
-  receipt_subtitle: "للأقمصة والعطور",
+  receipt_title: "OpenSoft",
+  receipt_subtitle: "حلول إدارة الأعمال من OpenZey",
   show_invoice_logo: true,
   ticket_width_chars: 32,
   barcode_label_width_mm: 40,
   barcode_label_height_mm: 20,
   barcode_darkness: 5,
   barcode_speed: "slow",
+  theme_primary_color: "#2563eb",
   ui_font_scale: "normal",
   ui_zoom: 100,
   ui_density: "comfortable",
@@ -105,9 +115,8 @@ const defaultAppSettings: AppSettings = {
 export function App() {
   const [language] = useState<Language>("ar");
   const [theme, setTheme] = useState<Theme>(() => (readStorage(storageKeys.theme, legacyStorageKeys.theme) as Theme) || "dark");
-  const [view, setView] = useState<ViewKey>("dashboard");
+  const [view, setView] = useState<ViewKey>("apps");
   const [stockFilter, setStockFilter] = useState<ProductStockFilter>("all");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [databaseConfigured, setDatabaseConfigured] = useState<boolean | null>(null);
   const [user, setUser] = useState<UserSession | null>(() => {
     const raw = readStorage(storageKeys.session, legacyStorageKeys.session);
@@ -121,8 +130,6 @@ export function App() {
     }
   });
   const [refreshToken, setRefreshToken] = useState(0);
-  const [saveStatus, setSaveStatus] = useState("");
-  const [drawerStatus, setDrawerStatus] = useState("");
   const [alertCount, setAlertCount] = useState(0);
   const [shift, setShift] = useState<CashShift | null>(null);
   const [shiftModalOpen, setShiftModalOpen] = useState(false);
@@ -131,6 +138,9 @@ export function App() {
   const [toasts, setToasts] = useState<AppToast[]>([]);
   const [appSettings, setAppSettings] = useState<AppSettings>(defaultAppSettings);
   const t = useText(language);
+  const primaryColor = normalizeThemeColor(appSettings.theme_primary_color);
+  const activeLogo = theme === "dark" ? openzeyLogoWhite : openzeyLogo;
+  const currentViewLabel = viewLabels[view];
 
   useEffect(() => {
     localStorage.setItem(storageKeys.lang, language);
@@ -146,7 +156,10 @@ export function App() {
   useEffect(() => {
     api.isDatabaseConfigured()
       .then(setDatabaseConfigured)
-      .catch(() => setDatabaseConfigured(false));
+      .catch((err) => {
+        setDatabaseConfigured(false);
+        showErrorToast(err, "تعذر التحقق من إعداد قاعدة البيانات");
+      });
   }, []);
 
   useEffect(() => {
@@ -158,10 +171,15 @@ export function App() {
     const onToast = (event: Event) => {
       const detail = (event as CustomEvent<Omit<AppToast, "id">>).detail;
       const toast = { ...detail, id: Date.now() + Math.random() };
-      setToasts((items) => [toast, ...items].slice(0, 4));
+      setToasts((items) => {
+        const withoutDuplicate = items.filter((item) => (
+          item.message !== toast.message || item.tone !== toast.tone
+        ));
+        return [toast, ...withoutDuplicate].slice(0, 4);
+      });
       window.setTimeout(() => {
         setToasts((items) => items.filter((item) => item.id !== toast.id));
-      }, 5_000);
+      }, detail.duration ?? 5_000);
     };
     window.addEventListener("app-toast", onToast);
     return () => window.removeEventListener("app-toast", onToast);
@@ -171,44 +189,55 @@ export function App() {
     if (!user) return;
     api.dashboard()
       .then((stats) => setAlertCount(stats.low_stock_count))
-      .catch(() => setAlertCount(0));
+      .catch((err) => {
+        setAlertCount(0);
+        showErrorToast(err, "تعذر تحميل تنبيهات المخزون");
+      });
     api.currentShift()
       .then(setShift)
-      .catch(() => setShift(null));
+      .catch((err) => {
+        setShift(null);
+        showErrorToast(err, "تعذر تحميل حالة الصندوق");
+      });
     api.appSettings()
       .then((settings) => setAppSettings({ ...defaultAppSettings, ...settings }))
-      .catch(() => setAppSettings(defaultAppSettings));
+      .catch((err) => {
+        setAppSettings(defaultAppSettings);
+        showErrorToast(err, "تعذر تحميل إعدادات التطبيق");
+      });
   }, [refreshToken, user]);
 
   const refresh = useCallback(() => setRefreshToken((token) => token + 1), []);
+  const navigate = useCallback((nextView: ViewKey) => {
+    if (nextView === view) return;
+    setView(nextView);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }, [view]);
   const refreshShift = useCallback(async () => {
     setShift(await api.currentShift());
     refresh();
   }, [refresh]);
   const openStockAlerts = useCallback(() => {
     setStockFilter("low");
-    setView("stock");
-  }, []);
+    navigate("stock");
+  }, [navigate]);
   const saveData = useCallback(async () => {
     try {
       await api.saveNow();
-      setSaveStatus(t.saved);
       showToast(t.saved, "success");
     } catch {
-      setSaveStatus(t.saveError);
       showToast(t.saveError, "error");
     }
   }, [t.saveError, t.saved]);
 
   const openDrawer = useCallback(async () => {
-    setDrawerStatus("");
     try {
       await api.openCashDrawer();
-      setDrawerStatus("\u062a\u0645 \u0641\u062a\u062d \u0627\u0644\u062f\u0631\u062c");
       showToast("\u062a\u0645 \u0641\u062a\u062d \u0627\u0644\u062f\u0631\u062c", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "\u062a\u0639\u0630\u0631 \u0641\u062a\u062d \u0627\u0644\u062f\u0631\u062c";
-      setDrawerStatus(message);
       showToast(message, "error");
     }
   }, []);
@@ -227,7 +256,17 @@ export function App() {
 
   const screen = useMemo(() => {
     if (!user) return null;
-    if (view === "dashboard") return <DashboardPage language={language} onNavigate={setView} onOpenAlerts={openStockAlerts} refreshToken={refreshToken} />;
+    if (view === "apps") {
+      return (
+        <AppLauncherPage
+          userName={user.display_name}
+          shiftOpen={Boolean(shift)}
+          alertCount={alertCount}
+          onNavigate={navigate}
+        />
+      );
+    }
+    if (view === "dashboard") return <DashboardPage language={language} onNavigate={navigate} onOpenAlerts={openStockAlerts} refreshToken={refreshToken} />;
     if (view === "stock") return <StockPage language={language} onChanged={refresh} initialStockFilter={stockFilter} />;
     if (view === "perfumery") return <PerfumeryPage language={language} onChanged={refresh} />;
     if (view === "pos") return <PosPage language={language} user={user} onSale={refresh} />;
@@ -238,84 +277,80 @@ export function App() {
     if (view === "credits") return <CreditsPage language={language} user={user} onChanged={refresh} />;
     if (view === "zakat") return <ZakatPage language={language} />;
     return <SettingsPage language={language} user={user} onUserChanged={updateUserSession} onSettingsChanged={setAppSettings} />;
-  }, [language, openStockAlerts, refresh, refreshToken, stockFilter, updateUserSession, user, view]);
+  }, [alertCount, language, navigate, openStockAlerts, refresh, refreshToken, shift, stockFilter, updateUserSession, user, view]);
+
+  const toastViewport = (
+    <div className="toast-stack" aria-live="polite" aria-atomic="true">
+      {toasts.map((toast) => {
+        const ToastIcon = toast.tone === "success"
+          ? CheckCircle2
+          : toast.tone === "error"
+            ? XCircle
+            : toast.tone === "warning"
+              ? AlertTriangle
+              : Info;
+        const defaultTitle = toast.tone === "success"
+          ? "تم بنجاح"
+          : toast.tone === "error"
+            ? "تعذر إتمام العملية"
+            : toast.tone === "warning"
+              ? "تنبيه"
+              : "معلومة";
+        return (
+          <article key={toast.id} className={`toast-card ${toast.tone}`} role={toast.tone === "error" ? "alert" : "status"}>
+            <span className="toast-icon"><ToastIcon size={20} /></span>
+            <span className="toast-content">
+              <strong>{toast.title || defaultTitle}</strong>
+              <small>{toast.message}</small>
+            </span>
+            <button
+              className="toast-close"
+              type="button"
+              aria-label="إغلاق الإشعار"
+              onClick={() => setToasts((items) => items.filter((item) => item.id !== toast.id))}
+            >
+              <X size={16} />
+            </button>
+            <span className="toast-progress" style={{ animationDuration: `${toast.duration ?? 5_000}ms` }} />
+          </article>
+        );
+      })}
+    </div>
+  );
 
   if (databaseConfigured === null) {
-    return <main className="login-shell"><div className="particles" /><section className="login-card"><h2>Loading...</h2></section></main>;
+    return <><main className="login-shell"><div className="particles" /><section className="login-card"><h2>Loading...</h2></section></main>{toastViewport}</>;
   }
 
   if (!databaseConfigured) {
-    return <DatabaseSetupPage onConfigured={() => setDatabaseConfigured(true)} />;
+    return <><DatabaseSetupPage onConfigured={() => setDatabaseConfigured(true)} />{toastViewport}</>;
   }
 
   if (!user) {
-    return <LoginPage language={language} onLogin={(session) => {
+    return <><LoginPage language={language} onLogin={(session) => {
       setUser(session);
       localStorage.setItem(storageKeys.session, JSON.stringify(session));
-    }} />;
+    }} />{toastViewport}</>;
   }
 
   return (
     <div
       className={[
         "app-shell",
-        sidebarCollapsed ? "sidebar-collapsed" : "",
         `ui-font-${appSettings.ui_font_scale}`,
         `ui-density-${appSettings.ui_density}`,
         `ui-pos-${appSettings.pos_layout}`
       ].filter(Boolean).join(" ")}
       style={{
         "--pos-cart-width": `${appSettings.pos_cart_width}px`,
-        "--app-zoom": `${(appSettings.ui_zoom ?? 100) / 100}`
+        "--app-zoom": `${(appSettings.ui_zoom ?? 100) / 100}`,
+        "--accent": primaryColor,
+        "--accent-strong": shadeColor(primaryColor, -22),
+        "--accent-soft": `${primaryColor}1f`,
+        "--brand-primary": primaryColor
       } as CSSProperties}
       onContextMenu={(event) => event.preventDefault()}
     >
-      <aside className="sidebar">
-        <div className="brand-mark">
-          <div className="brand-logo-frame">
-            <img src={annaStoreLogo} alt="ياسين لافار للأقمصة والعطور" className="brand-logo" />
-          </div>
-        </div>
-
-        <nav className="menu">
-          {nav.map((item) => {
-            const Icon = item.icon;
-            return (
-            <button
-                key={item.key}
-                className={`nav-item ${view === item.key ? "active" : ""}`}
-                onClick={() => {
-                  if (item.key === "stock") setStockFilter("all");
-                  setView(item.key);
-                }}
-                title={t[item.key]}
-              >
-                <Icon size={20} />
-                <span>{t[item.key]}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="sidebar-bottom">
-          <div className="admin-mini">
-            <div className="avatar">A</div>
-            <div>
-              <strong>{user.display_name}</strong>
-              <span>{user.role}</span>
-            </div>
-          </div>
-          <button
-            className="nav-item subtle"
-            title={t.logout}
-            onClick={() => void logout()}
-          >
-            <LogOut size={19} />
-            <span>{t.logout}</span>
-          </button>
-        </div>
-      </aside>
-
       <main className="dashboard-frame">
         <div className="particles" />
         <svg className="gold-waves" viewBox="0 0 900 240" aria-hidden="true">
@@ -326,16 +361,21 @@ export function App() {
 
         <header className="topbar">
           <section className="header-control">
-            <button
-              className="icon-button sidebar-toggle"
-              aria-label="Toggle sidebar"
-              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-            >
-              <Menu size={22} />
-            </button>
+            {view !== "apps" && (
+              <button
+                className="glass-pill back-button brand-back-button"
+                title={language === "fr" ? "Retour aux applications" : "العودة إلى التطبيقات"}
+                onClick={() => navigate("apps")}
+              >
+                {language === "fr" ? <ArrowLeft size={18} /> : <ArrowRight size={18} />}
+                <span>{language === "fr" ? "Retour" : "رجوع"}</span>
+              </button>
+            )}
             <section className="title-lockup">
+              <img src={activeLogo} alt="" className="title-brand-icon" />
               <div>
-                <h1>ياسين لافار للأقمصة والعطور</h1>
+                <h1>OpenSoft</h1>
+                <p key={view} className="view-label">{currentViewLabel}</p>
               </div>
             </section>
           </section>
@@ -347,7 +387,7 @@ export function App() {
               <CircleDollarSign size={17} />
               <span>{shift ? `الصندوق ${money(shift.expected_amount)}` : "فتح الصندوق"}</span>
             </button>
-            <button className="glass-pill icon-only" title={drawerStatus || "\u0641\u062a\u062d \u062f\u0631\u062c \u0627\u0644\u0635\u0646\u062f\u0648\u0642"} onClick={() => void openDrawer()}>
+            <button className="glass-pill icon-only" title="\u0641\u062a\u062d \u062f\u0631\u062c \u0627\u0644\u0635\u0646\u062f\u0648\u0642" onClick={() => void openDrawer()}>
               <Wallet size={18} />
             </button>
             <button
@@ -357,17 +397,20 @@ export function App() {
             >
               {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            <button className="glass-pill" onClick={() => void saveData()} title={saveStatus || t.saveData}>
+            <button className="glass-pill" onClick={() => void saveData()} title={t.saveData}>
               <Save size={17} />
-              <span>{saveStatus || t.saveData}</span>
+              <span>{t.saveData}</span>
             </button>
             <div className="glass-pill"><ReceiptText size={17} />{appDateLabel(now, language)}</div>
             <div className="glass-pill"><Scale size={17} />{hijriDateLabel(now, language)}</div>
-            <div className="glass-pill"><CreditCard size={17} />{t.admin}</div>
+            <div className="glass-pill"><CreditCard size={17} />{user.display_name}</div>
+            <button className="glass-pill icon-only" title={t.logout} onClick={() => void logout()}>
+              <LogOut size={18} />
+            </button>
           </section>
         </header>
 
-        <div className="screen">{screen}</div>
+        <div className="screen screen-enter" key={view}>{screen}</div>
         {shiftModalOpen && user && (
           <CashShiftModal
             shift={shift}
@@ -378,18 +421,7 @@ export function App() {
         )}
         {infoOpen && <OpenzeyInfoModal theme={theme} onClose={() => setInfoOpen(false)} />}
       </main>
-      <div className="toast-stack" aria-live="polite">
-        {toasts.map((toast) => (
-          <button
-            key={toast.id}
-            className={`toast-card ${toast.tone}`}
-            type="button"
-            onClick={() => setToasts((items) => items.filter((item) => item.id !== toast.id))}
-          >
-            {toast.message}
-          </button>
-        ))}
-      </div>
+      {toastViewport}
     </div>
   );
 }
@@ -397,7 +429,7 @@ export function App() {
 function OpenzeyInfoModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
   const logo = theme === "dark" ? openzeyLogoWhite : openzeyLogo;
   async function openWebsite() {
-    showToast("Openzey...", "info");
+    showToast("جار فتح موقع OpenZey...", "info");
     try {
       await api.openExternalUrl("https://openzey.com");
     } catch {
@@ -409,22 +441,22 @@ function OpenzeyInfoModal({ theme, onClose }: { theme: Theme; onClose: () => voi
     <div className="modal-backdrop">
       <section className="panel compact-form-modal openzey-info-modal">
         <div className="section-title">
-          <h2><Info size={18} /> معلومات التطبيق</h2>
+          <h2><Info size={18} /> عن OpenSoft</h2>
           <span />
           <button className="ghost-button compact-button" type="button" onClick={onClose}><X size={16} /> إغلاق</button>
         </div>
         <div className="openzey-brand">
           <img src={logo} alt="Openzey" />
           <div>
-            <strong>Openzey</strong>
-            <span>حلول رقمية ذكية للمتاجر والشركات</span>
+            <strong>OpenSoft by OpenZey</strong>
+            <span>منصة معيارية لإدارة عمليات المؤسسات</span>
           </div>
         </div>
         <p>
-          تم بناء هذا التطبيق من طرف شركة Openzey لمساعدة المتجر على إدارة المبيعات، المخزون، المصاريف، الديون، والتقارير بطريقة بسيطة وواضحة.
+          OpenSoft منتج من OpenZey يجمع تطبيقات المبيعات والمخزون والعملاء والمصاريف والتقارير في مساحة عمل واحدة قابلة للتخصيص.
         </p>
         <p className="helper-text">
-          إذا أردت تطوير نسخة خاصة، إضافة ميزات جديدة، أو تحتاج دعما تقنيا، يمكنك التواصل معنا عبر موقعنا.
+          للدعم التقني، التخصيص أو إضافة وحدات جديدة، يمكن التواصل مباشرة مع فريق OpenZey.
         </p>
         <button className="gold-button openzey-link" type="button" onClick={() => void openWebsite()}>
           <ExternalLink size={17} /> openzey.com
@@ -446,26 +478,20 @@ function CashShiftModal({
   onChanged: () => void;
 }) {
   const [openingAmount, setOpeningAmount] = useState(0);
-  const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
 
 
   async function openCaisse() {
     if (busy) return;
     setBusy(true);
-    setError("");
-    setStatus("");
     try {
       await api.openShift({ opening_amount: openingAmount, cashier });
       const message = "\u062a\u0645 \u0641\u062a\u062d \u0627\u0644\u0635\u0646\u062f\u0648\u0642";
-      setStatus(message);
       showToast(message, "success");
       onChanged();
       onClose();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
       showToast(message, "error");
     } finally {
       setBusy(false);
@@ -475,18 +501,14 @@ function CashShiftModal({
   async function closeCaisse() {
     if (!shift || busy) return;
     setBusy(true);
-    setError("");
-    setStatus("");
     try {
       await api.closeShift({ id: shift.id });
       const message = "\u062a\u0645 \u063a\u0644\u0642 \u0627\u0644\u0635\u0646\u062f\u0648\u0642";
-      setStatus(message);
       showToast(message, "success");
       onChanged();
       onClose();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
       showToast(message, "error");
     } finally {
       setBusy(false);
@@ -523,8 +545,6 @@ function CashShiftModal({
             </div>
           </div>
         )}
-        {status && <p className="helper-text">{status}</p>}
-        {error && <p className="error">{error}</p>}
       </section>
     </div>
   );

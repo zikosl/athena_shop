@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Yassine Shop",
+  "productName": "OpenSoft",
   "version": "0.1.0",
-  "identifier": "com.openzey.yassineshop",
+  "identifier": "com.openzey.opensoft",
   "build": {
     "beforeDevCommand": "yarn dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Yassine Shop",
+        "title": "OpenSoft",
         "width": 1440,
         "height": 900,
         "minWidth": 1180,

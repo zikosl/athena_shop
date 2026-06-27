@@ -3,6 +3,7 @@ import { HandCoins, Phone, ReceiptText, Save, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
+import { showErrorToast, showToast } from "../../shared/toast";
 import { CreditAccount, Language, UserSession } from "../../shared/types";
 
 type ClientCreditAccount = {
@@ -23,12 +24,10 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [amount, setAmount] = useState(0);
   const [note, setNote] = useState("");
-  const [error, setError] = useState("");
-
   const load = () => api.credits().then(setCredits);
 
   useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    load().catch((err) => showErrorToast(err, "تعذر تحميل حسابات العملاء"));
   }, []);
 
   const clients = useMemo(() => {
@@ -82,7 +81,6 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!selected) return;
-    setError("");
     try {
       await api.addCreditPayment({
         sale_id: selected.sale.id,
@@ -94,8 +92,9 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
       setNote("");
       await load();
       onChanged();
+      showToast("تم تسجيل دفعة العميل", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر تسجيل الدفعة");
     }
   }
 
@@ -105,7 +104,6 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
     setSelectedId(firstOpen?.sale.id ?? null);
     setAmount(0);
     setNote("");
-    setError("");
   }
 
   function closeCredit() {
@@ -113,7 +111,6 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
     setSelectedId(null);
     setAmount(0);
     setNote("");
-    setError("");
   }
 
   return (
@@ -125,7 +122,6 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
           <article><span>{t.totalToCollect}</span><strong>{money(totals.remaining)}</strong></article>
           <article><span>{t.totalPaid}</span><strong>{money(totals.paid)}</strong></article>
         </div>
-        {error && !selected && <p className="error">{error}</p>}
         <div className="credit-list wide-credit-list">
           {clients.map((client) => (
             <button
@@ -139,7 +135,7 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
               </span>
               <span>
                 <b>{money(client.remaining)}</b>
-                <small className={`status-pill ${client.remaining <= 0 ? "ok" : "warning"}`}>{client.remaining <= 0 ? t.settled : t.inProgress}</small>
+                <small className={`status-pill ${client.remaining <= 0 ? "ok" : "pending"}`}>{client.remaining <= 0 ? t.settled : t.inProgress}</small>
               </span>
             </button>
           ))}
@@ -182,7 +178,6 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
               <form className="payment-form" onSubmit={submit}>
                 <label><span>{t.cashInstallment} · {selected.sale.receipt_no}</span><div className="field"><input type="number" min={0} max={selected.sale.remaining_amount} value={amount === 0 ? "" : amount} onChange={(event) => setAmount(Number(event.target.value))} /></div></label>
                 <label><span>{t.note}</span><textarea value={note} onChange={(event) => setNote(event.target.value)} /></label>
-                {error && <p className="error">{error}</p>}
                 <button className="gold-button" disabled={selected.sale.remaining_amount <= 0 || amount <= 0 || amount > selected.sale.remaining_amount}><Save size={18} /> {t.save}</button>
               </form>
             )}

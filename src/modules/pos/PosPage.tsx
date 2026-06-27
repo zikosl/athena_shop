@@ -4,9 +4,9 @@ import { Barcode, Minus, Plus, Printer, Search, ShoppingBag, SprayCan, Trash2 } 
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";
-import { showToast } from "../../shared/toast";
+import { showErrorToast, showToast } from "../../shared/toast";
 import { AppSettings, CartItem, Language, Perfume, PerfumeCartItem, Product, Sale, UserSession } from "../../shared/types";
-import annaStoreLogo from "../../assets/anna-store-logo.png";
+import openzeyLogo from "../../assets/openzey-logo.png";
 
 const orderQrPrefix = "POS:";
 const legacyOrderQrPrefix = "POS_ORDER:";
@@ -65,7 +65,6 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const [dueDate, setDueDate] = useState("");
   const [creditNote, setCreditNote] = useState("");
   const [receipt, setReceipt] = useState<Sale | null>(null);
-  const [error, setError] = useState("");
   const [checkingOut, setCheckingOut] = useState(false);
   const [allowNegativeStock, setAllowNegativeStock] = useState(true);
   const [maxDiscount, setMaxDiscount] = useState(200);
@@ -76,7 +75,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       .then((items) => setProducts(items.filter((product) =>
         (allowNegativeStock || product.quantity > 0) && assortment !== "perfumery" && (assortment !== "home" || product.category !== "Perfumerie")
       )))
-      .catch((err) => setError(String(err)));
+      .catch((err) => showErrorToast(err, "تعذر تحميل المنتجات"));
   }, [query, category, assortment, allowNegativeStock]);
 
   useEffect(() => {
@@ -88,13 +87,14 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       .catch(() => {
         setAllowNegativeStock(true);
         setMaxDiscount(200);
+        showToast("تم استخدام إعدادات نقطة البيع الافتراضية", "warning");
       });
   }, []);
 
   useEffect(() => {
     api.perfumes()
       .then((items) => setPerfumes(items.filter((perfume) => perfume.remaining_volume_ml > 0)))
-      .catch((err) => setError(String(err)));
+      .catch((err) => showErrorToast(err, "تعذر تحميل العطور"));
   }, []);
 
   useEffect(() => {
@@ -103,7 +103,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
         setProductCatalog(items);
         setCategories(Array.from(new Set(items.map((product) => product.category))).sort());
       })
-      .catch((err) => setError(String(err)));
+      .catch((err) => showErrorToast(err, "تعذر تحميل دليل المنتجات"));
   }, []);
 
   const subtotal = useMemo(
@@ -119,14 +119,6 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const total = Math.max(0, subtotal - discount);
   const normalizedPaid = Math.max(0, Math.min(paidAmount, total));
   const creditRemaining = saleType === "credit" ? Math.max(0, total - normalizedPaid) : 0;
-  const checkoutBlocked =
-    (!cart.length && !perfumeCart.length) ||
-    cart.some((item) => !Number.isFinite(item.unit_price) || item.unit_price < 0) ||
-    discount < 0 ||
-    discount > maxDiscount ||
-    discount > subtotal ||
-    ((saleType === "credit" || saleType === "delivery") && (!customerName.trim() || paidAmount < 0 || paidAmount > total));
-
   function addProduct(product: Product) {
     if (!allowNegativeStock && product.quantity <= 0) return;
     setCart((items) => {
@@ -219,7 +211,30 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
 
   async function checkout() {
     if (checkingOut) return;
-    setError("");
+    if (!cart.length && !perfumeCart.length) {
+      showToast("أضف منتجًا واحدًا على الأقل إلى السلة", "warning");
+      return;
+    }
+    if (cart.some((item) => !Number.isFinite(item.unit_price) || item.unit_price < 0)) {
+      showToast("تحقق من أسعار المنتجات في السلة", "warning");
+      return;
+    }
+    if (discount < 0 || discount > maxDiscount) {
+      showToast(`أقصى تخفيض مسموح هو ${maxDiscount}`, "warning");
+      return;
+    }
+    if (discount > subtotal) {
+      showToast(t.discountTooHigh, "warning");
+      return;
+    }
+    if ((saleType === "credit" || saleType === "delivery") && !customerName.trim()) {
+      showToast(t.requiredCreditCustomer, "warning");
+      return;
+    }
+    if (paidAmount < 0 || paidAmount > total) {
+      showToast("المبلغ المدفوع غير صالح", "warning");
+      return;
+    }
     setCheckingOut(true);
     try {
       const sale = await api.checkout({
@@ -262,10 +277,9 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       setPerfumes(nextPerfumes.filter((perfume) => perfume.remaining_volume_ml > 0));
       setProductCatalog(await api.products({ stock: "all" }));
       onSale();
+      showToast(sale.sale_type === "delivery" ? "تم إرسال الطلب إلى التوصيل" : "تم إنشاء الفاتورة بنجاح", "success");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      showToast(message, "error");
+      showErrorToast(err, "تعذر إنشاء الفاتورة");
     } finally {
       setCheckingOut(false);
     }
@@ -432,11 +446,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
           {saleType === "delivery" && <span>توصيل في الانتظار <b>{money(total)}</b></span>}
           <span>{t.total} <strong>{money(total)}</strong></span>
         </div>
-        {(saleType === "credit" || saleType === "delivery") && !customerName.trim() && <p className="helper-text">{t.requiredCreditCustomer}</p>}
-        {discount > maxDiscount && <p className="error">{t.discountMax.replace("200", String(maxDiscount))}</p>}
-        {discount > subtotal && <p className="error">{t.discountTooHigh}</p>}
-        {error && <p className="error">{error}</p>}
-        <button className="gold-button" disabled={checkoutBlocked || checkingOut} onClick={checkout}>{checkingOut ? "جار التسجيل..." : t.checkout}</button>
+        <button className="gold-button" disabled={checkingOut} onClick={checkout}>{checkingOut ? "جار التسجيل..." : t.checkout}</button>
       </aside>
 
       {receipt && <ReceiptModal sale={receipt} language={language} onClose={() => setReceipt(null)} />}
@@ -446,14 +456,12 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
 
 function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Language; onClose: () => void }) {
   const t = useText(language);
-  const [printStatus, setPrintStatus] = useState("");
-  const [printError, setPrintError] = useState("");
   const [printing, setPrinting] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [qrGenerating, setQrGenerating] = useState(true);
   const [settings, setSettings] = useState<Pick<AppSettings, "receipt_title" | "receipt_subtitle" | "show_invoice_logo" | "ticket_width_chars">>({
-    receipt_title: "ياسين لافار",
-    receipt_subtitle: "للأقمصة والعطور",
+    receipt_title: "OpenSoft",
+    receipt_subtitle: "حلول إدارة الأعمال من OpenZey",
     show_invoice_logo: true,
     ticket_width_chars: 32
   });
@@ -461,12 +469,12 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
   useEffect(() => {
     api.appSettings()
       .then((saved) => setSettings({
-        receipt_title: saved.receipt_title || "ياسين لافار",
-        receipt_subtitle: saved.receipt_subtitle || "للأقمصة والعطور",
+        receipt_title: saved.receipt_title || "OpenSoft",
+        receipt_subtitle: saved.receipt_subtitle || "حلول إدارة الأعمال من OpenZey",
         show_invoice_logo: saved.show_invoice_logo ?? true,
         ticket_width_chars: Math.min(48, Math.max(24, saved.ticket_width_chars || 32))
       }))
-      .catch(() => undefined);
+      .catch((err) => showErrorToast(err, "تعذر تحميل إعدادات الفاتورة"));
   }, []);
 
   useEffect(() => {
@@ -490,6 +498,7 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
         if (!cancelled) {
           setQrDataUrl("");
           setQrGenerating(false);
+          showToast("تعذر إنشاء رمز QR للفاتورة", "error");
         }
       });
     return () => {
@@ -501,22 +510,17 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
     if (printing || qrGenerating) return;
     if (!qrDataUrl) {
       const message = "تعذر إنشاء رمز QR للفاتورة";
-      setPrintError(message);
       showToast(message, "error");
       return;
     }
-    setPrintStatus("");
-    setPrintError("");
     setPrinting(true);
     try {
       await api.printReceiptText(formatReceiptText(sale, t, settings), qrDataUrl);
       const message = "\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629 \u0644\u0644\u0637\u0628\u0627\u0639\u0629";
-      setPrintStatus(message);
       showToast(message, "success");
     } catch (err) {
       const detail = err instanceof Error ? err.message : "";
       const message = detail || "\u0644\u0627 \u064a\u0645\u0643\u0646 \u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629. \u062a\u0623\u0643\u062f \u0645\u0646 \u0648\u062c\u0648\u062f \u0637\u0627\u0628\u0639\u0629.";
-      setPrintError(message);
       showToast(message, "error");
     } finally {
       setPrinting(false);
@@ -527,7 +531,7 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
     <div className="modal-backdrop">
       <section className="receipt-modal">
         <div className="receipt-paper" id="receipt">
-          {settings.show_invoice_logo && <img src={annaStoreLogo} alt="ياسين لافار" className="receipt-logo" />}
+          {settings.show_invoice_logo && <img src={openzeyLogo} alt="OpenSoft" className="receipt-logo" />}
           <h2>{settings.receipt_title}</h2>
           <p>{settings.receipt_subtitle}</p>
           <small>{sale.receipt_no} · {formatSaleDate(sale.created_at, language)}</small>
@@ -552,8 +556,6 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
           {qrDataUrl && <img src={qrDataUrl} alt="QR facture" className="receipt-qr" />}
           <p className="thanks">{t.thankYou}</p>
         </div>
-        {printStatus && <p className="helper-text">{printStatus}</p>}
-        {printError && <p className="error">{printError}</p>}
         <div className="modal-actions">
           <button className="gold-button" disabled={printing || qrGenerating} onClick={() => void printReceipt()}><Printer size={18} /> {qrGenerating ? "تحضير QR..." : printing ? "جار الطباعة..." : t.print}</button>
           <button className="ghost-button" disabled={printing} onClick={onClose}>{t.close}</button>
@@ -566,8 +568,8 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
 function formatReceiptText(sale: Sale, t: ReturnType<typeof useText>, settings: Pick<AppSettings, "receipt_title" | "receipt_subtitle" | "ticket_width_chars">) {
   const width = Math.min(48, Math.max(24, settings.ticket_width_chars || 32));
   const lines = [
-    center(settings.receipt_title || "ياسين لافار", width),
-    center(settings.receipt_subtitle || "للأقمصة والعطور", width),
+    center(settings.receipt_title || "OpenSoft", width),
+    center(settings.receipt_subtitle || "حلول إدارة الأعمال من OpenZey", width),
     "-".repeat(width),
     sale.receipt_no,
     formatSaleDate(sale.created_at, "ar"),

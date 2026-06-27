@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, PackageCheck, RotateCcw, Truck } from "lucide-react";
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
-import { showToast } from "../../shared/toast";
+import { showErrorToast, showToast } from "../../shared/toast";
 import { Language, Sale } from "../../shared/types";
 
 function deliveryStatusLabel(status: Sale["credit_status"]) {
@@ -19,12 +19,10 @@ function deliveryStatusClass(status: Sale["credit_status"]) {
 
 export function DeliveryPage({ language: _language, onChanged }: { language: Language; onChanged: () => void }) {
   const [deliveries, setDeliveries] = useState<Sale[]>([]);
-  const [error, setError] = useState("");
-
   const load = () => api.deliveries().then(setDeliveries);
 
   useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    load().catch((err) => showErrorToast(err, "تعذر تحميل طلبات التوصيل"));
   }, []);
 
   const stats = useMemo(() => {
@@ -40,21 +38,17 @@ export function DeliveryPage({ language: _language, onChanged }: { language: Lan
   }, [deliveries]);
 
   async function collect(id: number) {
-    setError("");
     try {
       await api.collectDelivery(id);
       await load();
       onChanged();
       showToast("تم تحصيل مبلغ التوصيل", "success");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      showToast(message, "error");
+      showErrorToast(err, "تعذر تحصيل طلب التوصيل");
     }
   }
 
   async function returnToStock(id: number) {
-    setError("");
     if (!window.confirm("هل تريد إرجاع هذه الطلبية إلى المخزون؟")) return;
     try {
       await api.returnDelivery(id);
@@ -62,9 +56,7 @@ export function DeliveryPage({ language: _language, onChanged }: { language: Lan
       onChanged();
       showToast("تم إرجاع المنتجات إلى المخزون", "success");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      showToast(message, "error");
+      showErrorToast(err, "تعذر إرجاع الطلب إلى المخزون");
     }
   }
 
@@ -81,14 +73,19 @@ export function DeliveryPage({ language: _language, onChanged }: { language: Lan
           <article><span>تم تحصيله</span><strong>{money(stats.collectedTotal)}</strong></article>
           <article><span>راجع</span><strong>{stats.returnedCount}</strong></article>
         </div>
-        {error && <p className="error">{error}</p>}
       </section>
 
       <section className="delivery-card-grid">
         {deliveries.map((sale) => (
           <article className={`panel delivery-card ${deliveryStatusClass(sale.credit_status)}`} key={sale.id}>
             <div className="delivery-card-head">
-              <span className={`status-pill ${sale.credit_status === "delivery_paid" ? "ok" : "warning"}`}>
+              <span className={`status-pill ${
+                sale.credit_status === "delivery_paid"
+                  ? "ok"
+                  : sale.credit_status === "delivery_returned"
+                    ? "danger"
+                    : "pending"
+              }`}>
                 {deliveryStatusLabel(sale.credit_status)}
               </span>
               <strong>{sale.receipt_no}</strong>

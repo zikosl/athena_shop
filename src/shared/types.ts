@@ -1,5 +1,5 @@
 export type Language = "fr" | "ar";
-export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "delivery" | "revenue" | "reports" | "expenses" | "credits" | "zakat" | "settings";
+export type ViewKey = "apps" | "dashboard" | "stock" | "perfumery" | "pos" | "delivery" | "revenue" | "reports" | "expenses" | "credits" | "zakat" | "settings";
 
 export interface UserSession {
   id: number;
@@ -37,6 +37,7 @@ export interface AppSettings {
   barcode_label_height_mm: number;
   barcode_darkness: number;
   barcode_speed: "slow" | "normal" | "fast";
+  theme_primary_color: string;
   ui_font_scale: "small" | "normal" | "large";
   ui_zoom: number;
   ui_density: "compact" | "comfortable" | "spacious";

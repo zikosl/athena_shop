@@ -2,6 +2,7 @@ import { type ChangeEvent, useEffect, useMemo, useState } from "react";
 import { Calculator, CalendarDays, HandCoins, Landmark, PackageCheck, Scale, WalletCards } from "lucide-react";
 import { api } from "../../shared/api";
 import { addHijriYear, hijriDateLabel, money, todayInputValue } from "../../shared/format";
+import { showErrorToast } from "../../shared/toast";
 import { CashShift, CreditAccount, Language, Product } from "../../shared/types";
 
 type StockValuationMode = "purchase" | "sale" | "custom";
@@ -30,7 +31,6 @@ export function ZakatPage({ language }: { language: Language }) {
   const [debtsToPay, setDebtsToPay] = useState(0);
   const [nisab, setNisab] = useState(0);
   const [lastZakatDate, setLastZakatDate] = useState("");
-  const [error, setError] = useState("");
 
   useEffect(() => {
     Promise.all([api.products(), api.credits(), api.currentShift()])
@@ -39,7 +39,7 @@ export function ZakatPage({ language }: { language: Language }) {
         setCredits(nextCredits);
         setShift(currentShift);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+      .catch((err) => showErrorToast(err, "تعذر تحميل بيانات الزكاة"));
   }, []);
 
   const today = useMemo(() => new Date(), []);
@@ -95,8 +95,6 @@ export function ZakatPage({ language }: { language: Language }) {
           <small>تاريخ اليوم الهجري: {hijriToday}</small>
         </article>
       </section>
-
-      {error && <p className="error">{error}</p>}
 
       <section className="summary-strip zakat-summary">
         <article><span><PackageCheck size={15} /> قيمة المخزون</span><strong>{money(totals.selectedStockValue)}</strong></article>

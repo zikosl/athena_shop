@@ -42,21 +42,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anna_store_pos"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "postgres",
- "rand 0.8.6",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tauri",
- "tauri-build",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "anyhow"
 version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2184,6 +2169,21 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "opensoft"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "postgres",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tauri",
+ "tauri-build",
+ "thiserror 1.0.69",
+]
 
 [[package]]
 name = "option-ext"

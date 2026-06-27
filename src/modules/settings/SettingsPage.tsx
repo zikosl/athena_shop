@@ -1,11 +1,20 @@
 import { FormEvent, useEffect, useState } from "react";
-import { DatabaseZap, LayoutPanelLeft, PackageMinus, Printer, Save, SlidersHorizontal, Trash2, UserRound } from "lucide-react";
+import { DatabaseZap, LayoutPanelLeft, PackageMinus, Palette, Printer, Save, SlidersHorizontal, Trash2, UserRound } from "lucide-react";
 import { api } from "../../shared/api";
 import { useText } from "../../shared/i18n";
+import { showErrorToast, showToast } from "../../shared/toast";
 import { AppSettings, Language, UserSession } from "../../shared/types";
 
 const zoomStep = 5;
 type SettingsTab = "profile" | "interface" | "printing" | "system";
+const themePresets = [
+  { name: "أزرق OpenZey", value: "#2563eb" },
+  { name: "أزرق داكن", value: "#1d4ed8" },
+  { name: "فيروزي", value: "#0f766e" },
+  { name: "أخضر", value: "#15803d" },
+  { name: "بنفسجي", value: "#7c3aed" },
+  { name: "أحمر", value: "#dc2626" }
+] as const;
 
 const defaultSettings: AppSettings = {
   allow_negative_stock: true,
@@ -13,14 +22,15 @@ const defaultSettings: AppSettings = {
   max_discount_amount: 200,
   invoice_printer: "",
   barcode_printer: "",
-  receipt_title: "ياسين لافار",
-  receipt_subtitle: "للأقمصة والعطور",
+  receipt_title: "OpenSoft",
+  receipt_subtitle: "حلول إدارة الأعمال من OpenZey",
   show_invoice_logo: true,
   ticket_width_chars: 32,
   barcode_label_width_mm: 40,
   barcode_label_height_mm: 20,
   barcode_darkness: 5,
   barcode_speed: "slow",
+  theme_primary_color: "#2563eb",
   ui_font_scale: "normal",
   ui_zoom: 100,
   ui_density: "comfortable",
@@ -45,14 +55,8 @@ export function SettingsPage({
     display_name: user.display_name,
     password: ""
   });
-  const [status, setStatus] = useState("");
-  const [error, setError] = useState("");
-  const [dataStatus, setDataStatus] = useState("");
-  const [dataError, setDataError] = useState("");
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [printers, setPrinters] = useState<string[]>([]);
-  const [settingsStatus, setSettingsStatus] = useState("");
-  const [settingsError, setSettingsError] = useState("");
   const [tab, setTab] = useState<SettingsTab>("profile");
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -66,10 +70,16 @@ export function SettingsPage({
         setSettings(normalized);
         onSettingsChanged?.(normalized);
       })
-      .catch((err) => setSettingsError(err instanceof Error ? err.message : String(err)));
+      .catch((err) => showErrorToast(err, "تعذر تحميل الإعدادات"));
     api.printers()
       .then(setPrinters)
-      .catch(() => setPrinters([]));
+      .catch((err) => {
+        setPrinters([]);
+        showToast("تعذر قراءة طابعات Windows. تحقق من اتصال الطابعة.", "warning", {
+          title: "الطابعات غير متاحة"
+        });
+        console.warn(err);
+      });
   }, [onSettingsChanged]);
 
   function updateSettings(next: AppSettings) {
@@ -87,8 +97,6 @@ export function SettingsPage({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (savingProfile) return;
-    setStatus("");
-    setError("");
     setSavingProfile(true);
     try {
       const updated = await api.updateProfile({
@@ -99,9 +107,9 @@ export function SettingsPage({
       });
       setProfile({ username: updated.username, display_name: updated.display_name, password: "" });
       onUserChanged(updated);
-      setStatus("تم حفظ الحساب");
+      showToast("تم حفظ بيانات الحساب", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حفظ الحساب");
     } finally {
       setSavingProfile(false);
     }
@@ -109,43 +117,43 @@ export function SettingsPage({
 
   async function saveSettings() {
     if (savingSettings) return;
-    setSettingsStatus("");
-    setSettingsError("");
     setSavingSettings(true);
     try {
       const saved = await api.saveAppSettings(settings);
       const normalized = { ...defaultSettings, ...saved };
       setSettings(normalized);
       onSettingsChanged?.(normalized);
-      setSettingsStatus("تم حفظ الإعدادات");
+      showToast("تم حفظ الإعدادات وتطبيقها", "success");
     } catch (err) {
-      setSettingsError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر حفظ الإعدادات");
     } finally {
       setSavingSettings(false);
     }
   }
 
   async function resetDummyData() {
-    setDataStatus("");
-    setDataError("");
     if (!window.confirm("هل تريد إعادة تهيئة قاعدة البيانات ببيانات تجريبية؟ سيتم استبدال المنتجات والمبيعات والديون والمصاريف الحالية.")) return;
+    setResettingData(true);
     try {
       await api.resetWithDummyData();
-      setDataStatus("تمت إعادة التهيئة ببيانات تجريبية.");
+      showToast("تمت إعادة التهيئة ببيانات تجريبية", "success");
     } catch (err) {
-      setDataError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذرت إعادة تهيئة البيانات");
+    } finally {
+      setResettingData(false);
     }
   }
 
   async function emptyDatabase() {
-    setDataStatus("");
-    setDataError("");
     if (!window.confirm("تأكيد نهائي: هل تريد تفريغ قاعدة البيانات بالكامل؟ سيتم حذف المنتجات، المبيعات، المصاريف، الديون، العطور، والقوارير. حساب المدير سيبقى محفوظا.")) return;
+    setEmptyingData(true);
     try {
       await api.emptyDatabase();
-      setDataStatus("تم تفريغ قاعدة البيانات بنجاح.");
+      showToast("تم تفريغ قاعدة البيانات بنجاح", "success");
     } catch (err) {
-      setDataError(err instanceof Error ? err.message : String(err));
+      showErrorToast(err, "تعذر تفريغ قاعدة البيانات");
+    } finally {
+      setEmptyingData(false);
     }
   }
 
@@ -165,11 +173,59 @@ export function SettingsPage({
           <label><span>{t.username}</span><div className="field"><input value={profile.username} onChange={(event) => setProfile({ ...profile, username: event.target.value })} /></div></label>
           <label><span>الاسم المعروض</span><div className="field"><input value={profile.display_name} onChange={(event) => setProfile({ ...profile, display_name: event.target.value })} /></div></label>
           <label><span>كلمة مرور جديدة</span><div className="field"><input type="password" value={profile.password} onChange={(event) => setProfile({ ...profile, password: event.target.value })} /></div></label>
-          {error && <p className="error">{error}</p>}
-          {status && <p className="helper-text">{status}</p>}
           <button className="gold-button" disabled={!profile.username.trim() || !profile.display_name.trim()}><Save size={18} /> {t.save}</button>
         </div>
       </form>
+
+      <article className="setting-row profile-editor" style={{ display: tab === "interface" ? undefined : "none" }}>
+        <div>
+          <Palette size={22} />
+          <strong>هوية المؤسسة</strong>
+          <span>اختر اللون الرئيسي الذي سيظهر في الأزرار، الحالات النشطة والروابط داخل OpenSoft.</span>
+        </div>
+        <div className="profile-fields">
+          <div className="theme-preset-grid">
+            {themePresets.map((preset) => (
+              <button
+                className={`theme-preset ${settings.theme_primary_color.toLowerCase() === preset.value ? "active" : ""}`}
+                key={preset.value}
+                type="button"
+                onClick={() => updateSettings({ ...settings, theme_primary_color: preset.value })}
+              >
+                <span className="theme-swatch" style={{ backgroundColor: preset.value }} />
+                {preset.name}
+              </button>
+            ))}
+          </div>
+          <label className="theme-custom-label">
+            <span>لون مخصص</span>
+            <div className="theme-color-field">
+              <input
+                type="color"
+                value={settings.theme_primary_color}
+                onChange={(event) => updateSettings({ ...settings, theme_primary_color: event.target.value })}
+                aria-label="اختيار اللون الرئيسي"
+              />
+              <input
+                value={settings.theme_primary_color}
+                maxLength={7}
+                dir="ltr"
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setSettings({ ...settings, theme_primary_color: value });
+                  if (/^#[0-9a-f]{6}$/i.test(value)) {
+                    onSettingsChanged?.({ ...settings, theme_primary_color: value });
+                  }
+                }}
+              />
+            </div>
+          </label>
+          <p className="helper-text">يمكن التبديل بين الوضع الفاتح والداكن من الشريط العلوي. اللون المختار يعمل في الوضعين تلقائيًا.</p>
+          <button className="gold-button" type="button" disabled={savingSettings} onClick={() => void saveSettings()}>
+            <Save size={18} /> {savingSettings ? "جار الحفظ..." : t.save}
+          </button>
+        </div>
+      </article>
 
       <article className="setting-row profile-editor" style={{ display: tab === "interface" ? undefined : "none" }}>
         <div>
@@ -203,8 +259,6 @@ export function SettingsPage({
             </div>
           </label>
           <p className="helper-text">الوضع المضغوط مناسب لشاشات 1024px لأنه يقلل المسافات ويحافظ على البيانات ظاهرة.</p>
-          {settingsError && <p className="error">{settingsError}</p>}
-          {settingsStatus && <p className="helper-text">{settingsStatus}</p>}
           <button className="gold-button" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</button>
         </div>
       </article>
@@ -335,7 +389,7 @@ export function SettingsPage({
             <span>ارتفاع ملصق الباركود بالملم</span>
             <div className="field"><input type="number" min={10} max={80} value={settings.barcode_label_height_mm} onChange={(event) => setSettings({ ...settings, barcode_label_height_mm: Number(event.target.value) })} /></div>
           </label>
-          <label>
+          <label className="barcode-range-field">
             <span>كثافة طباعة الباركود: {settings.barcode_darkness}/5</span>
             <input
               type="range"
@@ -346,7 +400,7 @@ export function SettingsPage({
               onChange={(event) => setSettings({ ...settings, barcode_darkness: Number(event.target.value) })}
             />
           </label>
-          <label>
+          <label className="barcode-speed-field">
             <span>سرعة طباعة الباركود</span>
             <div className="segmented wide">
               <button className={settings.barcode_speed === "slow" ? "active" : ""} type="button" onClick={() => setSettings({ ...settings, barcode_speed: "slow" })}>بطيئة · أفضل جودة</button>
@@ -355,8 +409,6 @@ export function SettingsPage({
             </div>
           </label>
           <p className="helper-text">لملصقات 20x40 مم اجعل العرض 40 والارتفاع 20. إذا كان الباركود لا يقرأ، جرّب تقليل طول اسم المنتج أو زيادة الارتفاع قليلا.</p>
-          {settingsError && <p className="error">{settingsError}</p>}
-          {settingsStatus && <p className="helper-text">{settingsStatus}</p>}
           <button className="gold-button" type="button" disabled={savingSettings} onClick={() => void saveSettings()}><Save size={18} /> {savingSettings ? "جار الحفظ..." : t.save}</button>
         </div>
       </article>
@@ -369,12 +421,10 @@ export function SettingsPage({
         </div>
         <div className="profile-fields">
           <p className="helper-text">زر البيانات التجريبية يستبدل بيانات العمل بأرقام جاهزة للاختبار. زر التفريغ يحذف كل بيانات العمل ويترك حساب المدير فقط.</p>
-          {dataError && <p className="error">{dataError}</p>}
-          {dataStatus && <p className="helper-text">{dataStatus}</p>}
-          <button className="ghost-button danger-action" type="button" onClick={() => void resetDummyData()}>
+          <button className="ghost-button danger-action" type="button" disabled={resettingData || emptyingData} onClick={() => void resetDummyData()}>
             <DatabaseZap size={18} /> تهيئة بيانات تجريبية
           </button>
-          <button className="ghost-button danger-action" type="button" onClick={() => void emptyDatabase()}>
+          <button className="ghost-button danger-action" type="button" disabled={resettingData || emptyingData} onClick={() => void emptyDatabase()}>
             <Trash2 size={18} /> تفريغ قاعدة البيانات
           </button>
         </div>
