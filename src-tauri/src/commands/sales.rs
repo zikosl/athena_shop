@@ -16,18 +16,6 @@ struct ProductForSale {
     sale_price: f64,
 }
 
-#[derive(Debug)]
-struct PerfumeForSale {
-    id: i64,
-    name: String,
-    remaining_volume_ml: f64,
-    cost_per_ml: f64,
-    flacon_id: i64,
-    flacon_name: String,
-    volume_ml: f64,
-    sale_price: f64,
-}
-
 #[derive(Debug, Clone)]
 struct StoredSaleItem {
     product_id: i64,
@@ -36,13 +24,6 @@ struct StoredSaleItem {
     quantity: i64,
     unit_price: f64,
     purchase_price: f64,
-}
-
-#[derive(Debug, Clone)]
-struct StoredPerfumeSaleItem {
-    perfume_id: i64,
-    quantity: i64,
-    volume_ml: f64,
 }
 
 #[derive(Debug)]
@@ -58,7 +39,7 @@ struct SaleTotals {
 
 #[tauri::command]
 pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
-    if input.items.is_empty() && input.perfume_items.is_empty() {
+    if input.items.is_empty() {
         return Err(AppError::Message("Le panier est vide".into()));
     }
     if !input.discount.is_finite() || input.discount < 0.0 {
@@ -112,11 +93,10 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                 max_discount_amount
             )));
         }
-        let receipt_no = format!("AS-{}", now.format("%Y%m%d-%H%M%S%3f"));
+        let receipt_no = format!("PO-{}", now.format("%Y%m%d-%H%M%S%3f"));
         let mut subtotal = 0.0;
         let mut gross_profit = 0.0;
         let mut sale_lines = Vec::new();
-        let mut perfume_lines = Vec::new();
         let allow_negative_stock = allow_negative_stock(&mut tx)?;
 
         for item in &input.items {
@@ -148,29 +128,6 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
             )?;
 
             sale_lines.push((product, item.quantity, unit_price, line_total));
-        }
-
-        for item in &input.perfume_items {
-            if item.quantity <= 0 {
-                return Err(AppError::Message("Quantite invalide".into()));
-            }
-            let perfume = get_perfume_for_sale(&mut tx, item.perfume_id, item.flacon_id)?
-                .ok_or_else(|| AppError::Message("Parfum ou flacon introuvable".into()))?;
-            let needed_ml = perfume.volume_ml * item.quantity as f64;
-            if perfume.remaining_volume_ml + f64::EPSILON < needed_ml {
-                return Err(AppError::Message(format!(
-                    "Stock insuffisant pour {} {}",
-                    perfume.name, perfume.flacon_name
-                )));
-            }
-            let line_total = perfume.sale_price * item.quantity as f64;
-            subtotal += line_total;
-            gross_profit += (perfume.sale_price - perfume.cost_per_ml * perfume.volume_ml) * item.quantity as f64;
-            tx.execute(
-                "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml - $1, updated_at = NOW() WHERE id = $2",
-                &[&needed_ml, &perfume.id],
-            )?;
-            perfume_lines.push((perfume, item.quantity, line_total));
         }
 
         let total = (subtotal - input.discount).max(0.0);
@@ -254,34 +211,6 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                 line_total,
             });
         }
-        for (perfume, quantity, line_total) in perfume_lines {
-            tx.execute(
-                "INSERT INTO perfume_sale_items
-                 (sale_id, perfume_id, flacon_id, perfume_name, flacon_name, volume_ml, quantity, unit_price, cost_per_ml, line_total)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-                &[
-                    &sale_id,
-                    &perfume.id,
-                    &perfume.flacon_id,
-                    &perfume.name,
-                    &perfume.flacon_name,
-                    &perfume.volume_ml,
-                    &quantity,
-                    &perfume.sale_price,
-                    &perfume.cost_per_ml,
-                    &line_total,
-                ],
-            )?;
-            response_items.push(SaleItem {
-                product_id: -perfume.id,
-                product_name: format!("{} - {}", perfume.name, perfume.flacon_name),
-                barcode: format!("PF-{}-{}", perfume.id, perfume.flacon_id),
-                quantity,
-                unit_price: perfume.sale_price,
-                line_total,
-            });
-        }
-
         refresh_closed_shift_closing_amount(&mut tx, shift_id)?;
         tx.commit()?;
 
@@ -421,13 +350,6 @@ pub fn return_delivery(db: State<Database>, id: i64) -> AppResult<Sale> {
                 &[&item.quantity, &item.product_id],
             )?;
         }
-        for item in stored_perfume_sale_items(&mut tx, id)? {
-            let returned_volume = item.volume_ml * item.quantity as f64;
-            tx.execute(
-                "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml + $1, updated_at = NOW() WHERE id = $2",
-                &[&returned_volume, &item.perfume_id],
-            )?;
-        }
         tx.execute(
             "UPDATE sales
              SET paid_amount = 0, remaining_amount = 0, credit_status = 'delivery_returned'
@@ -506,8 +428,7 @@ pub fn delete_sale(db: State<Database>, id: i64) -> AppResult<()> {
     db.with_client(|client| {
         let mut tx = client.transaction()?;
         let items = stored_sale_items(&mut tx, id)?;
-        let perfume_items = stored_perfume_sale_items(&mut tx, id)?;
-        if items.is_empty() && perfume_items.is_empty() {
+        if items.is_empty() {
             return Err(AppError::Message("Bon introuvable".into()));
         }
         let shift_id = sale_shift_id(&mut tx, id)?;
@@ -515,13 +436,6 @@ pub fn delete_sale(db: State<Database>, id: i64) -> AppResult<()> {
             tx.execute(
                 "UPDATE products SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2",
                 &[&item.quantity, &item.product_id],
-            )?;
-        }
-        for item in perfume_items {
-            let returned_volume = item.volume_ml * item.quantity as f64;
-            tx.execute(
-                "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml + $1, updated_at = NOW() WHERE id = $2",
-                &[&returned_volume, &item.perfume_id],
             )?;
         }
         tx.execute("DELETE FROM sales WHERE id = $1", &[&id])?;
@@ -547,33 +461,6 @@ fn get_product_for_sale(
         quantity: row.get(3),
         purchase_price: row.get(4),
         sale_price: row.get(5),
-    }))
-}
-
-fn get_perfume_for_sale(
-    client: &mut postgres::Transaction<'_>,
-    perfume_id: i64,
-    flacon_id: i64,
-) -> AppResult<Option<PerfumeForSale>> {
-    let row = client.query_opt(
-        "SELECT p.id, p.name, p.remaining_volume_ml, p.cost_per_ml,
-                f.id, CONCAT(f.name, ' ', f.flacon_type), f.volume_ml,
-                COALESCE(NULLIF(pp.sale_price, 0), f.sale_price)::float8
-         FROM perfumes p
-         JOIN flacons f ON f.id = $2
-         LEFT JOIN perfume_prices pp ON pp.perfume_id = p.id AND pp.flacon_id = f.id
-         WHERE p.id = $1 AND f.active = TRUE AND COALESCE(NULLIF(pp.sale_price, 0), f.sale_price) > 0",
-        &[&perfume_id, &flacon_id],
-    )?;
-    Ok(row.map(|row| PerfumeForSale {
-        id: row.get(0),
-        name: row.get(1),
-        remaining_volume_ml: row.get(2),
-        cost_per_ml: row.get(3),
-        flacon_id: row.get(4),
-        flacon_name: row.get(5),
-        volume_ml: row.get(6),
-        sale_price: row.get(7),
     }))
 }
 
@@ -644,14 +531,8 @@ fn replace_sale_items(
 
     tx.execute("DELETE FROM sale_items WHERE sale_id = $1", &[&sale_id])?;
 
-    let perfume_totals = tx.query_one(
-        "SELECT COALESCE(SUM(line_total), 0)::float8,
-                COALESCE(SUM((unit_price - cost_per_ml * volume_ml) * quantity), 0)::float8
-         FROM perfume_sale_items WHERE sale_id = $1",
-        &[&sale_id],
-    )?;
-    let mut subtotal: f64 = perfume_totals.get(0);
-    let mut gross_profit: f64 = perfume_totals.get(1);
+    let mut subtotal = 0.0;
+    let mut gross_profit = 0.0;
 
     for input in input_items.into_iter().filter(|item| item.quantity > 0) {
         let old_item = old_items
@@ -815,25 +696,6 @@ fn stored_sale_items(
         .collect())
 }
 
-fn stored_perfume_sale_items(
-    client: &mut postgres::Transaction<'_>,
-    sale_id: i64,
-) -> AppResult<Vec<StoredPerfumeSaleItem>> {
-    let rows = client.query(
-        "SELECT perfume_id, quantity, volume_ml
-         FROM perfume_sale_items WHERE sale_id = $1 ORDER BY id",
-        &[&sale_id],
-    )?;
-    Ok(rows
-        .iter()
-        .map(|row| StoredPerfumeSaleItem {
-            perfume_id: row.get(0),
-            quantity: row.get(1),
-            volume_ml: row.get(2),
-        })
-        .collect())
-}
-
 fn sale_shift_id(client: &mut postgres::Transaction<'_>, sale_id: i64) -> AppResult<Option<i64>> {
     Ok(client
         .query_one("SELECT shift_id FROM sales WHERE id = $1", &[&sale_id])?
@@ -904,14 +766,7 @@ pub fn list_sale_items(client: &mut Client, sale_id: i64) -> AppResult<Vec<SaleI
          FROM sale_items WHERE sale_id = $1 ORDER BY id",
         &[&sale_id],
     )?;
-    let mut items: Vec<SaleItem> = rows.iter().map(sale_item_from_row).collect();
-    let perfume_rows = client.query(
-        "SELECT perfume_id, perfume_name, flacon_id, flacon_name, quantity, unit_price, line_total
-         FROM perfume_sale_items WHERE sale_id = $1 ORDER BY id",
-        &[&sale_id],
-    )?;
-    items.extend(perfume_rows.iter().map(perfume_sale_item_from_row));
-    Ok(items)
+    Ok(rows.iter().map(sale_item_from_row).collect())
 }
 
 pub fn sale_from_row(row: &Row) -> Sale {
@@ -945,21 +800,6 @@ fn sale_item_from_row(row: &Row) -> SaleItem {
         quantity: row.get(3),
         unit_price: row.get(4),
         line_total: row.get(5),
-    }
-}
-
-fn perfume_sale_item_from_row(row: &Row) -> SaleItem {
-    let perfume_id: i64 = row.get(0);
-    let perfume_name: String = row.get(1);
-    let flacon_id: i64 = row.get(2);
-    let flacon_name: String = row.get(3);
-    SaleItem {
-        product_id: -perfume_id,
-        product_name: format!("{} - {}", perfume_name, flacon_name),
-        barcode: format!("PF-{}-{}", perfume_id, flacon_id),
-        quantity: row.get(4),
-        unit_price: row.get(5),
-        line_total: row.get(6),
     }
 }
 

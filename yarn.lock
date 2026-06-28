@@ -848,25 +848,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"anna-store-pos@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "anna-store-pos@workspace:."
-  dependencies:
-    "@tauri-apps/api": "npm:^2.8.0"
-    "@tauri-apps/cli": "npm:^2.8.4"
-    "@types/qrcode": "npm:^1.5.6"
-    "@types/react": "npm:^18.3.12"
-    "@types/react-dom": "npm:^18.3.1"
-    "@vitejs/plugin-react": "npm:^4.3.3"
-    lucide-react: "npm:^0.468.0"
-    qrcode: "npm:^1.5.4"
-    react: "npm:^18.3.1"
-    react-dom: "npm:^18.3.1"
-    typescript: "npm:^5.6.3"
-    vite: "npm:^5.4.10"
-  languageName: unknown
-  linkType: soft
-
 "ansi-regex@npm:^5.0.1":
   version: 5.0.1
   resolution: "ansi-regex@npm:5.0.1"
@@ -1350,6 +1331,25 @@ __metadata:
   checksum: 10c0/8c0bd3f5238188197dc78dced15207a4716c51cc4e3624c44fc97acf69558f5ebb9a2afff486fe1b4ee148e0c133e96c5e11a9aa5c48a3006e3467da070e5e1b
   languageName: node
   linkType: hard
+
+"payla-outfit-pos@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "payla-outfit-pos@workspace:."
+  dependencies:
+    "@tauri-apps/api": "npm:^2.8.0"
+    "@tauri-apps/cli": "npm:^2.8.4"
+    "@types/qrcode": "npm:^1.5.6"
+    "@types/react": "npm:^18.3.12"
+    "@types/react-dom": "npm:^18.3.1"
+    "@vitejs/plugin-react": "npm:^4.3.3"
+    lucide-react: "npm:^0.468.0"
+    qrcode: "npm:^1.5.4"
+    react: "npm:^18.3.1"
+    react-dom: "npm:^18.3.1"
+    typescript: "npm:^5.6.3"
+    vite: "npm:^5.4.10"
+  languageName: unknown
+  linkType: soft
 
 "picocolors@npm:^1.1.1":
   version: 1.1.1

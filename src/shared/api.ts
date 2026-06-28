@@ -10,12 +10,6 @@ import {
   DashboardStats,
   Expense,
   ExpenseInput,
-  Flacon,
-  FlaconInput,
-  Perfume,
-  PerfumeInput,
-  PerfumePurchase,
-  PerfumePurchaseInput,
   PostgresConfig,
   ProfileInput,
   Product,
@@ -35,13 +29,19 @@ import {
   Sale,
   SaleReturnInput,
   SaleUpdateInput,
-  UserSession
+  UserSession,
+  VaultDashboard,
+  VaultDebt,
+  VaultDebtInput,
+  VaultDebtPaymentInput,
+  VaultMovement,
+  VaultMovementInput
 } from "./types";
 import { dateInputValue, todayInputValue } from "./format";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
-const demoDbKey = "athena-shop-demo-db";
-const legacyDemoDbKey = "denzel-pos-demo-db";
+const demoDbKey = "payla-outfit-demo-db";
+const legacyDemoDbKeys = ["athena-shop-demo-db", "denzel-pos-demo-db"] as const;
 
 function defaultSettings(): AppSettings {
   return {
@@ -50,8 +50,8 @@ function defaultSettings(): AppSettings {
     max_discount_amount: 200,
     invoice_printer: "",
     barcode_printer: "",
-    receipt_title: "ياسين لافار",
-    receipt_subtitle: "للأقمصة والعطور",
+    receipt_title: "Payla Outfit",
+    receipt_subtitle: "Fashion Boutique",
     show_invoice_logo: true,
     ticket_width_chars: 32,
     barcode_label_width_mm: 40,
@@ -71,39 +71,67 @@ type Db = {
   expenses: Expense[];
   sales: Sale[];
   creditPayments: CreditAccount["payments"];
-  flacons: Flacon[];
-  perfumes: Perfume[];
-  perfumePurchases: PerfumePurchase[];
   shifts: CashShift[];
   stockMovements: StockMovement[];
   suppliers: Supplier[];
   purchaseOrders: PurchaseOrder[];
   supplierPayments: SupplierPayment[];
+  vaultMovements: VaultMovement[];
+  vaultDebts: VaultDebt[];
   settings: AppSettings;
 };
 
 const seed: Db = {
   products: [
-    sampleProduct(1, "قميص رجالي كلاسيكي", "AS100001", "أقمصة", "M", "أبيض", 18, 4, 1800, 3450),
-    sampleProduct(2, "قميص فاخر", "AS100002", "أقمصة", "L", "أخضر", 7, 3, 2600, 5200),
-    sampleProduct(3, "عطر مسك", "AS100003", "عطور", "12ml", "أبيض", 24, 5, 1400, 2900),
-    sampleProduct(4, "قارورة عطر", "AS100004", "إكسسوارات", "30ml", "شفاف", 3, 4, 900, 1850)
+    sampleProduct(1, "Robe satin elegante", "PO100001", "Robes", "M", "Emerald", 18, 4, 1800, 3450),
+    sampleProduct(2, "Ensemble chic", "PO100002", "Ensembles", "L", "Creme", 7, 3, 2600, 5200),
+    sampleProduct(3, "Sac soiree dore", "PO100003", "Accessoires", "Standard", "Gold", 24, 5, 1400, 2900),
+    sampleProduct(4, "Escarpins boutique", "PO100004", "Chaussures", "38", "Noir", 3, 4, 900, 1850)
   ],
   expenses: [],
   sales: [],
   creditPayments: [],
-  flacons: [
-    { id: 1, name: "6ml", flacon_type: "x1", volume_ml: 6, sale_price: 500, active: true, created_at: new Date().toISOString() },
-    { id: 2, name: "12ml", flacon_type: "x1", volume_ml: 12, sale_price: 900, active: true, created_at: new Date().toISOString() },
-    { id: 3, name: "30ml", flacon_type: "x1", volume_ml: 30, sale_price: 1800, active: true, created_at: new Date().toISOString() }
-  ],
-  perfumes: [],
-  perfumePurchases: [],
   shifts: [],
   stockMovements: [],
   suppliers: [],
   purchaseOrders: [],
   supplierPayments: [],
+  vaultMovements: [
+    { id: 1, movement_type: "in", label: "رصيد البداية", amount: 85000, note: "بيانات تجريبية", cashier: "المدير", created_at: new Date().toISOString() },
+    { id: 2, movement_type: "out", label: "سحب للمشتريات", amount: 12000, note: "شراء مستلزمات", cashier: "المدير", created_at: new Date().toISOString() }
+  ],
+  vaultDebts: [
+    {
+      id: 1,
+      party_name: "سارة",
+      phone: "0555000010",
+      debt_type: "receivable",
+      principal_amount: 15000,
+      paid_amount: 4000,
+      remaining_amount: 11000,
+      status: "partial",
+      due_date: dateInputValue(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)),
+      note: "دين يدوي خارج الفواتير",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      payments: [{ id: 1, debt_id: 1, amount: 4000, note: "دفعة أولى", cashier: "المدير", paid_at: new Date().toISOString() }]
+    },
+    {
+      id: 2,
+      party_name: "تصليح الواجهة",
+      phone: "",
+      debt_type: "payable",
+      principal_amount: 9000,
+      paid_amount: 0,
+      remaining_amount: 9000,
+      status: "open",
+      due_date: "",
+      note: "دين على المتجر",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      payments: []
+    }
+  ],
   settings: defaultSettings()
 };
 
@@ -138,7 +166,8 @@ function sampleProduct(
 }
 
 function readDb(): Db {
-  const raw = localStorage.getItem(demoDbKey) ?? localStorage.getItem(legacyDemoDbKey);
+  const raw = localStorage.getItem(demoDbKey)
+    ?? legacyDemoDbKeys.map((key) => localStorage.getItem(key)).find((value): value is string => value !== null);
   if (!raw) {
     localStorage.setItem(demoDbKey, JSON.stringify(seed));
     return structuredClone(seed);
@@ -150,22 +179,21 @@ function readDb(): Db {
     expenses: parsed.expenses ?? [],
     sales: (parsed.sales ?? []).map(normalizeSale),
     creditPayments: parsed.creditPayments ?? [],
-    flacons: (parsed.flacons ?? seed.flacons).map(normalizeFlacon),
-    perfumes: parsed.perfumes ?? [],
-    perfumePurchases: parsed.perfumePurchases ?? [],
     shifts: parsed.shifts ?? [],
     stockMovements: parsed.stockMovements ?? [],
     suppliers: parsed.suppliers ?? [],
     purchaseOrders: parsed.purchaseOrders ?? [],
     supplierPayments: parsed.supplierPayments ?? [],
+    vaultMovements: parsed.vaultMovements ?? [],
+    vaultDebts: (parsed.vaultDebts ?? []).map(normalizeVaultDebt),
     settings: {
       allow_negative_stock: parsed.settings?.allow_negative_stock ?? true,
       cash_register_auto_close_time: parsed.settings?.cash_register_auto_close_time ?? "23:59",
       max_discount_amount: parsed.settings?.max_discount_amount ?? 200,
       invoice_printer: parsed.settings?.invoice_printer ?? "",
       barcode_printer: parsed.settings?.barcode_printer ?? "",
-      receipt_title: parsed.settings?.receipt_title ?? "ياسين لافار",
-      receipt_subtitle: parsed.settings?.receipt_subtitle ?? "للأقمصة والعطور",
+      receipt_title: parsed.settings?.receipt_title ?? "Payla Outfit",
+      receipt_subtitle: parsed.settings?.receipt_subtitle ?? "Fashion Boutique",
       show_invoice_logo: parsed.settings?.show_invoice_logo ?? true,
       ticket_width_chars: Math.min(48, Math.max(24, Number(parsed.settings?.ticket_width_chars ?? 32))),
       barcode_label_width_mm: Math.min(100, Math.max(20, Number(parsed.settings?.barcode_label_width_mm ?? 40))),
@@ -190,14 +218,6 @@ function normalizeProduct(product: Product): Product {
   };
 }
 
-function normalizeFlacon(flacon: Flacon): Flacon {
-  return {
-    ...flacon,
-    flacon_type: flacon.flacon_type ?? "x1",
-    sale_price: flacon.sale_price ?? 0
-  };
-}
-
 function normalizeSale(sale: Sale): Sale {
   return {
     ...sale,
@@ -213,6 +233,62 @@ function normalizeSale(sale: Sale): Sale {
   };
 }
 
+function normalizeVaultDebt(debt: VaultDebt): VaultDebt {
+  const paid = (debt.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0);
+  const remaining = Math.max(0, debt.principal_amount - paid);
+  return {
+    ...debt,
+    phone: debt.phone ?? "",
+    paid_amount: paid,
+    remaining_amount: remaining,
+    status: remaining <= 0 ? "paid" : paid > 0 ? "partial" : "open",
+    due_date: debt.due_date ?? "",
+    note: debt.note ?? "",
+    payments: debt.payments ?? []
+  };
+}
+
+function vaultDashboard(db: Db): VaultDashboard {
+  const activeDebts = db.vaultDebts.map(normalizeVaultDebt).filter((debt) => debt.status !== "paid");
+  const manualReceivable = activeDebts
+    .filter((debt) => debt.debt_type === "receivable")
+    .reduce((sum, debt) => sum + debt.remaining_amount, 0);
+  const manualPayable = activeDebts
+    .filter((debt) => debt.debt_type === "payable")
+    .reduce((sum, debt) => sum + debt.remaining_amount, 0);
+  const salesCreditRemaining = db.sales
+    .filter((sale) => sale.sale_type === "credit" && sale.credit_status !== "paid")
+    .reduce((sum, sale) => sum + sale.remaining_amount, 0);
+  const supplierRemaining = db.purchaseOrders.reduce((sum, order) => sum + order.remaining_amount, 0);
+  const cashInTotal = db.vaultMovements
+    .filter((movement) => movement.movement_type === "in")
+    .reduce((sum, movement) => sum + movement.amount, 0);
+  const cashOutTotal = db.vaultMovements
+    .filter((movement) => movement.movement_type === "out")
+    .reduce((sum, movement) => sum + movement.amount, 0);
+  const today = todayInputValue();
+  const overdueDebts = activeDebts.filter((debt) => debt.due_date && debt.due_date < today).length;
+  const totalReceivable = manualReceivable + salesCreditRemaining;
+  const totalPayable = manualPayable + supplierRemaining;
+
+  return {
+    cash_balance: cashInTotal - cashOutTotal,
+    cash_in_total: cashInTotal,
+    cash_out_total: cashOutTotal,
+    manual_receivable: manualReceivable,
+    manual_payable: manualPayable,
+    sales_credit_remaining: salesCreditRemaining,
+    supplier_remaining: supplierRemaining,
+    total_receivable: totalReceivable,
+    total_payable: totalPayable,
+    net_position: cashInTotal - cashOutTotal + totalReceivable - totalPayable,
+    active_debts_count: activeDebts.length,
+    overdue_debts_count: overdueDebts,
+    recent_movements: [...db.vaultMovements].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 8),
+    debts: activeDebts.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+  };
+}
+
 function writeDb(db: Db) {
   localStorage.setItem(demoDbKey, JSON.stringify(db));
 }
@@ -223,14 +299,13 @@ function makeEmptyDb(): Db {
     expenses: [],
     sales: [],
     creditPayments: [],
-    flacons: [],
-    perfumes: [],
-    perfumePurchases: [],
     shifts: [],
     stockMovements: [],
     suppliers: [],
     purchaseOrders: [],
     supplierPayments: [],
+    vaultMovements: [],
+    vaultDebts: [],
     settings: defaultSettings()
   };
 }
@@ -243,36 +318,36 @@ function makeDummyDb(): Db {
     return next.toISOString();
   };
   const products = [
-    sampleProduct(1, "بيجامة ساتان سوداء", "AS-DEMO-001", "Products", "M", "أسود", 18, 4, 1800, 3400),
-    sampleProduct(2, "طقم قطن كريمي", "AS-DEMO-002", "Products", "L", "كريمي", 22, 5, 1400, 2800),
-    sampleProduct(3, "فستان منزلي مزهر", "AS-DEMO-003", "Products", "M", "وردي", 8, 3, 2100, 4300),
-    sampleProduct(4, "نعال ناعمة", "AS-DEMO-004", "إكسسوارات", "38", "بيج", 5, 4, 700, 1600),
-    sampleProduct(5, "كيس هدية", "AS-DEMO-005", "إكسسوارات", "عادي", "ذهبي", 35, 8, 120, 350),
-    sampleProduct(6, "كيمونو فاخر", "AS-DEMO-006", "Products", "XL", "زيتوني", 3, 4, 3200, 6500),
-    sampleProduct(7, "مسك أبيض 12مل", "AS-DEMO-007", "Perfumerie", "12ml", "أبيض", 16, 5, 650, 1500),
-    sampleProduct(8, "عطر عود 30مل", "AS-DEMO-008", "Perfumerie", "30ml", "عنبر", 9, 3, 1900, 4200)
+    sampleProduct(1, "Robe satin noire", "PO-DEMO-001", "Robes", "M", "Noir", 18, 4, 1800, 3400),
+    sampleProduct(2, "Ensemble coton creme", "PO-DEMO-002", "Ensembles", "L", "Creme", 22, 5, 1400, 2800),
+    sampleProduct(3, "Robe maison fleurie", "PO-DEMO-003", "Robes", "M", "Rose", 8, 3, 2100, 4300),
+    sampleProduct(4, "Escarpins soft", "PO-DEMO-004", "Chaussures", "38", "Beige", 5, 4, 700, 1600),
+    sampleProduct(5, "Sac cadeau boutique", "PO-DEMO-005", "Accessoires", "Standard", "Or", 35, 8, 120, 350),
+    sampleProduct(6, "Kimono premium", "PO-DEMO-006", "Kimonos", "XL", "Olive", 3, 4, 3200, 6500),
+    sampleProduct(7, "Foulard satin", "PO-DEMO-007", "Accessoires", "Standard", "Blanc", 16, 5, 650, 1500),
+    sampleProduct(8, "Pochette elegante", "PO-DEMO-008", "Sacs", "Petit", "Ambre", 9, 3, 1900, 4200)
   ];
   const sales: Sale[] = [
-    demoSale(1, "AS-DEMO-0001", date(6), "cash", 6200, 0, 6200, 3200, 6200, 0, "", "", "paid", [
-      demoItem(1, "بيجامة ساتان سوداء", "AS-DEMO-001", 1, 3400),
-      demoItem(2, "طقم قطن كريمي", "AS-DEMO-002", 1, 2800)
+    demoSale(1, "PO-DEMO-0001", date(6), "cash", 6200, 0, 6200, 3200, 6200, 0, "", "", "paid", [
+      demoItem(1, "Robe satin noire", "PO-DEMO-001", 1, 3400),
+      demoItem(2, "Ensemble coton creme", "PO-DEMO-002", 1, 2800)
     ]),
-    demoSale(2, "AS-DEMO-0002", date(4), "credit", 8600, 200, 8400, 4200, 6000, 2400, "Samira", "0555000001", "partial", [
-      demoItem(3, "فستان منزلي مزهر", "AS-DEMO-003", 2, 4300)
+    demoSale(2, "PO-DEMO-0002", date(4), "credit", 8600, 200, 8400, 4200, 6000, 2400, "Samira", "0555000001", "partial", [
+      demoItem(3, "Robe maison fleurie", "PO-DEMO-003", 2, 4300)
     ]),
-    demoSale(3, "AS-DEMO-0003", date(1), "cash", 6150, 0, 6150, 2780, 6150, 0, "", "", "paid", [
-      demoItem(7, "مسك أبيض 12مل", "AS-DEMO-007", 3, 1500),
-      demoItem(4, "نعال ناعمة", "AS-DEMO-004", 1, 1600),
-      demoItem(5, "كيس هدية", "AS-DEMO-005", 1, 50)
+    demoSale(3, "PO-DEMO-0003", date(1), "cash", 6150, 0, 6150, 2780, 6150, 0, "", "", "paid", [
+      demoItem(7, "Foulard satin", "PO-DEMO-007", 3, 1500),
+      demoItem(4, "Escarpins soft", "PO-DEMO-004", 1, 1600),
+      demoItem(5, "Sac cadeau boutique", "PO-DEMO-005", 1, 50)
     ]),
-    demoSale(4, "AS-DEMO-0004", date(0), "credit", 10800, 0, 10800, 5200, 4000, 6800, "Nadia", "0555000002", "partial", [
-      demoItem(6, "كيمونو فاخر", "AS-DEMO-006", 1, 6500),
-      demoItem(8, "عطر عود 30مل", "AS-DEMO-008", 1, 4200),
-      demoItem(5, "كيس هدية", "AS-DEMO-005", 1, 100)
+    demoSale(4, "PO-DEMO-0004", date(0), "credit", 10800, 0, 10800, 5200, 4000, 6800, "Nadia", "0555000002", "partial", [
+      demoItem(6, "Kimono premium", "PO-DEMO-006", 1, 6500),
+      demoItem(8, "Pochette elegante", "PO-DEMO-008", 1, 4200),
+      demoItem(5, "Sac cadeau boutique", "PO-DEMO-005", 1, 100)
     ]),
-    demoSale(5, "AS-DEMO-0005", date(0), "cash", 3150, 0, 3150, 1730, 3150, 0, "", "", "paid", [
-      demoItem(2, "طقم قطن كريمي", "AS-DEMO-002", 1, 2800),
-      demoItem(5, "كيس هدية", "AS-DEMO-005", 1, 350)
+    demoSale(5, "PO-DEMO-0005", date(0), "cash", 3150, 0, 3150, 1730, 3150, 0, "", "", "paid", [
+      demoItem(2, "Ensemble coton creme", "PO-DEMO-002", 1, 2800),
+      demoItem(5, "Sac cadeau boutique", "PO-DEMO-005", 1, 350)
     ])
   ];
   return {
@@ -288,14 +363,47 @@ function makeDummyDb(): Db {
     creditPayments: [
       { id: 1, sale_id: 2, amount: 3000, note: "دفعة تجريبية", cashier: "المدير", paid_at: date(2) }
     ],
-    flacons: seed.flacons,
-    perfumes: [],
-    perfumePurchases: [],
     shifts: [],
     stockMovements: [],
     suppliers: [],
     purchaseOrders: [],
     supplierPayments: [],
+    vaultMovements: [
+      { id: 1, movement_type: "in", label: "رصيد البداية", amount: 85000, note: "بيانات تجريبية", cashier: "المدير", created_at: date(6) },
+      { id: 2, movement_type: "out", label: "سحب للمشتريات", amount: 12000, note: "شراء مستلزمات", cashier: "المدير", created_at: date(2) }
+    ],
+    vaultDebts: [
+      normalizeVaultDebt({
+        id: 1,
+        party_name: "سارة",
+        phone: "0555000010",
+        debt_type: "receivable",
+        principal_amount: 15000,
+        paid_amount: 4000,
+        remaining_amount: 11000,
+        status: "partial",
+        due_date: date(3).slice(0, 10),
+        note: "دين يدوي خارج الفواتير",
+        created_at: date(7),
+        updated_at: date(1),
+        payments: [{ id: 1, debt_id: 1, amount: 4000, note: "دفعة أولى", cashier: "المدير", paid_at: date(1) }]
+      }),
+      normalizeVaultDebt({
+        id: 2,
+        party_name: "تصليح الواجهة",
+        phone: "",
+        debt_type: "payable",
+        principal_amount: 9000,
+        paid_amount: 0,
+        remaining_amount: 9000,
+        status: "open",
+        due_date: "",
+        note: "دين على المتجر",
+        created_at: date(4),
+        updated_at: date(4),
+        payments: []
+      })
+    ],
     settings: defaultSettings()
   };
 }
@@ -400,8 +508,8 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       max_discount_amount: Math.max(0, Number(input.max_discount_amount || 0)),
       invoice_printer: input.invoice_printer ?? "",
       barcode_printer: input.barcode_printer ?? "",
-      receipt_title: input.receipt_title?.trim() || "ياسين لافار",
-      receipt_subtitle: input.receipt_subtitle?.trim() || "للأقمصة والعطور",
+      receipt_title: input.receipt_title?.trim() || "Payla Outfit",
+      receipt_subtitle: input.receipt_subtitle?.trim() || "Fashion Boutique",
       show_invoice_logo: input.show_invoice_logo ?? true,
       ticket_width_chars: Math.min(48, Math.max(24, Number(input.ticket_width_chars || 32))),
       barcode_label_width_mm: Math.min(100, Math.max(20, Number(input.barcode_label_width_mm || 40))),
@@ -420,114 +528,6 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
 
   if (command === "list_printers") {
     return ["Imprimante ticket POS", "Imprimante codes-barres"] as T;
-  }
-
-  if (command === "list_flacons") return db.flacons as T;
-
-  if (command === "save_flacon") {
-    const input = args?.input as FlaconInput;
-    const flacon = {
-      id: input.id ?? Date.now(),
-      name: input.name,
-      flacon_type: input.flacon_type ?? "x1",
-      volume_ml: input.volume_ml,
-      sale_price: input.sale_price,
-      active: input.active,
-      created_at: new Date().toISOString()
-    };
-    db.flacons = input.id ? db.flacons.map((item) => item.id === input.id ? flacon : item) : [...db.flacons, flacon];
-    db.perfumes = db.perfumes.map((perfume) => ({
-      ...perfume,
-      prices: [
-        ...perfume.prices.filter((price) => price.flacon_id !== flacon.id),
-        {
-          flacon_id: flacon.id,
-          flacon_name: `${flacon.name} ${flacon.flacon_type}`,
-          volume_ml: flacon.volume_ml,
-          sale_price: flacon.sale_price
-        }
-      ].sort((a, b) => a.volume_ml - b.volume_ml || a.flacon_name.localeCompare(b.flacon_name))
-    }));
-    writeDb(db);
-    return flacon as T;
-  }
-
-  if (command === "list_perfumes") {
-    return db.perfumes.map((perfume) => ({
-      ...perfume,
-      prices: db.flacons
-        .filter((flacon) => flacon.active)
-        .map((flacon) => {
-          const saved = perfume.prices.find((price) => price.flacon_id === flacon.id);
-          return {
-            flacon_id: flacon.id,
-            flacon_name: `${flacon.name} ${flacon.flacon_type}`,
-            volume_ml: flacon.volume_ml,
-            sale_price: saved?.sale_price || flacon.sale_price
-          };
-        })
-    })) as T;
-  }
-
-  if (command === "save_perfume") {
-    const input = args?.input as PerfumeInput;
-    const existing = input.id ? db.perfumes.find((item) => item.id === input.id) : undefined;
-    const totalVolume = (existing?.total_volume_ml ?? 0) + input.added_volume_ml;
-    const remainingVolume = (existing?.remaining_volume_ml ?? 0) + input.added_volume_ml;
-    const purchaseTotal = (existing?.total_purchase_price ?? 0) + input.total_purchase_price;
-    const perfume: Perfume = {
-      id: input.id ?? Date.now(),
-      name: input.name,
-      family: input.family,
-      total_volume_ml: totalVolume,
-      remaining_volume_ml: remainingVolume,
-      total_purchase_price: purchaseTotal,
-      cost_per_ml: totalVolume > 0 ? purchaseTotal / totalVolume : 0,
-      low_stock_ml: input.low_stock_ml,
-      created_at: existing?.created_at ?? new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      prices: db.flacons.filter((flacon) => flacon.active).map((flacon) => {
-        const price = input.prices.find((item) => item.flacon_id === flacon.id);
-        return {
-          flacon_id: flacon.id,
-          flacon_name: `${flacon.name} ${flacon.flacon_type}`,
-          volume_ml: flacon.volume_ml,
-          sale_price: price?.sale_price ?? flacon.sale_price
-        };
-      })
-    };
-    db.perfumes = existing ? db.perfumes.map((item) => item.id === perfume.id ? perfume : item) : [perfume, ...db.perfumes];
-    writeDb(db);
-    return perfume as T;
-  }
-
-  if (command === "list_perfume_purchases") {
-    return db.perfumePurchases.sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id) as T;
-  }
-
-  if (command === "save_perfume_purchase") {
-    const input = args?.input as PerfumePurchaseInput;
-    const perfume = input.perfume_id ? db.perfumes.find((item) => item.id === input.perfume_id) : undefined;
-    if (perfume && input.volume_ml > 0) {
-      perfume.total_volume_ml += input.volume_ml;
-      perfume.remaining_volume_ml += input.volume_ml;
-      perfume.total_purchase_price += input.amount;
-      perfume.cost_per_ml = perfume.total_volume_ml > 0 ? perfume.total_purchase_price / perfume.total_volume_ml : 0;
-      perfume.updated_at = new Date().toISOString();
-    }
-    const purchase: PerfumePurchase = {
-      id: Date.now(),
-      perfume_id: input.perfume_id,
-      perfume_name: perfume?.name ?? "",
-      title: input.title,
-      amount: input.amount,
-      volume_ml: input.volume_ml,
-      note: input.note,
-      created_at: new Date().toISOString()
-    };
-    db.perfumePurchases.unshift(purchase);
-    writeDb(db);
-    return purchase as T;
   }
 
   if (command === "reset_with_dummy_data") {
@@ -860,6 +860,118 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     return undefined as T;
   }
 
+  if (command === "get_vault_dashboard") {
+    return vaultDashboard(db) as T;
+  }
+
+  if (command === "list_vault_movements") {
+    return [...db.vaultMovements].sort((a, b) => b.created_at.localeCompare(a.created_at)) as T;
+  }
+
+  if (command === "save_vault_movement") {
+    const input = args?.input as VaultMovementInput;
+    if (!input.label.trim()) throw new Error("التسمية إجبارية");
+    if (!Number.isFinite(input.amount) || input.amount <= 0) throw new Error("المبلغ غير صالح");
+    const existing = input.id ? db.vaultMovements.find((item) => item.id === input.id) : undefined;
+    const movement: VaultMovement = {
+      id: existing?.id ?? Date.now(),
+      movement_type: input.movement_type,
+      label: input.label.trim(),
+      amount: input.amount,
+      note: input.note.trim(),
+      cashier: input.cashier.trim() || "المدير",
+      created_at: existing?.created_at ?? new Date().toISOString()
+    };
+    db.vaultMovements = existing
+      ? db.vaultMovements.map((item) => item.id === movement.id ? movement : item)
+      : [movement, ...db.vaultMovements];
+    writeDb(db);
+    return movement as T;
+  }
+
+  if (command === "delete_vault_movement") {
+    db.vaultMovements = db.vaultMovements.filter((movement) => movement.id !== args?.id);
+    writeDb(db);
+    return undefined as T;
+  }
+
+  if (command === "list_vault_debts") {
+    return db.vaultDebts.map(normalizeVaultDebt).sort((a, b) => b.updated_at.localeCompare(a.updated_at)) as T;
+  }
+
+  if (command === "save_vault_debt") {
+    const input = args?.input as VaultDebtInput;
+    if (!input.party_name.trim()) throw new Error("الاسم إجباري");
+    if (!Number.isFinite(input.principal_amount) || input.principal_amount <= 0) throw new Error("المبلغ غير صالح");
+    const existing = input.id ? db.vaultDebts.find((item) => item.id === input.id) : undefined;
+    const debt = normalizeVaultDebt({
+      id: existing?.id ?? Date.now(),
+      party_name: input.party_name.trim(),
+      phone: input.phone.trim(),
+      debt_type: input.debt_type,
+      principal_amount: input.principal_amount,
+      paid_amount: existing?.paid_amount ?? 0,
+      remaining_amount: existing?.remaining_amount ?? input.principal_amount,
+      status: existing?.status ?? "open",
+      due_date: input.due_date,
+      note: input.note.trim(),
+      created_at: existing?.created_at ?? new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      payments: existing?.payments ?? []
+    });
+    db.vaultDebts = existing
+      ? db.vaultDebts.map((item) => item.id === debt.id ? debt : item)
+      : [debt, ...db.vaultDebts];
+    writeDb(db);
+    return debt as T;
+  }
+
+  if (command === "delete_vault_debt") {
+    db.vaultDebts = db.vaultDebts.filter((debt) => debt.id !== args?.id);
+    writeDb(db);
+    return undefined as T;
+  }
+
+  if (command === "add_vault_debt_payment") {
+    const input = args?.input as VaultDebtPaymentInput;
+    const debt = db.vaultDebts.find((item) => item.id === input.debt_id);
+    if (!debt) throw new Error("الدين غير موجود");
+    const normalized = normalizeVaultDebt(debt);
+    if (!Number.isFinite(input.amount) || input.amount <= 0 || input.amount > normalized.remaining_amount) {
+      throw new Error("قيمة الدفعة غير صالحة");
+    }
+    normalized.payments = [
+      {
+        id: Date.now(),
+        debt_id: normalized.id,
+        amount: input.amount,
+        note: input.note.trim(),
+        cashier: input.cashier.trim() || "المدير",
+        paid_at: new Date().toISOString()
+      },
+      ...normalized.payments
+    ];
+    const updated = normalizeVaultDebt({ ...normalized, updated_at: new Date().toISOString() });
+    db.vaultDebts = db.vaultDebts.map((item) => item.id === updated.id ? updated : item);
+    writeDb(db);
+    return updated as T;
+  }
+
+  if (command === "delete_vault_debt_payment") {
+    const debtId = args?.debt_id as number;
+    const paymentId = args?.payment_id as number;
+    const debt = db.vaultDebts.find((item) => item.id === debtId);
+    if (!debt) throw new Error("الدين غير موجود");
+    const updated = normalizeVaultDebt({
+      ...debt,
+      payments: (debt.payments ?? []).filter((payment) => payment.id !== paymentId),
+      updated_at: new Date().toISOString()
+    });
+    db.vaultDebts = db.vaultDebts.map((item) => item.id === debtId ? updated : item);
+    writeDb(db);
+    return updated as T;
+  }
+
   if (command === "checkout") {
     const input = args?.input as CheckoutInput;
     const selectedDate = input.sale_date && /^\d{4}-\d{2}-\d{2}$/.test(input.sale_date)
@@ -895,26 +1007,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
         line_total: unitPrice * item.quantity
       };
     });
-    const perfumeItems = (input.perfume_items ?? []).map((item) => {
-      const perfume = db.perfumes.find((candidate) => candidate.id === item.perfume_id);
-      if (!perfume) throw new Error("العطر غير موجود");
-      const price = perfume.prices.find((candidate) => candidate.flacon_id === item.flacon_id);
-      if (!price) throw new Error("القارورة غير موجودة");
-      if (!Number.isInteger(item.quantity) || item.quantity <= 0) throw new Error("الكمية غير صالحة");
-      const needed = price.volume_ml * item.quantity;
-      if (perfume.remaining_volume_ml < needed) throw new Error(`المخزون غير كاف للعطر ${perfume.name}`);
-      perfume.remaining_volume_ml -= needed;
-      grossProfit += (price.sale_price - perfume.cost_per_ml * price.volume_ml) * item.quantity;
-      return {
-        product_id: -perfume.id,
-        product_name: `${perfume.name} - ${price.flacon_name}`,
-        barcode: `PF-${perfume.id}-${price.flacon_id}`,
-        quantity: item.quantity,
-        unit_price: price.sale_price,
-        line_total: price.sale_price * item.quantity
-      };
-    });
-    const subtotal = [...items, ...perfumeItems].reduce((sum, item) => sum + item.line_total, 0);
+    const subtotal = items.reduce((sum, item) => sum + item.line_total, 0);
     if (!Number.isFinite(input.discount) || input.discount < 0) throw new Error("التخفيض غير صالح");
     if (input.discount > db.settings.max_discount_amount) throw new Error(`أقصى تخفيض هو ${db.settings.max_discount_amount}`);
     const total = Math.max(0, subtotal - input.discount);
@@ -926,7 +1019,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     const sale: Sale = {
       id: Date.now(),
       shift_id: input.sale_type === "delivery" ? undefined : shift?.id,
-      receipt_no: `AS-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`,
+      receipt_no: `PO-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`,
       subtotal,
       discount: input.discount,
       total,
@@ -942,7 +1035,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       credit_status: input.sale_type === "delivery" ? "delivery_pending" : remaining <= 0 ? "paid" : paid > 0 ? "partial" : "open",
       cashier: input.cashier,
       created_at: createdAt,
-      items: [...items, ...perfumeItems]
+      items
     };
     db.sales.unshift(sale);
     writeDb(db);
@@ -1469,22 +1562,13 @@ function replaceDemoSaleItems(db: Db, saleId: number, items: SaleUpdateInput["it
     };
   });
 
-  const preservedPerfumeItems = sale.items.filter((item) => item.product_id < 0);
-  const combinedItems = [...nextItems, ...preservedPerfumeItems];
+  const combinedItems = nextItems;
   const subtotal = combinedItems.reduce((sum, item) => sum + item.line_total, 0);
   const discount = Math.min(Math.max(sale.discount, 0), subtotal);
   const total = Math.max(0, subtotal - discount);
   const grossProfit = combinedItems.reduce((sum, item) => {
-    if (item.product_id > 0) {
-      const product = db.products.find((candidate) => candidate.id === item.product_id);
-      return sum + (item.unit_price - (product?.purchase_price ?? 0)) * item.quantity;
-    }
-    const perfume = db.perfumes.find((candidate) => candidate.id === Math.abs(item.product_id));
-    const barcodeParts = item.barcode.split("-");
-    const flaconId = Number(barcodeParts[barcodeParts.length - 1]);
-    const price = perfume?.prices.find((candidate) => candidate.flacon_id === flaconId);
-    const cost = (perfume?.cost_per_ml ?? 0) * (price?.volume_ml ?? 0);
-    return sum + (item.unit_price - cost) * item.quantity;
+    const product = db.products.find((candidate) => candidate.id === item.product_id);
+    return sum + (item.unit_price - (product?.purchase_price ?? 0)) * item.quantity;
   }, 0);
   const profit = grossProfit - discount;
   const paid = sale.sale_type === "cash" || (sale.sale_type === "delivery" && sale.credit_status === "delivery_paid")
@@ -1574,13 +1658,16 @@ export const api = {
   expenses: () => call<Expense[]>("list_expenses"),
   saveExpense: (input: ExpenseInput) => call<Expense>("save_expense", { input }),
   deleteExpense: (id: number) => call<void>("delete_expense", { id }),
+  vaultDashboard: () => call<VaultDashboard>("get_vault_dashboard"),
+  vaultMovements: () => call<VaultMovement[]>("list_vault_movements"),
+  saveVaultMovement: (input: VaultMovementInput) => call<VaultMovement>("save_vault_movement", { input }),
+  deleteVaultMovement: (id: number) => call<void>("delete_vault_movement", { id }),
+  vaultDebts: () => call<VaultDebt[]>("list_vault_debts"),
+  saveVaultDebt: (input: VaultDebtInput) => call<VaultDebt>("save_vault_debt", { input }),
+  deleteVaultDebt: (id: number) => call<void>("delete_vault_debt", { id }),
+  addVaultDebtPayment: (input: VaultDebtPaymentInput) => call<VaultDebt>("add_vault_debt_payment", { input }),
+  deleteVaultDebtPayment: (debtId: number, paymentId: number) => call<VaultDebt>("delete_vault_debt_payment", { debt_id: debtId, payment_id: paymentId }),
   checkout: (input: CheckoutInput) => call<Sale>("checkout", { input }),
-  flacons: () => call<Flacon[]>("list_flacons"),
-  saveFlacon: (input: FlaconInput) => call<Flacon>("save_flacon", { input }),
-  perfumes: () => call<Perfume[]>("list_perfumes"),
-  savePerfume: (input: PerfumeInput) => call<Perfume>("save_perfume", { input }),
-  perfumePurchases: () => call<PerfumePurchase[]>("list_perfume_purchases"),
-  savePerfumePurchase: (input: PerfumePurchaseInput) => call<PerfumePurchase>("save_perfume_purchase", { input }),
   sales: () => call<Sale[]>("list_sales"),
   sale: (id: number) => call<Sale>("get_sale", { id }),
   deliveries: () => call<Sale[]>("list_delivery_sales"),

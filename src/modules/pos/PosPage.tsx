@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import * as QRCode from "qrcode";
-import { Barcode, Minus, Plus, Printer, Search, ShoppingBag, SprayCan, Trash2 } from "lucide-react";
+import { Barcode, Minus, Plus, Printer, Search, ShoppingBag, Trash2 } from "lucide-react";
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";
 import { showToast } from "../../shared/toast";
-import { AppSettings, CartItem, Language, Perfume, PerfumeCartItem, Product, Sale, UserSession } from "../../shared/types";
-import annaStoreLogo from "../../assets/anna-store-logo.png";
+import { AppSettings, CartItem, Language, Product, Sale, UserSession } from "../../shared/types";
+import paylaOutfitLogo from "../../assets/payla-outfit-logo.png";
 
 const orderQrPrefix = "POS:";
 const legacyOrderQrPrefix = "POS_ORDER:";
@@ -41,7 +41,6 @@ function formatSaleDate(value: string, language: Language, includeTime = true) {
 
 function displayCategory(category: string) {
   if (category === "Products") return "المنتجات";
-  if (category === "Perfumerie") return "العطور";
   return category;
 }
 
@@ -49,13 +48,10 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const t = useText(language);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
-  const [assortment, setAssortment] = useState<"all" | "home" | "perfumery">("all");
   const [products, setProducts] = useState<Product[]>([]);
   const [productCatalog, setProductCatalog] = useState<Product[]>([]);
-  const [perfumes, setPerfumes] = useState<Perfume[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [perfumeCart, setPerfumeCart] = useState<PerfumeCartItem[]>([]);
   const [discount, setDiscount] = useState(0);
   const [saleDate, setSaleDate] = useState(todayInputValue);
   const [saleType, setSaleType] = useState<"cash" | "credit" | "delivery">("cash");
@@ -71,13 +67,12 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const [maxDiscount, setMaxDiscount] = useState(200);
 
   useEffect(() => {
-    const effectiveCategory = assortment === "perfumery" ? "Perfumerie" : category;
-    api.products({ query, category: effectiveCategory, stock: "all" })
+    api.products({ query, category, stock: "all" })
       .then((items) => setProducts(items.filter((product) =>
-        (allowNegativeStock || product.quantity > 0) && assortment !== "perfumery" && (assortment !== "home" || product.category !== "Perfumerie")
+        (allowNegativeStock || product.quantity > 0) && product.category !== "Perfumerie"
       )))
       .catch((err) => setError(String(err)));
-  }, [query, category, assortment, allowNegativeStock]);
+  }, [query, category, allowNegativeStock]);
 
   useEffect(() => {
     api.appSettings()
@@ -92,35 +87,23 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   }, []);
 
   useEffect(() => {
-    api.perfumes()
-      .then((items) => setPerfumes(items.filter((perfume) => perfume.remaining_volume_ml > 0)))
-      .catch((err) => setError(String(err)));
-  }, []);
-
-  useEffect(() => {
     api.products()
       .then((items) => {
         setProductCatalog(items);
-        setCategories(Array.from(new Set(items.map((product) => product.category))).sort());
+        setCategories(Array.from(new Set(items.map((product) => product.category).filter((item) => item !== "Perfumerie"))).sort());
       })
       .catch((err) => setError(String(err)));
   }, []);
 
   const subtotal = useMemo(
-    () => cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)
-      + perfumeCart.reduce((sum, item) => sum + item.price.sale_price * item.quantity, 0),
-    [cart, perfumeCart]
+    () => cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0),
+    [cart]
   );
-  const visiblePerfumes = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    return perfumes.filter((perfume) => !normalized || [perfume.name, perfume.family]
-      .some((value) => value.toLowerCase().includes(normalized)));
-  }, [perfumes, query]);
   const total = Math.max(0, subtotal - discount);
   const normalizedPaid = Math.max(0, Math.min(paidAmount, total));
   const creditRemaining = saleType === "credit" ? Math.max(0, total - normalizedPaid) : 0;
   const checkoutBlocked =
-    (!cart.length && !perfumeCart.length) ||
+    !cart.length ||
     cart.some((item) => !Number.isFinite(item.unit_price) || item.unit_price < 0) ||
     discount < 0 ||
     discount > maxDiscount ||
@@ -191,32 +174,6 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       : item));
   }
 
-  function addPerfume(perfume: Perfume, flaconId: number) {
-    const price = perfume.prices.find((item) => item.flacon_id === flaconId);
-    if (!price || price.sale_price <= 0) return;
-    const maxQty = Math.floor(perfume.remaining_volume_ml / price.volume_ml);
-    if (maxQty <= 0) return;
-    setPerfumeCart((items) => {
-      const existing = items.find((item) => item.perfume.id === perfume.id && item.price.flacon_id === flaconId);
-      if (existing) {
-        return items.map((item) => item.perfume.id === perfume.id && item.price.flacon_id === flaconId
-          ? { ...item, quantity: Math.min(item.quantity + 1, maxQty) }
-          : item);
-      }
-      return [...items, { perfume, price, quantity: 1 }];
-    });
-  }
-
-  function setPerfumeQty(perfumeId: number, flaconId: number, quantity: number) {
-    setPerfumeCart((items) => items
-      .map((item) => {
-        if (item.perfume.id !== perfumeId || item.price.flacon_id !== flaconId) return item;
-        const maxQty = Math.floor(item.perfume.remaining_volume_ml / item.price.volume_ml);
-        return { ...item, quantity: Math.max(1, Math.min(quantity, maxQty)) };
-      })
-      .filter((item) => item.quantity > 0));
-  }
-
   async function checkout() {
     if (checkingOut) return;
     setError("");
@@ -227,11 +184,6 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
           product_id: item.product.id,
           quantity: item.quantity,
           unit_price: item.unit_price
-        })),
-        perfume_items: perfumeCart.map((item) => ({
-          perfume_id: item.perfume.id,
-          flacon_id: item.price.flacon_id,
-          quantity: item.quantity
         })),
         discount,
         sale_type: saleType,
@@ -245,7 +197,6 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       });
       setReceipt(sale);
       setCart([]);
-      setPerfumeCart([]);
       setDiscount(0);
       setSaleType("cash");
       setCustomerName("");
@@ -256,10 +207,8 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       setSaleDate(todayInputValue());
       const nextProducts = await api.products({ query, category, stock: "all" });
       setProducts(nextProducts.filter((product) =>
-        (allowNegativeStock || product.quantity > 0) && assortment !== "perfumery" && (assortment !== "home" || product.category !== "Perfumerie")
+        (allowNegativeStock || product.quantity > 0) && product.category !== "Perfumerie"
       ));
-      const nextPerfumes = await api.perfumes();
-      setPerfumes(nextPerfumes.filter((perfume) => perfume.remaining_volume_ml > 0));
       setProductCatalog(await api.products({ stock: "all" }));
       onSale();
     } catch (err) {
@@ -274,11 +223,6 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   return (
     <section className="pos-grid">
       <section className="panel table-panel">
-        <div className="segmented pos-mode-tabs">
-          <button className={assortment === "all" ? "active" : ""} type="button" onClick={() => setAssortment("all")}>الكل</button>
-          <button className={assortment === "home" ? "active" : ""} type="button" onClick={() => setAssortment("home")}>المنتجات</button>
-          <button className={assortment === "perfumery" ? "active" : ""} type="button" onClick={() => setAssortment("perfumery")}>العطور</button>
-        </div>
         <div className="filter-row">
           <div className="searchbar">
             <Search size={18} />
@@ -295,31 +239,12 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
               }}
             />
           </div>
-          <select aria-label={t.category} value={category} disabled={assortment === "perfumery"} onChange={(event) => setCategory(event.target.value)}>
+          <select aria-label={t.category} value={category} onChange={(event) => setCategory(event.target.value)}>
             <option value="">{t.allCategories}</option>
-            {categories
-              .filter((item) => assortment !== "home" || item !== "Perfumerie")
-              .map((item) => <option value={item} key={item}>{displayCategory(item)}</option>)}
+            {categories.map((item) => <option value={item} key={item}>{displayCategory(item)}</option>)}
           </select>
         </div>
         <div className="product-picker">
-          {assortment !== "home" && visiblePerfumes.map((perfume) => (
-            <article key={`perfume-${perfume.id}`} className="product-tile perfume-tile">
-              <span><SprayCan size={22} /></span>
-              <strong>{perfume.name}</strong>
-              <em>{perfume.family} · {perfume.remaining_volume_ml.toFixed(1)} ml</em>
-              <div className="flacon-choice-row">
-                {perfume.prices
-                  .filter((price) => price.sale_price > 0 && perfume.remaining_volume_ml >= price.volume_ml)
-                  .map((price) => (
-                    <button type="button" key={price.flacon_id} onClick={() => addPerfume(perfume, price.flacon_id)}>
-                      {price.flacon_name}
-                      <small>{money(price.sale_price)}</small>
-                    </button>
-                  ))}
-              </div>
-            </article>
-          ))}
           {products.map((product) => (
             <button key={product.id} className="product-tile" onClick={() => addProduct(product)}>
               <span className="product-tile-media">
@@ -359,28 +284,6 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
               </label>
               <strong>{money(item.unit_price * item.quantity)}</strong>
               <button className="plain-icon" onClick={() => setCart(cart.filter((line) => line.product.id !== item.product.id))}><Trash2 size={16} /></button>
-            </article>
-          ))}
-          {perfumeCart.map((item) => (
-            <article key={`${item.perfume.id}-${item.price.flacon_id}`} className="cart-line perfume-cart-line">
-              <div>
-                <strong>{item.perfume.name}</strong>
-                <span>{item.price.flacon_name} · {item.price.volume_ml} ml</span>
-              </div>
-              <div className="qty-control">
-                <button onClick={() => setPerfumeQty(item.perfume.id, item.price.flacon_id, item.quantity - 1)}><Minus size={14} /></button>
-                <b>{item.quantity}</b>
-                <button onClick={() => setPerfumeQty(item.perfume.id, item.price.flacon_id, item.quantity + 1)}><Plus size={14} /></button>
-              </div>
-              <strong>{money(item.price.sale_price * item.quantity)}</strong>
-              <button
-                className="plain-icon"
-                onClick={() => setPerfumeCart(perfumeCart.filter((line) =>
-                  line.perfume.id !== item.perfume.id || line.price.flacon_id !== item.price.flacon_id
-                ))}
-              >
-                <Trash2 size={16} />
-              </button>
             </article>
           ))}
         </div>
@@ -452,8 +355,8 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [qrGenerating, setQrGenerating] = useState(true);
   const [settings, setSettings] = useState<Pick<AppSettings, "receipt_title" | "receipt_subtitle" | "show_invoice_logo" | "ticket_width_chars">>({
-    receipt_title: "ياسين لافار",
-    receipt_subtitle: "للأقمصة والعطور",
+    receipt_title: "Payla Outfit",
+    receipt_subtitle: "Fashion Boutique",
     show_invoice_logo: true,
     ticket_width_chars: 32
   });
@@ -461,8 +364,8 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
   useEffect(() => {
     api.appSettings()
       .then((saved) => setSettings({
-        receipt_title: saved.receipt_title || "ياسين لافار",
-        receipt_subtitle: saved.receipt_subtitle || "للأقمصة والعطور",
+        receipt_title: saved.receipt_title || "Payla Outfit",
+        receipt_subtitle: saved.receipt_subtitle || "Fashion Boutique",
         show_invoice_logo: saved.show_invoice_logo ?? true,
         ticket_width_chars: Math.min(48, Math.max(24, saved.ticket_width_chars || 32))
       }))
@@ -527,7 +430,7 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
     <div className="modal-backdrop">
       <section className="receipt-modal">
         <div className="receipt-paper" id="receipt">
-          {settings.show_invoice_logo && <img src={annaStoreLogo} alt="ياسين لافار" className="receipt-logo" />}
+          {settings.show_invoice_logo && <img src={paylaOutfitLogo} alt="Payla Outfit" className="receipt-logo" />}
           <h2>{settings.receipt_title}</h2>
           <p>{settings.receipt_subtitle}</p>
           <small>{sale.receipt_no} · {formatSaleDate(sale.created_at, language)}</small>
@@ -566,8 +469,8 @@ function ReceiptModal({ sale, language, onClose }: { sale: Sale; language: Langu
 function formatReceiptText(sale: Sale, t: ReturnType<typeof useText>, settings: Pick<AppSettings, "receipt_title" | "receipt_subtitle" | "ticket_width_chars">) {
   const width = Math.min(48, Math.max(24, settings.ticket_width_chars || 32));
   const lines = [
-    center(settings.receipt_title || "ياسين لافار", width),
-    center(settings.receipt_subtitle || "للأقمصة والعطور", width),
+    center(settings.receipt_title || "Payla Outfit", width),
+    center(settings.receipt_subtitle || "Fashion Boutique", width),
     "-".repeat(width),
     sale.receipt_no,
     formatSaleDate(sale.created_at, "ar"),

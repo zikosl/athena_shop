@@ -207,6 +207,91 @@ pub struct ExpenseInput {
     pub expense_date: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct VaultMovement {
+    pub id: i64,
+    pub movement_type: String,
+    pub label: String,
+    pub amount: f64,
+    pub note: String,
+    pub cashier: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VaultMovementInput {
+    pub id: Option<i64>,
+    pub movement_type: String,
+    pub label: String,
+    pub amount: f64,
+    pub note: String,
+    pub cashier: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VaultDebtPayment {
+    pub id: i64,
+    pub debt_id: i64,
+    pub amount: f64,
+    pub note: String,
+    pub cashier: String,
+    pub paid_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VaultDebt {
+    pub id: i64,
+    pub party_name: String,
+    pub phone: String,
+    pub debt_type: String,
+    pub principal_amount: f64,
+    pub paid_amount: f64,
+    pub remaining_amount: f64,
+    pub status: String,
+    pub due_date: String,
+    pub note: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub payments: Vec<VaultDebtPayment>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VaultDebtInput {
+    pub id: Option<i64>,
+    pub party_name: String,
+    pub phone: String,
+    pub debt_type: String,
+    pub principal_amount: f64,
+    pub due_date: String,
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VaultDebtPaymentInput {
+    pub debt_id: i64,
+    pub amount: f64,
+    pub note: String,
+    pub cashier: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VaultDashboard {
+    pub cash_balance: f64,
+    pub cash_in_total: f64,
+    pub cash_out_total: f64,
+    pub manual_receivable: f64,
+    pub manual_payable: f64,
+    pub sales_credit_remaining: f64,
+    pub supplier_remaining: f64,
+    pub total_receivable: f64,
+    pub total_payable: f64,
+    pub net_position: f64,
+    pub active_debts_count: i64,
+    pub overdue_debts_count: i64,
+    pub recent_movements: Vec<VaultMovement>,
+    pub debts: Vec<VaultDebt>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CheckoutItemInput {
     pub product_id: i64,
@@ -216,17 +301,8 @@ pub struct CheckoutItemInput {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct PerfumeCheckoutItemInput {
-    pub perfume_id: i64,
-    pub flacon_id: i64,
-    pub quantity: i64,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct CheckoutInput {
     pub items: Vec<CheckoutItemInput>,
-    #[serde(default)]
-    pub perfume_items: Vec<PerfumeCheckoutItemInput>,
     pub discount: f64,
     pub sale_type: String,
     pub paid_amount: f64,
@@ -258,88 +334,6 @@ pub struct SaleReturnInput {
     pub sale_id: i64,
     pub product_id: i64,
     pub quantity: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct Flacon {
-    pub id: i64,
-    pub name: String,
-    pub flacon_type: String,
-    pub volume_ml: f64,
-    pub sale_price: f64,
-    pub active: bool,
-    pub created_at: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct FlaconInput {
-    pub id: Option<i64>,
-    pub name: String,
-    pub flacon_type: String,
-    pub volume_ml: f64,
-    pub sale_price: f64,
-    pub active: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PerfumePurchase {
-    pub id: i64,
-    pub perfume_id: Option<i64>,
-    pub perfume_name: String,
-    pub title: String,
-    pub amount: f64,
-    pub volume_ml: f64,
-    pub note: String,
-    pub created_at: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PerfumePurchaseInput {
-    pub perfume_id: Option<i64>,
-    pub title: String,
-    pub amount: f64,
-    pub volume_ml: f64,
-    pub note: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PerfumePrice {
-    pub flacon_id: i64,
-    pub flacon_name: String,
-    pub volume_ml: f64,
-    pub sale_price: f64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct Perfume {
-    pub id: i64,
-    pub name: String,
-    pub family: String,
-    pub total_volume_ml: f64,
-    pub remaining_volume_ml: f64,
-    pub total_purchase_price: f64,
-    pub cost_per_ml: f64,
-    pub low_stock_ml: f64,
-    pub created_at: String,
-    pub updated_at: String,
-    pub prices: Vec<PerfumePrice>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PerfumePriceInput {
-    pub flacon_id: i64,
-    pub sale_price: f64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PerfumeInput {
-    pub id: Option<i64>,
-    pub name: String,
-    pub family: String,
-    pub added_volume_ml: f64,
-    pub total_purchase_price: f64,
-    pub low_stock_ml: f64,
-    pub prices: Vec<PerfumePriceInput>,
 }
 
 #[derive(Debug, Serialize)]

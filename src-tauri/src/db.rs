@@ -280,53 +280,6 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           cashier TEXT NOT NULL
         );
 
-        CREATE TABLE IF NOT EXISTS flacons (
-          id BIGSERIAL PRIMARY KEY,
-          name TEXT NOT NULL,
-          flacon_type TEXT NOT NULL DEFAULT 'x1',
-          volume_ml DOUBLE PRECISION NOT NULL,
-          sale_price DOUBLE PRECISION NOT NULL DEFAULT 0,
-          active BOOLEAN NOT NULL DEFAULT TRUE,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-
-        ALTER TABLE flacons ADD COLUMN IF NOT EXISTS flacon_type TEXT NOT NULL DEFAULT 'x1';
-        ALTER TABLE flacons ADD COLUMN IF NOT EXISTS sale_price DOUBLE PRECISION NOT NULL DEFAULT 0;
-
-        CREATE TABLE IF NOT EXISTS perfumes (
-          id BIGSERIAL PRIMARY KEY,
-          name TEXT NOT NULL,
-          family TEXT NOT NULL DEFAULT '',
-          total_volume_ml DOUBLE PRECISION NOT NULL DEFAULT 0,
-          remaining_volume_ml DOUBLE PRECISION NOT NULL DEFAULT 0,
-          total_purchase_price DOUBLE PRECISION NOT NULL DEFAULT 0,
-          cost_per_ml DOUBLE PRECISION NOT NULL DEFAULT 0,
-          low_stock_ml DOUBLE PRECISION NOT NULL DEFAULT 30,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-
-        CREATE TABLE IF NOT EXISTS perfume_prices (
-          perfume_id BIGINT NOT NULL REFERENCES perfumes(id) ON DELETE CASCADE,
-          flacon_id BIGINT NOT NULL REFERENCES flacons(id),
-          sale_price DOUBLE PRECISION NOT NULL DEFAULT 0,
-          PRIMARY KEY (perfume_id, flacon_id)
-        );
-
-        CREATE TABLE IF NOT EXISTS perfume_sale_items (
-          id BIGSERIAL PRIMARY KEY,
-          sale_id BIGINT NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
-          perfume_id BIGINT NOT NULL REFERENCES perfumes(id),
-          flacon_id BIGINT NOT NULL REFERENCES flacons(id),
-          perfume_name TEXT NOT NULL,
-          flacon_name TEXT NOT NULL,
-          volume_ml DOUBLE PRECISION NOT NULL,
-          quantity BIGINT NOT NULL,
-          unit_price DOUBLE PRECISION NOT NULL,
-          cost_per_ml DOUBLE PRECISION NOT NULL,
-          line_total DOUBLE PRECISION NOT NULL
-        );
-
         CREATE TABLE IF NOT EXISTS cash_shifts (
           id BIGSERIAL PRIMARY KEY,
           opening_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -338,21 +291,42 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           cashier TEXT NOT NULL
         );
 
-        CREATE TABLE IF NOT EXISTS perfume_purchases (
-          id BIGSERIAL PRIMARY KEY,
-          perfume_id BIGINT REFERENCES perfumes(id) ON DELETE SET NULL,
-          title TEXT NOT NULL,
-          amount DOUBLE PRECISION NOT NULL DEFAULT 0,
-          volume_ml DOUBLE PRECISION NOT NULL DEFAULT 0,
-          note TEXT NOT NULL DEFAULT '',
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-
         CREATE TABLE IF NOT EXISTS supplier_payments (
           id BIGSERIAL PRIMARY KEY,
           supplier_id BIGINT NOT NULL REFERENCES suppliers(id),
           purchase_order_id BIGINT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
           shift_id BIGINT REFERENCES cash_shifts(id),
+          amount DOUBLE PRECISION NOT NULL,
+          note TEXT NOT NULL DEFAULT '',
+          cashier TEXT NOT NULL,
+          paid_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS vault_movements (
+          id BIGSERIAL PRIMARY KEY,
+          movement_type TEXT NOT NULL,
+          label TEXT NOT NULL,
+          amount DOUBLE PRECISION NOT NULL,
+          note TEXT NOT NULL DEFAULT '',
+          cashier TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS vault_debts (
+          id BIGSERIAL PRIMARY KEY,
+          party_name TEXT NOT NULL,
+          phone TEXT NOT NULL DEFAULT '',
+          debt_type TEXT NOT NULL,
+          principal_amount DOUBLE PRECISION NOT NULL,
+          due_date TEXT NOT NULL DEFAULT '',
+          note TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS vault_debt_payments (
+          id BIGSERIAL PRIMARY KEY,
+          debt_id BIGINT NOT NULL REFERENCES vault_debts(id) ON DELETE CASCADE,
           amount DOUBLE PRECISION NOT NULL,
           note TEXT NOT NULL DEFAULT '',
           cashier TEXT NOT NULL,

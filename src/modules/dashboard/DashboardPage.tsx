@@ -5,9 +5,9 @@ import {
   ChartColumnIncreasing,
   Coins,
   HandCoins,
+  Landmark,
   ReceiptText,
   ShoppingCart,
-  SprayCan,
   Truck,
   Wallet
 } from "lucide-react";
@@ -33,7 +33,7 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
 
   const modules = [
     { key: "stock" as ViewKey, title: t.modules.stockTitle, icon: Box, text: t.modules.stockText },
-    { key: "perfumery" as ViewKey, title: t.modules.perfumeryTitle, icon: SprayCan, text: t.modules.perfumeryText },
+    { key: "vault" as ViewKey, title: t.modules.vaultTitle, icon: Landmark, text: t.modules.vaultText },
     { key: "pos" as ViewKey, title: t.modules.posTitle, icon: ShoppingCart, text: t.modules.posText },
     { key: "delivery" as ViewKey, title: t.modules.deliveryTitle, icon: Truck, text: t.modules.deliveryText },
     { key: "revenue" as ViewKey, title: t.modules.revenueTitle, icon: ChartColumnIncreasing, text: t.modules.revenueText },

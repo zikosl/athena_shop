@@ -24,12 +24,6 @@ pub fn run() {
             commands::expenses::list_expenses,
             commands::expenses::save_expense,
             commands::expenses::delete_expense,
-            commands::perfumery::list_flacons,
-            commands::perfumery::save_flacon,
-            commands::perfumery::list_perfumes,
-            commands::perfumery::list_perfume_purchases,
-            commands::perfumery::save_perfume,
-            commands::perfumery::save_perfume_purchase,
             commands::products::list_products,
             commands::products::save_product,
             commands::products::adjust_product_stock,
@@ -58,6 +52,15 @@ pub fn run() {
             commands::suppliers::list_suppliers,
             commands::suppliers::save_purchase_order_draft,
             commands::suppliers::save_supplier,
+            commands::vault::add_vault_debt_payment,
+            commands::vault::delete_vault_debt,
+            commands::vault::delete_vault_debt_payment,
+            commands::vault::delete_vault_movement,
+            commands::vault::get_vault_dashboard,
+            commands::vault::list_vault_debts,
+            commands::vault::list_vault_movements,
+            commands::vault::save_vault_debt,
+            commands::vault::save_vault_movement,
             commands::system::configure_database,
             commands::system::get_app_settings,
             commands::system::is_database_configured,
@@ -72,5 +75,5 @@ pub fn run() {
             commands::system::save_database,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Yassine POS");
+        .expect("error while running Payla Outfit POS");
 }

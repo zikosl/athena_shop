@@ -9,6 +9,7 @@ import {
   HandCoins,
   Home,
   Info,
+  Landmark,
   LogOut,
   Menu,
   Moon,
@@ -17,7 +18,6 @@ import {
   Settings,
   ShoppingCart,
   Scale,
-  SprayCan,
   Sun,
   Truck,
   Wallet,
@@ -30,18 +30,18 @@ import { DeliveryPage } from "../modules/delivery/DeliveryPage";
 import { ExpensesPage } from "../modules/expenses/ExpensesPage";
 import { CreditsPage } from "../modules/credits/CreditsPage";
 import { PosPage } from "../modules/pos/PosPage";
-import { PerfumeryPage } from "../modules/perfumery/PerfumeryPage";
 import { ReportsPage } from "../modules/reports/ReportsPage";
 import { RevenuePage } from "../modules/revenue/RevenuePage";
 import { SettingsPage } from "../modules/settings/SettingsPage";
 import { StockPage } from "../modules/stock/StockPage";
+import { VaultPage } from "../modules/vault/VaultPage";
 import { ZakatPage } from "../modules/zakat/ZakatPage";
 import { api } from "../shared/api";
 import { appDateLabel, hijriDateLabel, money } from "../shared/format";
 import { useText } from "../shared/i18n";
 import { AppToast, showToast } from "../shared/toast";
 import { AppSettings, CashShift, Language, ProductStockFilter, UserSession, ViewKey } from "../shared/types";
-import annaStoreLogo from "../assets/anna-store-logo.png";
+import paylaOutfitLogo from "../assets/payla-outfit-logo.png";
 import openzeyLogo from "../assets/openzey-logo.png";
 import openzeyLogoWhite from "../assets/openzey-logo-white.png";
 
@@ -51,9 +51,9 @@ const nav = [
   { key: "delivery", icon: Truck },
   { key: "revenue", icon: ChartColumnIncreasing },
   { key: "credits", icon: HandCoins },
+  { key: "vault", icon: Landmark },
   { key: "expenses", icon: Wallet },
   { key: "stock", icon: Box },
-  { key: "perfumery", icon: SprayCan },
   { key: "reports", icon: ReceiptText },
   { key: "zakat", icon: Scale },
   { key: "settings", icon: Settings }
@@ -62,23 +62,23 @@ const nav = [
 type Theme = "dark" | "light";
 
 const storageKeys = {
-  theme: "athena-shop-theme",
-  session: "athena-shop-session",
-  lang: "athena-shop-lang"
+  theme: "payla-outfit-theme",
+  session: "payla-outfit-session",
+  lang: "payla-outfit-lang"
 } as const;
 
 const legacyStorageKeys = {
-  theme: "denzel-pos-theme",
-  session: "denzel-pos-session",
-  lang: "denzel-pos-lang"
+  theme: ["athena-shop-theme", "denzel-pos-theme"],
+  session: ["athena-shop-session", "denzel-pos-session"],
+  lang: ["athena-shop-lang", "denzel-pos-lang"]
 } as const;
 
-function readStorage(key: string, legacyKey: string) {
+function readStorage(key: string, legacyKeys: readonly string[]) {
   const value = localStorage.getItem(key);
   if (value !== null) return value;
-  const legacyValue = localStorage.getItem(legacyKey);
-  if (legacyValue !== null) localStorage.setItem(key, legacyValue);
-  return legacyValue;
+  const legacyValue = legacyKeys.map((legacyKey) => localStorage.getItem(legacyKey)).find((item): item is string => item !== null);
+  if (legacyValue !== undefined) localStorage.setItem(key, legacyValue);
+  return legacyValue ?? null;
 }
 
 const defaultAppSettings: AppSettings = {
@@ -87,8 +87,8 @@ const defaultAppSettings: AppSettings = {
   max_discount_amount: 200,
   invoice_printer: "",
   barcode_printer: "",
-  receipt_title: "ياسين لافار",
-  receipt_subtitle: "للأقمصة والعطور",
+  receipt_title: "Payla Outfit",
+  receipt_subtitle: "Fashion Boutique",
   show_invoice_logo: true,
   ticket_width_chars: 32,
   barcode_label_width_mm: 40,
@@ -116,7 +116,7 @@ export function App() {
       return JSON.parse(raw) as UserSession;
     } catch {
       localStorage.removeItem(storageKeys.session);
-      localStorage.removeItem(legacyStorageKeys.session);
+      legacyStorageKeys.session.forEach((key) => localStorage.removeItem(key));
       return null;
     }
   });
@@ -216,7 +216,7 @@ export function App() {
   const logout = useCallback(async () => {
     await saveData();
     localStorage.removeItem(storageKeys.session);
-    localStorage.removeItem(legacyStorageKeys.session);
+    legacyStorageKeys.session.forEach((key) => localStorage.removeItem(key));
     setUser(null);
   }, [saveData]);
 
@@ -229,7 +229,7 @@ export function App() {
     if (!user) return null;
     if (view === "dashboard") return <DashboardPage language={language} onNavigate={setView} onOpenAlerts={openStockAlerts} refreshToken={refreshToken} />;
     if (view === "stock") return <StockPage language={language} onChanged={refresh} initialStockFilter={stockFilter} />;
-    if (view === "perfumery") return <PerfumeryPage language={language} onChanged={refresh} />;
+    if (view === "vault") return <VaultPage language={language} user={user} onChanged={refresh} />;
     if (view === "pos") return <PosPage language={language} user={user} onSale={refresh} />;
     if (view === "delivery") return <DeliveryPage language={language} onChanged={refresh} />;
     if (view === "revenue") return <RevenuePage language={language} onChanged={refresh} />;
@@ -273,7 +273,7 @@ export function App() {
       <aside className="sidebar">
         <div className="brand-mark">
           <div className="brand-logo-frame">
-            <img src={annaStoreLogo} alt="ياسين لافار للأقمصة والعطور" className="brand-logo" />
+            <img src={paylaOutfitLogo} alt="Payla Outfit" className="brand-logo" />
           </div>
         </div>
 
@@ -335,7 +335,7 @@ export function App() {
             </button>
             <section className="title-lockup">
               <div>
-                <h1>ياسين لافار للأقمصة والعطور</h1>
+                <h1>Payla Outfit</h1>
               </div>
             </section>
           </section>

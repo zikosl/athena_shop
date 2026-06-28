@@ -3,7 +3,7 @@ import { LockKeyhole, User } from "lucide-react";
 import { api } from "../../shared/api";
 import { useText } from "../../shared/i18n";
 import { Language, UserSession } from "../../shared/types";
-import annaStoreLogo from "../../assets/anna-store-logo.png";
+import paylaOutfitLogo from "../../assets/payla-outfit-logo.png";
 
 interface Props {
   language: Language;
@@ -31,10 +31,10 @@ export function LoginPage({ language, onLogin }: Props) {
       <div className="particles" />
       <form className="login-card" onSubmit={submit}>
         <div className="login-brand">
-          <img src={annaStoreLogo} alt="ياسين لافار لأقمصة والعطور" className="brand-logo" />
+          <img src={paylaOutfitLogo} alt="Payla Outfit" className="brand-logo" />
           <div>
-            <h1>ياسين لافار لأقمصة والعطور</h1>
-            <p>متجر الأقمصة والعطور</p>
+            <h1>Payla Outfit</h1>
+            <p>Fashion Boutique</p>
           </div>
         </div>
         <h2>{t.login}</h2>

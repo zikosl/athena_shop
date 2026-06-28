@@ -19,6 +19,11 @@ fn hide_console(command: &mut Command) -> &mut Command {
     command.creation_flags(CREATE_NO_WINDOW)
 }
 
+#[cfg(not(target_os = "windows"))]
+fn hide_console(command: &mut Command) -> &mut Command {
+    command
+}
+
 fn write_utf8_bom(path: &std::path::Path, content: &str) -> AppResult<()> {
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
     bytes.extend_from_slice(content.as_bytes());
@@ -91,7 +96,7 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             )?
             .map(|row| row.get::<_, String>(0))
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "ياسين لافار".into());
+            .unwrap_or_else(|| "Payla Outfit".into());
         let receipt_subtitle = client
             .query_opt(
                 "SELECT value FROM app_meta WHERE key = 'receipt_subtitle'",
@@ -99,7 +104,7 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             )?
             .map(|row| row.get::<_, String>(0))
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "للأقمصة والعطور".into());
+            .unwrap_or_else(|| "Fashion Boutique".into());
         let show_invoice_logo = client
             .query_opt(
                 "SELECT value FROM app_meta WHERE key = 'show_invoice_logo'",
@@ -432,7 +437,7 @@ pub fn print_receipt_text(
         .duration_since(UNIX_EPOCH)
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
-    let path = std::env::temp_dir().join(format!("anna-store-ticket-{timestamp}.txt"));
+    let path = std::env::temp_dir().join(format!("payla-outfit-ticket-{timestamp}.txt"));
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
     bytes.extend_from_slice(content.as_bytes());
     fs::write(&path, bytes)?;
@@ -468,7 +473,7 @@ pub fn print_barcode_labels(db: State<Database>, input: BarcodePrintInput) -> Ap
         .duration_since(UNIX_EPOCH)
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
-    let script_path = std::env::temp_dir().join(format!("anna-store-barcode-{timestamp}.ps1"));
+    let script_path = std::env::temp_dir().join(format!("payla-outfit-barcode-{timestamp}.ps1"));
     write_utf8_bom(&script_path, barcode_print_script())?;
 
     let output = hide_console(&mut Command::new("powershell.exe"))
@@ -514,7 +519,7 @@ fn print_file(
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
 
-    let script_path = std::env::temp_dir().join(format!("anna-store-receipt-{timestamp}.ps1"));
+    let script_path = std::env::temp_dir().join(format!("payla-outfit-receipt-{timestamp}.ps1"));
 
     write_utf8_bom(&script_path, receipt_print_script())?;
 
@@ -1229,26 +1234,54 @@ if ($found) {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
+fn ensure_printer_available(printer_name: &str) -> AppResult<()> {
+    let printer_name = printer_name.trim();
+    if printer_name.is_empty() {
+        return Ok(());
+    }
+
+    let output = Command::new("lpstat").arg("-a").output()?;
+    if !output.status.success() {
+        return Err(AppError::Message("Aucune imprimante disponible".into()));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .any(|name| name == printer_name)
+    {
+        Ok(())
+    } else {
+        Err(AppError::Message(format!(
+            "Imprimante introuvable: {}",
+            printer_name
+        )))
+    }
+}
+
 #[tauri::command]
 pub fn reset_with_dummy_data(db: State<Database>) -> AppResult<()> {
     db.with_client(|client| {
         client.batch_execute(
             "
-            TRUNCATE TABLE supplier_payments, purchase_order_items, purchase_orders, suppliers,
+            TRUNCATE TABLE vault_debt_payments, vault_debts, vault_movements,
+              supplier_payments, purchase_order_items, purchase_orders, suppliers,
               stock_movements, credit_payments, sale_items, sales, expenses, products, cash_shifts
               RESTART IDENTITY CASCADE;
 
             INSERT INTO products
               (id, name, barcode, category, size, color, quantity, low_stock_threshold, purchase_price, sale_price, image_data)
             VALUES
-              (1, 'Pyjama satin noir', 'AS-DEMO-001', 'Products', 'M', 'Noir', 18, 4, 1800, 3400, ''),
-              (2, 'Ensemble coton creme', 'AS-DEMO-002', 'Products', 'L', 'Creme', 22, 5, 1400, 2800, ''),
-              (3, 'Robe maison fleurie', 'AS-DEMO-003', 'Products', 'M', 'Rose', 8, 3, 2100, 4300, ''),
-              (4, 'Pantoufles soft', 'AS-DEMO-004', 'Accessoires', '38', 'Beige', 5, 4, 700, 1600, ''),
-              (5, 'Sac cadeau boutique', 'AS-DEMO-005', 'Accessoires', 'Standard', 'Or', 35, 8, 120, 350, ''),
-              (6, 'Kimono premium', 'AS-DEMO-006', 'Products', 'XL', 'Olive', 3, 4, 3200, 6500, ''),
-              (7, 'Musc blanc 12ml', 'AS-DEMO-007', 'Perfumerie', '12ml', 'Blanc', 16, 5, 650, 1500, ''),
-              (8, 'Parfum oud 30ml', 'AS-DEMO-008', 'Perfumerie', '30ml', 'Ambre', 9, 3, 1900, 4200, '');
+              (1, 'Robe satin noire', 'PO-DEMO-001', 'Robes', 'M', 'Noir', 18, 4, 1800, 3400, ''),
+              (2, 'Ensemble coton creme', 'PO-DEMO-002', 'Ensembles', 'L', 'Creme', 22, 5, 1400, 2800, ''),
+              (3, 'Robe maison fleurie', 'PO-DEMO-003', 'Robes', 'M', 'Rose', 8, 3, 2100, 4300, ''),
+              (4, 'Escarpins soft', 'PO-DEMO-004', 'Chaussures', '38', 'Beige', 5, 4, 700, 1600, ''),
+              (5, 'Sac cadeau boutique', 'PO-DEMO-005', 'Accessoires', 'Standard', 'Or', 35, 8, 120, 350, ''),
+              (6, 'Kimono premium', 'PO-DEMO-006', 'Kimonos', 'XL', 'Olive', 3, 4, 3200, 6500, ''),
+              (7, 'Foulard satin', 'PO-DEMO-007', 'Accessoires', 'Standard', 'Blanc', 16, 5, 650, 1500, ''),
+              (8, 'Pochette elegante', 'PO-DEMO-008', 'Sacs', 'Petit', 'Ambre', 9, 3, 1900, 4200, '');
 
             INSERT INTO expenses (id, label, category, amount, note, expense_date, created_at)
             VALUES
@@ -1262,26 +1295,26 @@ pub fn reset_with_dummy_data(db: State<Database>) -> AppResult<()> {
               (id, receipt_no, subtotal, discount, total, profit, payment_method, sale_type, customer_name, customer_phone,
                paid_amount, remaining_amount, due_date, credit_note, credit_status, cashier, created_at)
             VALUES
-              (1, 'AS-DEMO-0001', 6200, 0, 6200, 3200, 'Especes', 'cash', '', '', 6200, 0, '', '', 'paid', 'Administrateur', NOW() - INTERVAL '6 days'),
-              (2, 'AS-DEMO-0002', 8600, 200, 8400, 4200, 'Especes', 'credit', 'Samira', '0555000001', 6000, 2400, '', 'Client fidele', 'partial', 'Administrateur', NOW() - INTERVAL '4 days'),
-              (3, 'AS-DEMO-0003', 6150, 0, 6150, 2780, 'Especes', 'cash', '', '', 6150, 0, '', '', 'paid', 'Administrateur', NOW() - INTERVAL '1 day'),
-              (4, 'AS-DEMO-0004', 10800, 0, 10800, 5200, 'Especes', 'credit', 'Nadia', '0555000002', 4000, 6800, '', 'A payer fin semaine', 'partial', 'Administrateur', NOW()),
-              (5, 'AS-DEMO-0005', 3150, 0, 3150, 1730, 'Especes', 'cash', '', '', 3150, 0, '', '', 'paid', 'Administrateur', NOW());
+              (1, 'PO-DEMO-0001', 6200, 0, 6200, 3200, 'Especes', 'cash', '', '', 6200, 0, '', '', 'paid', 'Administrateur', NOW() - INTERVAL '6 days'),
+              (2, 'PO-DEMO-0002', 8600, 200, 8400, 4200, 'Especes', 'credit', 'Samira', '0555000001', 6000, 2400, '', 'Client fidele', 'partial', 'Administrateur', NOW() - INTERVAL '4 days'),
+              (3, 'PO-DEMO-0003', 6150, 0, 6150, 2780, 'Especes', 'cash', '', '', 6150, 0, '', '', 'paid', 'Administrateur', NOW() - INTERVAL '1 day'),
+              (4, 'PO-DEMO-0004', 10800, 0, 10800, 5200, 'Especes', 'credit', 'Nadia', '0555000002', 4000, 6800, '', 'A payer fin semaine', 'partial', 'Administrateur', NOW()),
+              (5, 'PO-DEMO-0005', 3150, 0, 3150, 1730, 'Especes', 'cash', '', '', 3150, 0, '', '', 'paid', 'Administrateur', NOW());
 
             INSERT INTO sale_items
               (sale_id, product_id, product_name, barcode, quantity, unit_price, purchase_price, line_total)
             VALUES
-              (1, 1, 'Pyjama satin noir', 'AS-DEMO-001', 1, 3400, 1800, 3400),
-              (1, 2, 'Ensemble coton creme', 'AS-DEMO-002', 1, 2800, 1400, 2800),
-              (2, 3, 'Robe maison fleurie', 'AS-DEMO-003', 2, 4300, 2100, 8600),
-              (3, 7, 'Musc blanc 12ml', 'AS-DEMO-007', 3, 1500, 650, 4500),
-              (3, 4, 'Pantoufles soft', 'AS-DEMO-004', 1, 1600, 700, 1600),
-              (3, 5, 'Sac cadeau boutique', 'AS-DEMO-005', 1, 50, 20, 50),
-              (4, 6, 'Kimono premium', 'AS-DEMO-006', 1, 6500, 3200, 6500),
-              (4, 8, 'Parfum oud 30ml', 'AS-DEMO-008', 1, 4200, 1900, 4200),
-              (4, 5, 'Sac cadeau boutique', 'AS-DEMO-005', 1, 100, 20, 100),
-              (5, 2, 'Ensemble coton creme', 'AS-DEMO-002', 1, 2800, 1400, 2800),
-              (5, 5, 'Sac cadeau boutique', 'AS-DEMO-005', 1, 350, 120, 350);
+              (1, 1, 'Robe satin noire', 'PO-DEMO-001', 1, 3400, 1800, 3400),
+              (1, 2, 'Ensemble coton creme', 'PO-DEMO-002', 1, 2800, 1400, 2800),
+              (2, 3, 'Robe maison fleurie', 'PO-DEMO-003', 2, 4300, 2100, 8600),
+              (3, 7, 'Foulard satin', 'PO-DEMO-007', 3, 1500, 650, 4500),
+              (3, 4, 'Escarpins soft', 'PO-DEMO-004', 1, 1600, 700, 1600),
+              (3, 5, 'Sac cadeau boutique', 'PO-DEMO-005', 1, 50, 20, 50),
+              (4, 6, 'Kimono premium', 'PO-DEMO-006', 1, 6500, 3200, 6500),
+              (4, 8, 'Pochette elegante', 'PO-DEMO-008', 1, 4200, 1900, 4200),
+              (4, 5, 'Sac cadeau boutique', 'PO-DEMO-005', 1, 100, 20, 100),
+              (5, 2, 'Ensemble coton creme', 'PO-DEMO-002', 1, 2800, 1400, 2800),
+              (5, 5, 'Sac cadeau boutique', 'PO-DEMO-005', 1, 350, 120, 350);
 
             INSERT INTO credit_payments (id, sale_id, amount, note, cashier, paid_at)
             VALUES
@@ -1310,7 +1343,7 @@ pub fn open_cash_drawer(db: State<Database>) -> AppResult<()> {
         .duration_since(UNIX_EPOCH)
         .map_err(|error| AppError::Message(error.to_string()))?
         .as_millis();
-    let path = std::env::temp_dir().join(format!("anna-store-drawer-{timestamp}.bin"));
+    let path = std::env::temp_dir().join(format!("payla-outfit-drawer-{timestamp}.bin"));
     fs::write(&path, pulse)?;
 
     if let Err(error) = print_file(
@@ -1361,10 +1394,9 @@ pub fn empty_database(db: State<Database>) -> AppResult<()> {
         client.batch_execute(
             "
             TRUNCATE TABLE
-              perfume_sale_items,
-              perfume_prices,
-              perfumes,
-              flacons,
+              vault_debt_payments,
+              vault_debts,
+              vault_movements,
               credit_payments,
               sale_items,
               sales,

@@ -1,5 +1,5 @@
 export type Language = "fr" | "ar";
-export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "delivery" | "revenue" | "reports" | "expenses" | "credits" | "zakat" | "settings";
+export type ViewKey = "dashboard" | "stock" | "vault" | "pos" | "delivery" | "revenue" | "reports" | "expenses" | "credits" | "zakat" | "settings";
 
 export interface UserSession {
   id: number;
@@ -210,6 +210,87 @@ export interface ExpenseInput {
   expense_date: string;
 }
 
+export type VaultMovementType = "in" | "out";
+export type VaultDebtType = "receivable" | "payable";
+
+export interface VaultMovement {
+  id: number;
+  movement_type: VaultMovementType;
+  label: string;
+  amount: number;
+  note: string;
+  cashier: string;
+  created_at: string;
+}
+
+export interface VaultMovementInput {
+  id?: number;
+  movement_type: VaultMovementType;
+  label: string;
+  amount: number;
+  note: string;
+  cashier: string;
+}
+
+export interface VaultDebtPayment {
+  id: number;
+  debt_id: number;
+  amount: number;
+  note: string;
+  cashier: string;
+  paid_at: string;
+}
+
+export interface VaultDebt {
+  id: number;
+  party_name: string;
+  phone: string;
+  debt_type: VaultDebtType;
+  principal_amount: number;
+  paid_amount: number;
+  remaining_amount: number;
+  status: "open" | "partial" | "paid";
+  due_date: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+  payments: VaultDebtPayment[];
+}
+
+export interface VaultDebtInput {
+  id?: number;
+  party_name: string;
+  phone: string;
+  debt_type: VaultDebtType;
+  principal_amount: number;
+  due_date: string;
+  note: string;
+}
+
+export interface VaultDebtPaymentInput {
+  debt_id: number;
+  amount: number;
+  note: string;
+  cashier: string;
+}
+
+export interface VaultDashboard {
+  cash_balance: number;
+  cash_in_total: number;
+  cash_out_total: number;
+  manual_receivable: number;
+  manual_payable: number;
+  sales_credit_remaining: number;
+  supplier_remaining: number;
+  total_receivable: number;
+  total_payable: number;
+  net_position: number;
+  active_debts_count: number;
+  overdue_debts_count: number;
+  recent_movements: VaultMovement[];
+  debts: VaultDebt[];
+}
+
 export interface DashboardStats {
   sales_today: number;
   sales_count_today: number;
@@ -295,89 +376,8 @@ export interface CartItem {
   unit_price: number;
 }
 
-export interface Flacon {
-  id: number;
-  name: string;
-  flacon_type: "x1" | "x2" | "x3";
-  volume_ml: number;
-  sale_price: number;
-  active: boolean;
-  created_at: string;
-}
-
-export interface FlaconInput {
-  id?: number;
-  name: string;
-  flacon_type: "x1" | "x2" | "x3";
-  volume_ml: number;
-  sale_price: number;
-  active: boolean;
-}
-
-export interface PerfumePurchase {
-  id: number;
-  perfume_id?: number;
-  perfume_name: string;
-  title: string;
-  amount: number;
-  volume_ml: number;
-  note: string;
-  created_at: string;
-}
-
-export interface PerfumePurchaseInput {
-  perfume_id?: number;
-  title: string;
-  amount: number;
-  volume_ml: number;
-  note: string;
-}
-
-export interface PerfumePrice {
-  flacon_id: number;
-  flacon_name: string;
-  volume_ml: number;
-  sale_price: number;
-}
-
-export interface Perfume {
-  id: number;
-  name: string;
-  family: string;
-  total_volume_ml: number;
-  remaining_volume_ml: number;
-  total_purchase_price: number;
-  cost_per_ml: number;
-  low_stock_ml: number;
-  created_at: string;
-  updated_at: string;
-  prices: PerfumePrice[];
-}
-
-export interface PerfumePriceInput {
-  flacon_id: number;
-  sale_price: number;
-}
-
-export interface PerfumeInput {
-  id?: number;
-  name: string;
-  family: string;
-  added_volume_ml: number;
-  total_purchase_price: number;
-  low_stock_ml: number;
-  prices: PerfumePriceInput[];
-}
-
-export interface PerfumeCartItem {
-  perfume: Perfume;
-  price: PerfumePrice;
-  quantity: number;
-}
-
 export interface CheckoutInput {
   items: Array<{ product_id: number; quantity: number; unit_price: number }>;
-  perfume_items: Array<{ perfume_id: number; flacon_id: number; quantity: number }>;
   discount: number;
   sale_type: "cash" | "credit" | "delivery";
   paid_amount: number;
