@@ -1,5 +1,5 @@
 export type Language = "fr" | "ar";
-export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "delivery" | "revenue" | "reports" | "expenses" | "credits" | "zakat" | "settings";
+export type ViewKey = "dashboard" | "stock" | "perfumery" | "pos" | "delivery" | "revenue" | "vault" | "reports" | "expenses" | "credits" | "zakat" | "settings";
 
 export interface UserSession {
   id: number;
@@ -208,6 +208,87 @@ export interface ExpenseInput {
   amount: number;
   note: string;
   expense_date: string;
+}
+
+export type VaultMovementType = "in" | "out";
+export type VaultDebtType = "receivable" | "payable";
+
+export interface VaultMovement {
+  id: number;
+  movement_type: VaultMovementType;
+  label: string;
+  amount: number;
+  note: string;
+  cashier: string;
+  created_at: string;
+}
+
+export interface VaultMovementInput {
+  id?: number;
+  movement_type: VaultMovementType;
+  label: string;
+  amount: number;
+  note: string;
+  cashier: string;
+}
+
+export interface VaultDebtPayment {
+  id: number;
+  debt_id: number;
+  amount: number;
+  note: string;
+  cashier: string;
+  paid_at: string;
+}
+
+export interface VaultDebt {
+  id: number;
+  party_name: string;
+  phone: string;
+  debt_type: VaultDebtType;
+  principal_amount: number;
+  paid_amount: number;
+  remaining_amount: number;
+  status: "open" | "partial" | "paid";
+  due_date: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+  payments: VaultDebtPayment[];
+}
+
+export interface VaultDebtInput {
+  id?: number;
+  party_name: string;
+  phone: string;
+  debt_type: VaultDebtType;
+  principal_amount: number;
+  due_date: string;
+  note: string;
+}
+
+export interface VaultDebtPaymentInput {
+  debt_id: number;
+  amount: number;
+  note: string;
+  cashier: string;
+}
+
+export interface VaultDashboard {
+  cash_balance: number;
+  cash_in_total: number;
+  cash_out_total: number;
+  manual_receivable: number;
+  manual_payable: number;
+  sales_credit_remaining: number;
+  supplier_remaining: number;
+  total_receivable: number;
+  total_payable: number;
+  net_position: number;
+  active_debts_count: number;
+  overdue_debts_count: number;
+  recent_movements: VaultMovement[];
+  debts: VaultDebt[];
 }
 
 export interface DashboardStats {

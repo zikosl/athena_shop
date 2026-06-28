@@ -35,7 +35,13 @@ import {
   Sale,
   SaleReturnInput,
   SaleUpdateInput,
-  UserSession
+  UserSession,
+  VaultDashboard,
+  VaultDebt,
+  VaultDebtInput,
+  VaultDebtPaymentInput,
+  VaultMovement,
+  VaultMovementInput
 } from "./types";
 import { dateInputValue, todayInputValue } from "./format";
 
@@ -79,6 +85,8 @@ type Db = {
   suppliers: Supplier[];
   purchaseOrders: PurchaseOrder[];
   supplierPayments: SupplierPayment[];
+  vaultMovements: VaultMovement[];
+  vaultDebts: VaultDebt[];
   settings: AppSettings;
 };
 
@@ -104,6 +112,8 @@ const seed: Db = {
   suppliers: [],
   purchaseOrders: [],
   supplierPayments: [],
+  vaultMovements: [],
+  vaultDebts: [],
   settings: defaultSettings()
 };
 
@@ -158,6 +168,8 @@ function readDb(): Db {
     suppliers: parsed.suppliers ?? [],
     purchaseOrders: parsed.purchaseOrders ?? [],
     supplierPayments: parsed.supplierPayments ?? [],
+    vaultMovements: parsed.vaultMovements ?? [],
+    vaultDebts: (parsed.vaultDebts ?? []).map(withDemoDebtTotals),
     settings: {
       allow_negative_stock: parsed.settings?.allow_negative_stock ?? true,
       cash_register_auto_close_time: parsed.settings?.cash_register_auto_close_time ?? "23:59",
@@ -213,6 +225,18 @@ function normalizeSale(sale: Sale): Sale {
   };
 }
 
+function withDemoDebtTotals(debt: VaultDebt): VaultDebt {
+  const paid = (debt.payments ?? []).reduce((sum, payment) => sum + payment.amount, 0);
+  const remaining = Math.max(0, debt.principal_amount - paid);
+  return {
+    ...debt,
+    paid_amount: paid,
+    remaining_amount: remaining,
+    status: remaining <= 0 ? "paid" : paid > 0 ? "partial" : "open",
+    payments: debt.payments ?? []
+  };
+}
+
 function writeDb(db: Db) {
   localStorage.setItem(demoDbKey, JSON.stringify(db));
 }
@@ -231,6 +255,8 @@ function makeEmptyDb(): Db {
     suppliers: [],
     purchaseOrders: [],
     supplierPayments: [],
+    vaultMovements: [],
+    vaultDebts: [],
     settings: defaultSettings()
   };
 }
@@ -296,6 +322,42 @@ function makeDummyDb(): Db {
     suppliers: [],
     purchaseOrders: [],
     supplierPayments: [],
+    vaultMovements: [
+      { id: 1, movement_type: "in", label: "رصيد البداية", amount: 85000, note: "بيانات تجريبية", cashier: "المدير", created_at: date(6) },
+      { id: 2, movement_type: "out", label: "سحب للمشتريات", amount: 12000, note: "شراء مستلزمات", cashier: "المدير", created_at: date(2) }
+    ],
+    vaultDebts: [
+      withDemoDebtTotals({
+        id: 1,
+        party_name: "سارة",
+        phone: "0555000010",
+        debt_type: "receivable",
+        principal_amount: 15000,
+        paid_amount: 4000,
+        remaining_amount: 11000,
+        status: "partial",
+        due_date: date(3).slice(0, 10),
+        note: "دين خارج الفواتير",
+        created_at: date(7),
+        updated_at: date(1),
+        payments: [{ id: 1, debt_id: 1, amount: 4000, note: "دفعة أولى", cashier: "المدير", paid_at: date(1) }]
+      }),
+      withDemoDebtTotals({
+        id: 2,
+        party_name: "تصليح الواجهة",
+        phone: "",
+        debt_type: "payable",
+        principal_amount: 9000,
+        paid_amount: 0,
+        remaining_amount: 9000,
+        status: "open",
+        due_date: "",
+        note: "دين يدوي",
+        created_at: date(4),
+        updated_at: date(4),
+        payments: []
+      })
+    ],
     settings: defaultSettings()
   };
 }
@@ -1077,6 +1139,146 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     } as T;
   }
 
+  if (command === "get_vault_dashboard") {
+    const manualReceivable = db.vaultDebts
+      .filter((debt) => debt.debt_type === "receivable")
+      .reduce((sum, debt) => sum + withDemoDebtTotals(debt).remaining_amount, 0);
+    const manualPayable = db.vaultDebts
+      .filter((debt) => debt.debt_type === "payable")
+      .reduce((sum, debt) => sum + withDemoDebtTotals(debt).remaining_amount, 0);
+    const salesCreditRemaining = db.sales
+      .filter((sale) => sale.sale_type === "credit")
+      .reduce((sum, sale) => sum + sale.remaining_amount, 0);
+    const supplierRemaining = db.purchaseOrders
+      .filter((order) => order.status !== "draft")
+      .reduce((sum, order) => sum + order.remaining_amount, 0);
+    const cashIn = db.vaultMovements
+      .filter((movement) => movement.movement_type === "in")
+      .reduce((sum, movement) => sum + movement.amount, 0);
+    const cashOut = db.vaultMovements
+      .filter((movement) => movement.movement_type === "out")
+      .reduce((sum, movement) => sum + movement.amount, 0);
+    const today = todayInputValue();
+    const debts = db.vaultDebts.map(withDemoDebtTotals).sort((a, b) => b.remaining_amount - a.remaining_amount || b.updated_at.localeCompare(a.updated_at));
+    return {
+      cash_balance: cashIn - cashOut,
+      cash_in_total: cashIn,
+      cash_out_total: cashOut,
+      manual_receivable: manualReceivable,
+      manual_payable: manualPayable,
+      sales_credit_remaining: salesCreditRemaining,
+      supplier_remaining: supplierRemaining,
+      total_receivable: manualReceivable + salesCreditRemaining,
+      total_payable: manualPayable + supplierRemaining,
+      net_position: cashIn - cashOut + manualReceivable + salesCreditRemaining - manualPayable - supplierRemaining,
+      active_debts_count: debts.filter((debt) => debt.remaining_amount > 0).length,
+      overdue_debts_count: debts.filter((debt) => debt.remaining_amount > 0 && debt.due_date && debt.due_date < today).length,
+      recent_movements: [...db.vaultMovements].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id).slice(0, 8),
+      debts
+    } as T;
+  }
+
+  if (command === "list_vault_movements") {
+    return [...db.vaultMovements].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id) as T;
+  }
+
+  if (command === "save_vault_movement") {
+    const input = args?.input as VaultMovementInput;
+    if (!input.label.trim() || input.amount <= 0) throw new Error("التسمية والمبلغ الصحيحان إجباريان");
+    const existing = input.id ? db.vaultMovements.find((movement) => movement.id === input.id) : undefined;
+    const movement: VaultMovement = {
+      id: existing?.id ?? Date.now(),
+      movement_type: input.movement_type,
+      label: input.label.trim(),
+      amount: input.amount,
+      note: input.note.trim(),
+      cashier: input.cashier.trim(),
+      created_at: existing?.created_at ?? new Date().toISOString()
+    };
+    db.vaultMovements = existing
+      ? db.vaultMovements.map((item) => item.id === movement.id ? movement : item)
+      : [movement, ...db.vaultMovements];
+    writeDb(db);
+    return movement as T;
+  }
+
+  if (command === "delete_vault_movement") {
+    db.vaultMovements = db.vaultMovements.filter((movement) => movement.id !== args?.id);
+    writeDb(db);
+    return undefined as T;
+  }
+
+  if (command === "list_vault_debts") {
+    return db.vaultDebts.map(withDemoDebtTotals).sort((a, b) => b.remaining_amount - a.remaining_amount || b.updated_at.localeCompare(a.updated_at)) as T;
+  }
+
+  if (command === "save_vault_debt") {
+    const input = args?.input as VaultDebtInput;
+    if (!input.party_name.trim() || input.principal_amount <= 0) throw new Error("الاسم والمبلغ الصحيحان إجباريان");
+    const existing = input.id ? db.vaultDebts.find((debt) => debt.id === input.id) : undefined;
+    const paid = existing?.payments.reduce((sum, payment) => sum + payment.amount, 0) ?? 0;
+    if (input.principal_amount < paid) throw new Error("المبلغ الأصلي أصغر من الدفعات المسجلة");
+    const now = new Date().toISOString();
+    const debt = withDemoDebtTotals({
+      id: existing?.id ?? Date.now(),
+      party_name: input.party_name.trim(),
+      phone: input.phone.trim(),
+      debt_type: input.debt_type,
+      principal_amount: input.principal_amount,
+      paid_amount: paid,
+      remaining_amount: Math.max(0, input.principal_amount - paid),
+      status: "open",
+      due_date: input.due_date,
+      note: input.note.trim(),
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+      payments: existing?.payments ?? []
+    });
+    db.vaultDebts = existing
+      ? db.vaultDebts.map((item) => item.id === debt.id ? debt : item)
+      : [debt, ...db.vaultDebts];
+    writeDb(db);
+    return debt as T;
+  }
+
+  if (command === "delete_vault_debt") {
+    db.vaultDebts = db.vaultDebts.filter((debt) => debt.id !== args?.id);
+    writeDb(db);
+    return undefined as T;
+  }
+
+  if (command === "add_vault_debt_payment") {
+    const input = args?.input as VaultDebtPaymentInput;
+    const debt = db.vaultDebts.find((item) => item.id === input.debt_id);
+    if (!debt) throw new Error("الدين غير موجود");
+    const totals = withDemoDebtTotals(debt);
+    if (input.amount <= 0 || input.amount > totals.remaining_amount) throw new Error("مبلغ الدفعة غير صالح");
+    debt.payments.unshift({
+      id: Date.now(),
+      debt_id: debt.id,
+      amount: input.amount,
+      note: input.note.trim(),
+      cashier: input.cashier.trim(),
+      paid_at: new Date().toISOString()
+    });
+    debt.updated_at = new Date().toISOString();
+    const updated = withDemoDebtTotals(debt);
+    Object.assign(debt, updated);
+    writeDb(db);
+    return updated as T;
+  }
+
+  if (command === "delete_vault_debt_payment") {
+    const debt = db.vaultDebts.find((item) => item.payments.some((payment) => payment.id === args?.id));
+    if (!debt) throw new Error("الدفعة غير موجودة");
+    debt.payments = debt.payments.filter((payment) => payment.id !== args?.id);
+    debt.updated_at = new Date().toISOString();
+    const updated = withDemoDebtTotals(debt);
+    Object.assign(debt, updated);
+    writeDb(db);
+    return updated as T;
+  }
+
   if (command === "get_dashboard") {
     const today = todayInputValue();
     const yesterday = inputFromDate(new Date(Date.now() - 86_400_000));
@@ -1590,5 +1792,14 @@ export const api = {
   returnSaleItem: (input: SaleReturnInput) => call<Sale>("return_sale_item", { input }),
   deleteSale: (id: number) => call<void>("delete_sale", { id }),
   credits: () => call<CreditAccount[]>("list_credits"),
-  addCreditPayment: (input: CreditPaymentInput) => call<CreditAccount>("add_credit_payment", { input })
+  addCreditPayment: (input: CreditPaymentInput) => call<CreditAccount>("add_credit_payment", { input }),
+  vaultDashboard: () => call<VaultDashboard>("get_vault_dashboard"),
+  vaultMovements: () => call<VaultMovement[]>("list_vault_movements"),
+  saveVaultMovement: (input: VaultMovementInput) => call<VaultMovement>("save_vault_movement", { input }),
+  deleteVaultMovement: (id: number) => call<void>("delete_vault_movement", { id }),
+  vaultDebts: () => call<VaultDebt[]>("list_vault_debts"),
+  saveVaultDebt: (input: VaultDebtInput) => call<VaultDebt>("save_vault_debt", { input }),
+  deleteVaultDebt: (id: number) => call<void>("delete_vault_debt", { id }),
+  addVaultDebtPayment: (input: VaultDebtPaymentInput) => call<VaultDebt>("add_vault_debt_payment", { input }),
+  deleteVaultDebtPayment: (id: number) => call<VaultDebt>("delete_vault_debt_payment", { id })
 };

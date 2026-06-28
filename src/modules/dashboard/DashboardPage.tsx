@@ -5,6 +5,7 @@ import {
   ChartColumnIncreasing,
   Coins,
   HandCoins,
+  Landmark,
   ReceiptText,
   ShoppingCart,
   SprayCan,
@@ -37,6 +38,7 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
     { key: "pos" as ViewKey, title: t.modules.posTitle, icon: ShoppingCart, text: t.modules.posText },
     { key: "delivery" as ViewKey, title: t.modules.deliveryTitle, icon: Truck, text: t.modules.deliveryText },
     { key: "revenue" as ViewKey, title: t.modules.revenueTitle, icon: ChartColumnIncreasing, text: t.modules.revenueText },
+    { key: "vault" as ViewKey, title: t.modules.vaultTitle, icon: Landmark, text: t.modules.vaultText },
     { key: "reports" as ViewKey, title: t.modules.reportsTitle, icon: ReceiptText, text: t.modules.reportsText },
     { key: "expenses" as ViewKey, title: t.modules.expensesTitle, icon: Wallet, text: t.modules.expensesText },
     { key: "credits" as ViewKey, title: t.modules.creditsTitle, icon: HandCoins, text: t.modules.creditsText }
@@ -114,11 +116,26 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
         {modules.map((module) => {
           const Icon = module.icon;
           return (
-            <article className="module-card" key={module.key}>
+            <article
+              className="module-card"
+              key={module.key}
+              role="button"
+              tabIndex={0}
+              onClick={() => onNavigate(module.key)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onNavigate(module.key);
+                }
+              }}
+            >
               <div className="module-icon"><Icon size={48} /></div>
               <h3>{module.title}</h3>
               <p>{module.text}</p>
-              <button onClick={() => onNavigate(module.key)}>{t.access}<span>←</span></button>
+              <button onClick={(event) => {
+                event.stopPropagation();
+                onNavigate(module.key);
+              }}>{t.access}<span>←</span></button>
             </article>
           );
         })}

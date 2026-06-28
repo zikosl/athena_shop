@@ -207,6 +207,91 @@ pub struct ExpenseInput {
     pub expense_date: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct VaultMovement {
+    pub id: i64,
+    pub movement_type: String,
+    pub label: String,
+    pub amount: f64,
+    pub note: String,
+    pub cashier: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VaultMovementInput {
+    pub id: Option<i64>,
+    pub movement_type: String,
+    pub label: String,
+    pub amount: f64,
+    pub note: String,
+    pub cashier: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VaultDebtPayment {
+    pub id: i64,
+    pub debt_id: i64,
+    pub amount: f64,
+    pub note: String,
+    pub cashier: String,
+    pub paid_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VaultDebt {
+    pub id: i64,
+    pub party_name: String,
+    pub phone: String,
+    pub debt_type: String,
+    pub principal_amount: f64,
+    pub paid_amount: f64,
+    pub remaining_amount: f64,
+    pub status: String,
+    pub due_date: String,
+    pub note: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub payments: Vec<VaultDebtPayment>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VaultDebtInput {
+    pub id: Option<i64>,
+    pub party_name: String,
+    pub phone: String,
+    pub debt_type: String,
+    pub principal_amount: f64,
+    pub due_date: String,
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VaultDebtPaymentInput {
+    pub debt_id: i64,
+    pub amount: f64,
+    pub note: String,
+    pub cashier: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VaultDashboard {
+    pub cash_balance: f64,
+    pub cash_in_total: f64,
+    pub cash_out_total: f64,
+    pub manual_receivable: f64,
+    pub manual_payable: f64,
+    pub sales_credit_remaining: f64,
+    pub supplier_remaining: f64,
+    pub total_receivable: f64,
+    pub total_payable: f64,
+    pub net_position: f64,
+    pub active_debts_count: i64,
+    pub overdue_debts_count: i64,
+    pub recent_movements: Vec<VaultMovement>,
+    pub debts: Vec<VaultDebt>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CheckoutItemInput {
     pub product_id: i64,

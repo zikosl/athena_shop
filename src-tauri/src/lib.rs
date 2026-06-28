@@ -70,6 +70,15 @@ pub fn run() {
             commands::system::reset_with_dummy_data,
             commands::system::save_app_settings,
             commands::system::save_database,
+            commands::vault::add_vault_debt_payment,
+            commands::vault::delete_vault_debt,
+            commands::vault::delete_vault_debt_payment,
+            commands::vault::delete_vault_movement,
+            commands::vault::get_vault_dashboard,
+            commands::vault::list_vault_debts,
+            commands::vault::list_vault_movements,
+            commands::vault::save_vault_debt,
+            commands::vault::save_vault_movement,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Yassine POS");

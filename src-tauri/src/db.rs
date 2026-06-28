@@ -359,6 +359,38 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           paid_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
+        CREATE TABLE IF NOT EXISTS vault_movements (
+          id BIGSERIAL PRIMARY KEY,
+          movement_type TEXT NOT NULL,
+          label TEXT NOT NULL,
+          amount DOUBLE PRECISION NOT NULL,
+          note TEXT NOT NULL DEFAULT '',
+          cashier TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS vault_debts (
+          id BIGSERIAL PRIMARY KEY,
+          party_name TEXT NOT NULL,
+          phone TEXT NOT NULL DEFAULT '',
+          debt_type TEXT NOT NULL,
+          principal_amount DOUBLE PRECISION NOT NULL,
+          paid_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+          due_date TEXT NOT NULL DEFAULT '',
+          note TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS vault_debt_payments (
+          id BIGSERIAL PRIMARY KEY,
+          debt_id BIGINT NOT NULL REFERENCES vault_debts(id) ON DELETE CASCADE,
+          amount DOUBLE PRECISION NOT NULL,
+          note TEXT NOT NULL DEFAULT '',
+          cashier TEXT NOT NULL DEFAULT '',
+          paid_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
         CREATE TABLE IF NOT EXISTS app_meta (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL

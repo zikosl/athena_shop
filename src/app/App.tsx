@@ -9,6 +9,7 @@ import {
   HandCoins,
   Home,
   Info,
+  Landmark,
   LogOut,
   Menu,
   Moon,
@@ -35,6 +36,7 @@ import { ReportsPage } from "../modules/reports/ReportsPage";
 import { RevenuePage } from "../modules/revenue/RevenuePage";
 import { SettingsPage } from "../modules/settings/SettingsPage";
 import { StockPage } from "../modules/stock/StockPage";
+import { VaultPage } from "../modules/vault/VaultPage";
 import { ZakatPage } from "../modules/zakat/ZakatPage";
 import { api } from "../shared/api";
 import { appDateLabel, hijriDateLabel, money } from "../shared/format";
@@ -50,6 +52,7 @@ const nav = [
   { key: "pos", icon: ShoppingCart },
   { key: "delivery", icon: Truck },
   { key: "revenue", icon: ChartColumnIncreasing },
+  { key: "vault", icon: Landmark },
   { key: "credits", icon: HandCoins },
   { key: "expenses", icon: Wallet },
   { key: "stock", icon: Box },
@@ -233,6 +236,7 @@ export function App() {
     if (view === "pos") return <PosPage language={language} user={user} onSale={refresh} />;
     if (view === "delivery") return <DeliveryPage language={language} onChanged={refresh} />;
     if (view === "revenue") return <RevenuePage language={language} onChanged={refresh} />;
+    if (view === "vault") return <VaultPage language={language} user={user} onChanged={refresh} />;
     if (view === "reports") return <ReportsPage language={language} />;
     if (view === "expenses") return <ExpensesPage language={language} onChanged={refresh} />;
     if (view === "credits") return <CreditsPage language={language} user={user} onChanged={refresh} />;

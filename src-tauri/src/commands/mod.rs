@@ -9,3 +9,4 @@ pub mod sales;
 pub mod shifts;
 pub mod suppliers;
 pub mod system;
+pub mod vault;

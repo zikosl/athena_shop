@@ -19,6 +19,11 @@ fn hide_console(command: &mut Command) -> &mut Command {
     command.creation_flags(CREATE_NO_WINDOW)
 }
 
+#[cfg(not(target_os = "windows"))]
+fn hide_console(command: &mut Command) -> &mut Command {
+    command
+}
+
 fn write_utf8_bom(path: &std::path::Path, content: &str) -> AppResult<()> {
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
     bytes.extend_from_slice(content.as_bytes());
@@ -1226,6 +1231,33 @@ if ($found) {
         } else {
             format!("Imprimante introuvable: {}", printer_name)
         }))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ensure_printer_available(printer_name: &str) -> AppResult<()> {
+    let printer_name = printer_name.trim();
+    if printer_name.is_empty() {
+        return Ok(());
+    }
+
+    let output = Command::new("lpstat").arg("-a").output()?;
+    if !output.status.success() {
+        return Err(AppError::Message("Aucune imprimante disponible".into()));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .any(|name| name == printer_name)
+    {
+        Ok(())
+    } else {
+        Err(AppError::Message(format!(
+            "Imprimante introuvable: {}",
+            printer_name
+        )))
     }
 }
 
