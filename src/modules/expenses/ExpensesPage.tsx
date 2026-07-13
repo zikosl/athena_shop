@@ -25,6 +25,7 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
   const [toDate, setToDate] = useState(todayInputValue);
   const [error, setError] = useState("");
   const [formOpen, setFormOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const load = () => api.expenses().then(setExpenses);
   useEffect(() => {
@@ -55,6 +56,7 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
       setError("Libelle et montant valides obligatoires");
       return;
     }
+    setSaving(true);
     try {
       await api.saveExpense({
         ...form,
@@ -68,11 +70,14 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }
 
   async function remove(id: number) {
     setError("");
+    if (!window.confirm(t.confirmDeleteExpense)) return;
     try {
       await api.deleteExpense(id);
       await load();
@@ -148,7 +153,7 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
             <label><span>{t.date}</span><div className="field"><input type="date" value={form.expense_date} onChange={(event) => setForm({ ...form, expense_date: event.target.value })} /></div></label>
             <label><span>{t.note}</span><textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>
             {error && <p className="error">{error}</p>}
-            <button className="gold-button" disabled={!form.label.trim() || form.amount <= 0}><Save size={18} /> {t.save}</button>
+            <button className="gold-button" disabled={saving || !form.label.trim() || form.amount <= 0}><Save size={18} /> {saving ? t.saving : t.save}</button>
           </form>
         </div>
       )}

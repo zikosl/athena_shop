@@ -51,7 +51,9 @@ pub fn add_credit_payment(
             return Err(AppError::Message("Credit deja solde".into()));
         }
         if input.amount > remaining {
-            return Err(AppError::Message("Le versement depasse le reste a payer".into()));
+            return Err(AppError::Message(
+                "Le versement depasse le reste a payer".into(),
+            ));
         }
 
         tx.execute(
@@ -66,7 +68,11 @@ pub fn add_credit_payment(
         )?;
 
         let new_remaining = (remaining - input.amount).max(0.0);
-        let status = if new_remaining <= 0.0 { "paid" } else { "partial" };
+        let status = if new_remaining <= 0.0 {
+            "paid"
+        } else {
+            "partial"
+        };
         tx.execute(
             "UPDATE sales
              SET paid_amount = paid_amount + $1,

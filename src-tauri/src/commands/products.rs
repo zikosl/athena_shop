@@ -112,7 +112,9 @@ fn validate_product(input: &ProductInput) -> AppResult<()> {
         return Err(AppError::Message("Nom et code-barres obligatoires".into()));
     }
     if input.quantity < 0 || input.low_stock_threshold < 0 {
-        return Err(AppError::Message("Les quantites doivent etre positives".into()));
+        return Err(AppError::Message(
+            "Les quantites doivent etre positives".into(),
+        ));
     }
     if input.purchase_price < 0.0 || input.sale_price < 0.0 {
         return Err(AppError::Message("Les prix doivent etre positifs".into()));

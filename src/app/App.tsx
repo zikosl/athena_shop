@@ -216,7 +216,7 @@ export function App() {
           </section>
 
           <section className="top-actions">
-            <button className="glass-pill icon-only" title={t.alerts} onClick={openStockAlerts}><Bell size={18} /><b>3</b></button>
+            <button className="glass-pill icon-only" title={t.alerts} onClick={openStockAlerts}><Bell size={18} /></button>
             <button
               className="glass-pill icon-only"
               title={theme === "dark" ? "Mode clair" : "Mode sombre"}

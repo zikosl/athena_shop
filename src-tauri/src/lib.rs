@@ -28,6 +28,7 @@ pub fn run() {
             commands::products::save_product,
             commands::products::delete_product,
             commands::sales::checkout,
+            commands::sales::get_revenue_page,
             commands::sales::list_sales,
             commands::sales::update_sale,
             commands::sales::return_sale_item,

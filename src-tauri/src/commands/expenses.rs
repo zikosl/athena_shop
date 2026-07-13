@@ -21,7 +21,9 @@ pub fn list_expenses(db: State<Database>) -> AppResult<Vec<Expense>> {
 #[tauri::command]
 pub fn save_expense(db: State<Database>, input: ExpenseInput) -> AppResult<Expense> {
     if input.label.trim().is_empty() || input.amount <= 0.0 {
-        return Err(AppError::Message("Libelle et montant valides obligatoires".into()));
+        return Err(AppError::Message(
+            "Libelle et montant valides obligatoires".into(),
+        ));
     }
     if input.expense_date.trim().is_empty() {
         return Err(AppError::Message("Date obligatoire".into()));

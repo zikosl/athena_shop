@@ -23,6 +23,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const [creditNote, setCreditNote] = useState("");
   const [receipt, setReceipt] = useState<Sale | null>(null);
   const [error, setError] = useState("");
+  const [checkingOut, setCheckingOut] = useState(false);
 
   useEffect(() => {
     api.products({ query, category, stock: "all" })
@@ -42,6 +43,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   const creditRemaining = saleType === "credit" ? Math.max(0, total - normalizedPaid) : 0;
   const checkoutBlocked =
     !cart.length ||
+    checkingOut ||
     discount < 0 ||
     discount > maxDiscount ||
     discount > subtotal ||
@@ -69,7 +71,9 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   }
 
   async function checkout() {
+    if (checkoutBlocked) return;
     setError("");
+    setCheckingOut(true);
     try {
       const sale = await api.checkout({
         items: cart.map((item) => ({ product_id: item.product.id, quantity: item.quantity })),
@@ -96,6 +100,8 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       onSale();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCheckingOut(false);
     }
   }
 
@@ -179,7 +185,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
         {discount > maxDiscount && <p className="error">{t.discountMax}</p>}
         {discount > subtotal && <p className="error">{t.discountTooHigh}</p>}
         {error && <p className="error">{error}</p>}
-        <button className="gold-button" disabled={checkoutBlocked} onClick={checkout}>{t.checkout}</button>
+        <button className="gold-button" disabled={checkoutBlocked} onClick={() => void checkout()}>{checkingOut ? t.saving : t.checkout}</button>
       </aside>
 
       {receipt && <ReceiptModal sale={receipt} language={language} onClose={() => setReceipt(null)} />}

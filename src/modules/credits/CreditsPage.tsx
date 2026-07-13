@@ -12,6 +12,7 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
   const [amount, setAmount] = useState(0);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const load = () => api.credits().then(setCredits);
 
@@ -38,6 +39,7 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
     event.preventDefault();
     if (!selected) return;
     setError("");
+    setSaving(true);
     try {
       await api.addCreditPayment({
         sale_id: selected.sale.id,
@@ -51,6 +53,8 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -99,7 +103,7 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
               <label><span>{t.cashInstallment}</span><div className="field"><input type="number" min={0} max={selected.sale.remaining_amount} value={amount} onChange={(event) => setAmount(Number(event.target.value))} /></div></label>
               <label><span>{t.note}</span><textarea value={note} onChange={(event) => setNote(event.target.value)} /></label>
               {error && <p className="error">{error}</p>}
-              <button className="gold-button" disabled={selected.sale.remaining_amount <= 0 || amount <= 0 || amount > selected.sale.remaining_amount}>{t.save}</button>
+              <button className="gold-button" disabled={saving || selected.sale.remaining_amount <= 0 || amount <= 0 || amount > selected.sale.remaining_amount}>{saving ? t.saving : t.save}</button>
             </form>
             <div className="payment-history">
               {!selected.payments.length && <p className="empty-state">{t.noCreditPayments}</p>}

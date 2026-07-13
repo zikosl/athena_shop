@@ -1,36 +1,49 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Edit3, ReceiptText, RotateCcw, Save, Search, Trash2, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";
-import { CreditAccount, Expense, Language, Sale } from "../../shared/types";
+import { Language, RevenuePageData, Sale } from "../../shared/types";
 
 export function RevenuePage({ language }: { language: Language }) {
   const t = useText(language);
-  const [sales, setSales] = useState<Sale[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [credits, setCredits] = useState<CreditAccount[]>([]);
+  const [pageData, setPageData] = useState<RevenuePageData | null>(null);
   const [query, setQuery] = useState("");
   const [saleType, setSaleType] = useState<"all" | "cash" | "credit">("all");
   const [fromDate, setFromDate] = useState(todayInputValue);
   const [toDate, setToDate] = useState(todayInputValue);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const load = useCallback(() => {
     setError("");
-    return Promise.all([api.sales(), api.expenses(), api.credits()])
-      .then(([sales, expenses, credits]) => {
-        setSales(sales);
-        setExpenses(expenses);
-        setCredits(credits);
+    setLoading(true);
+    return api.revenuePage({
+      query,
+      sale_type: saleType,
+      from_date: fromDate,
+      to_date: toDate,
+      page,
+      page_size: pageSize
+    })
+      .then((data) => {
+        setPageData(data);
+        if (data.page !== page) setPage(data.page);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, []);
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setLoading(false));
+  }, [fromDate, page, pageSize, query, saleType, toDate]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [fromDate, pageSize, query, saleType, toDate]);
 
   async function handleSaleChanged(sale?: Sale) {
     await load();
@@ -42,75 +55,10 @@ export function RevenuePage({ language }: { language: Language }) {
     setSelectedSale(null);
   }
 
-  const creditPaymentsBySale = useMemo(() => {
-    return Object.fromEntries(credits.map((credit) => [
-      credit.sale.id,
-      credit.payments.reduce((sum, payment) => sum + payment.amount, 0)
-    ]));
-  }, [credits]);
-
-  const creditPayments = useMemo(() => credits.flatMap((credit) =>
-    credit.payments.map((payment) => ({ ...payment, sale: credit.sale }))
-  ), [credits]);
-
-  const filteredSales = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return sales.filter((sale) => {
-      const saleDate = sale.created_at.slice(0, 10);
-      const matchesQuery = !normalizedQuery || [
-        sale.receipt_no,
-        sale.customer_name,
-        sale.customer_phone,
-        sale.cashier,
-        ...sale.items.map((item) => `${item.product_name} ${item.barcode}`)
-      ].some((value) => value.toLowerCase().includes(normalizedQuery));
-      const matchesType = saleType === "all" || sale.sale_type === saleType;
-      const matchesFrom = !fromDate || saleDate >= fromDate;
-      const matchesTo = !toDate || saleDate <= toDate;
-      return matchesQuery && matchesType && matchesFrom && matchesTo;
-    });
-  }, [fromDate, query, saleType, sales, toDate]);
-
-  const filteredExpenses = useMemo(() => expenses.filter((expense) => {
-    const matchesFrom = !fromDate || expense.expense_date >= fromDate;
-    const matchesTo = !toDate || expense.expense_date <= toDate;
-    return matchesFrom && matchesTo;
-  }), [expenses, fromDate, toDate]);
-
-  const filteredCreditPayments = useMemo(() => creditPayments.filter((payment) => {
-    const paymentDate = payment.paid_at.slice(0, 10);
-    const matchesFrom = !fromDate || paymentDate >= fromDate;
-    const matchesTo = !toDate || paymentDate <= toDate;
-    return saleType !== "cash" && matchesFrom && matchesTo;
-  }), [creditPayments, fromDate, saleType, toDate]);
-
-  const totals = useMemo(() => {
-    const saleRevenue = filteredSales.reduce((sum, sale) => {
-      if (sale.sale_type === "cash") return sum + sale.total;
-      const laterPayments = creditPaymentsBySale[sale.id] ?? 0;
-      return sum + Math.max(0, sale.paid_amount - laterPayments);
-    }, 0);
-    const creditPaymentTotal = filteredCreditPayments.reduce((sum, payment) => sum + payment.amount, 0);
-    const expenseTotal = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
-    const saleProfit = filteredSales.reduce((sum, sale) => {
-      const collected = sale.sale_type === "cash"
-        ? sale.total
-        : Math.max(0, sale.paid_amount - (creditPaymentsBySale[sale.id] ?? 0));
-      return sum + realizedProfit(sale, collected);
-    }, 0);
-    const creditPaymentProfit = filteredCreditPayments.reduce(
-      (sum, payment) => sum + realizedProfit(payment.sale, payment.amount),
-      0
-    );
-    return {
-      revenue: saleRevenue + creditPaymentTotal,
-      remaining: filteredSales.reduce((sum, sale) => sum + sale.remaining_amount, 0),
-      expenses: expenseTotal,
-      payments: creditPaymentTotal,
-      profit: saleProfit + creditPaymentProfit - expenseTotal,
-      count: filteredSales.length
-    };
-  }, [creditPaymentsBySale, filteredCreditPayments, filteredExpenses, filteredSales]);
+  const sales = pageData?.sales ?? [];
+  const totals = pageData?.totals ?? { revenue: 0, remaining: 0, payments: 0, expenses: 0, profit: 0, count: 0 };
+  const totalPages = pageData?.total_pages ?? 1;
+  const totalRows = pageData?.total_rows ?? 0;
 
   function filterToday() {
     const today = todayInputValue();
@@ -139,13 +87,26 @@ export function RevenuePage({ language }: { language: Language }) {
         </select>
         <input className="filter-input" aria-label={t.fromDate} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
         <input className="filter-input" aria-label={t.toDate} type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
+        <select aria-label="Page size" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
+          <option value={10}>10 / page</option>
+          <option value={25}>25 / page</option>
+          <option value={50}>50 / page</option>
+          <option value={100}>100 / page</option>
+        </select>
         <button className="ghost-button compact-button" type="button" onClick={filterToday}>{t.today}</button>
+      </div>
+      <div className="pagination-bar">
+        <span>{loading ? "Chargement..." : `${totalRows} bons - page ${page} / ${totalPages}`}</span>
+        <div>
+          <button className="ghost-button compact-button" type="button" disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))}>Précédent</button>
+          <button className="ghost-button compact-button" type="button" disabled={page >= totalPages || loading} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Suivant</button>
+        </div>
       </div>
       <div className="data-table">
         <table>
           <thead><tr><th>{t.ticket}</th><th>{t.date}</th><th>{t.type}</th><th>{t.collected}</th><th>{t.remaining}</th><th>{t.total}</th><th>{t.items}</th></tr></thead>
           <tbody>
-            {filteredSales.map((sale) => (
+            {sales.map((sale) => (
               <tr key={sale.id}>
                 <td>
                   <button className="ticket-link" onClick={() => setSelectedSale(sale)}>
@@ -154,12 +115,15 @@ export function RevenuePage({ language }: { language: Language }) {
                 </td>
                 <td>{sale.created_at}</td>
                 <td><span className={`status-pill ${sale.sale_type === "credit" ? "warning" : "ok"}`}>{sale.sale_type === "credit" ? t.credit : t.cash}</span></td>
-                <td>{money(sale.paid_amount)}</td>
+                <td>{money(sale.collected_amount ?? sale.paid_amount)}</td>
                 <td>{money(sale.remaining_amount)}</td>
                 <td>{money(sale.total)}</td>
                 <td>{sale.items.length}</td>
               </tr>
             ))}
+            {!sales.length && !loading && (
+              <tr><td colSpan={7}><span className="empty-state">Aucun historique pour ces filtres.</span></td></tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -174,11 +138,6 @@ export function RevenuePage({ language }: { language: Language }) {
       )}
     </section>
   );
-}
-
-function realizedProfit(sale: Sale, collected: number) {
-  if (sale.total <= 0 || collected <= 0) return 0;
-  return sale.profit * Math.min(collected / sale.total, 1);
 }
 
 function TicketDetails({
@@ -200,6 +159,7 @@ function TicketDetails({
     Object.fromEntries(sale.items.map((item) => [item.product_id, item.quantity]))
   );
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   function resetEdit() {
     setEditing(false);
@@ -209,6 +169,7 @@ function TicketDetails({
 
   async function saveEdit() {
     setError("");
+    setSaving(true);
     try {
       const updated = await api.updateSale({
         sale_id: sale.id,
@@ -221,11 +182,14 @@ function TicketDetails({
       await onChanged(updated);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }
 
   async function returnOne(productId: number) {
     setError("");
+    setSaving(true);
     try {
       const updated = await api.returnSaleItem({
         sale_id: sale.id,
@@ -235,17 +199,22 @@ function TicketDetails({
       await onChanged(updated);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }
 
   async function deleteTicket() {
     setError("");
-    if (!window.confirm("Supprimer ce bon ? Le stock sera restaure et la recette diminuera.")) return;
+    if (!window.confirm(t.confirmDeleteTicket)) return;
+    setSaving(true);
     try {
       await api.deleteSale(sale.id);
       await onDeleted();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -257,14 +226,14 @@ function TicketDetails({
           <div className="button-row">
             {editing ? (
               <>
-                <button className="gold-button compact-button" type="button" onClick={() => void saveEdit()}><Save size={16} /> {t.save}</button>
-                <button className="ghost-button compact-button" type="button" onClick={resetEdit}><X size={16} /> {t.close}</button>
+                <button className="gold-button compact-button" type="button" disabled={saving} onClick={() => void saveEdit()}><Save size={16} /> {saving ? t.saving : t.save}</button>
+                <button className="ghost-button compact-button" type="button" disabled={saving} onClick={resetEdit}><X size={16} /> {t.close}</button>
               </>
             ) : (
               <>
-                <button className="ghost-button compact-button" type="button" onClick={() => setEditing(true)}><Edit3 size={16} /> Modifier</button>
-                <button className="ghost-button compact-button danger-action" type="button" onClick={() => void deleteTicket()}><Trash2 size={16} /> Supprimer</button>
-                <button className="ghost-button compact-button" type="button" onClick={onClose}>{t.close}</button>
+                <button className="ghost-button compact-button" type="button" disabled={saving} onClick={() => setEditing(true)}><Edit3 size={16} /> {t.edit}</button>
+                <button className="ghost-button compact-button danger-action" type="button" disabled={saving} onClick={() => void deleteTicket()}><Trash2 size={16} /> {t.delete}</button>
+                <button className="ghost-button compact-button" type="button" disabled={saving} onClick={onClose}>{t.close}</button>
               </>
             )}
           </div>
@@ -298,7 +267,7 @@ function TicketDetails({
                         value={quantities[item.product_id] ?? item.quantity}
                         onChange={(event) => setQuantities({
                           ...quantities,
-                          [item.product_id]: Number(event.target.value)
+                          [item.product_id]: Math.max(1, Number(event.target.value))
                         })}
                       />
                     ) : item.quantity}
@@ -306,7 +275,7 @@ function TicketDetails({
                   <td>{money(item.unit_price)}</td>
                   <td>{money(item.line_total)}</td>
                   <td className="row-actions">
-                    <button type="button" title="Retour" onClick={() => void returnOne(item.product_id)} disabled={editing}>
+                    <button type="button" title="Retour" onClick={() => void returnOne(item.product_id)} disabled={editing || saving}>
                       <RotateCcw size={16} />
                     </button>
                   </td>

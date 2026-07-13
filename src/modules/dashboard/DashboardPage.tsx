@@ -15,9 +15,13 @@ interface Props {
 export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts }: Props) {
   const t = useText(language);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    api.dashboard().then(setStats).catch(console.error);
+    setError("");
+    api.dashboard()
+      .then(setStats)
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [refreshToken]);
 
   const modules = [
@@ -29,11 +33,11 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
   ];
 
   const cards = [
-    { label: t.dailySales, value: money(stats?.sales_today ?? 0), icon: ShoppingCart, trend: "+12.5%" },
-    { label: t.salesCount, value: String(stats?.sales_count_today ?? 0), icon: Box, trend: "+8.3%" },
-    { label: t.dailyRevenue, value: money(stats?.revenue_today ?? 0), icon: Coins, trend: "+12.5%" },
-    { label: t.dailyExpenses, value: money(stats?.expenses_today ?? 0), icon: Wallet, trend: "-3.2%", danger: true },
-    { label: t.dailyProfit, value: money(stats?.profit_today ?? 0), icon: ChartColumnIncreasing, trend: "+18.7%" },
+    { label: t.dailySales, value: money(stats?.sales_today ?? 0), icon: ShoppingCart, trend: t.today },
+    { label: t.salesCount, value: String(stats?.sales_count_today ?? 0), icon: Box, trend: t.today },
+    { label: t.dailyRevenue, value: money(stats?.revenue_today ?? 0), icon: Coins, trend: t.today },
+    { label: t.dailyExpenses, value: money(stats?.expenses_today ?? 0), icon: Wallet, trend: t.today, danger: true },
+    { label: t.dailyProfit, value: money(stats?.profit_today ?? 0), icon: ChartColumnIncreasing, trend: t.today },
     { label: t.paymentsToday, value: money(stats?.credit_payments_today ?? 0), icon: HandCoins, trend: t.cash },
     { label: t.totalToCollect, value: money(stats?.credit_remaining_total ?? 0), icon: HandCoins, trend: `${stats?.open_credit_count ?? 0} ${t.credit}`, danger: (stats?.open_credit_count ?? 0) > 0 },
     { label: t.lowStock, value: String(stats?.low_stock_count ?? 0), icon: AlertTriangle, trend: t.alerts, danger: (stats?.low_stock_count ?? 0) > 0 }
@@ -57,6 +61,7 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
 
       <section className="panel">
         <div className="section-title"><h2>{t.today}</h2><span /></div>
+        {error && <p className="error">{error}</p>}
         <div className="stats-grid">
           {cards.map((card) => {
             const Icon = card.icon;
@@ -70,7 +75,6 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
                   <p>{card.label}</p>
                   <strong>{card.value}</strong>
                   <em className={card.danger ? "danger" : "success"}>{card.trend}</em>
-                  <small>{t.vsYesterday}</small>
                 </div>
               </article>
             );

@@ -146,6 +146,7 @@ export interface Sale {
   customer_name: string;
   customer_phone: string;
   paid_amount: number;
+  collected_amount?: number;
   remaining_amount: number;
   due_date: string;
   credit_note: string;
@@ -174,4 +175,33 @@ export interface CreditPaymentInput {
 export interface CreditAccount {
   sale: Sale;
   payments: CreditPayment[];
+}
+
+export type RevenueSaleTypeFilter = "all" | "cash" | "credit";
+
+export interface RevenueFilter {
+  query: string;
+  sale_type: RevenueSaleTypeFilter;
+  from_date: string;
+  to_date: string;
+  page: number;
+  page_size: number;
+}
+
+export interface RevenueTotals {
+  revenue: number;
+  remaining: number;
+  payments: number;
+  expenses: number;
+  profit: number;
+  count: number;
+}
+
+export interface RevenuePageData {
+  sales: Sale[];
+  totals: RevenueTotals;
+  total_rows: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
 }

@@ -47,6 +47,7 @@ export function StockPage({
   const [inventoryCounts, setInventoryCounts] = useState<Record<number, number>>({});
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; product: Product } | null>(null);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const load = () => api.products({ query, category, stock: stockFilter }).then(setProducts).catch((err) => setError(String(err)));
 
@@ -92,6 +93,7 @@ export function StockPage({
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
+    setSaving(true);
     try {
       await api.saveProduct(form);
       setForm(newProduct());
@@ -101,11 +103,14 @@ export function StockPage({
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }
 
   async function remove(id: number) {
     setError("");
+    if (!window.confirm(t.confirmDeleteProduct)) return;
     try {
       await api.deleteProduct(id);
       await load();
@@ -285,7 +290,7 @@ export function StockPage({
                         type="number"
                         min={0}
                         value={inventoryCounts[product.id] ?? product.quantity}
-                        onChange={(event) => setInventoryCounts({ ...inventoryCounts, [product.id]: Number(event.target.value) })}
+                        onChange={(event) => setInventoryCounts({ ...inventoryCounts, [product.id]: Math.max(0, Number(event.target.value)) })}
                       />
                     </td>
                   )}
@@ -325,10 +330,10 @@ export function StockPage({
               <Input label={t.category} value={form.category} list="product-categories" onChange={(category) => setForm({ ...form, category })} />
               <Input label={t.size} value={form.size} onChange={(size) => setForm({ ...form, size })} />
               <Input label={t.color} value={form.color} onChange={(color) => setForm({ ...form, color })} />
-              <Input label={t.quantity} type="number" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity: Number(quantity) })} />
-              <Input label={t.alert} type="number" value={form.low_stock_threshold} onChange={(value) => setForm({ ...form, low_stock_threshold: Number(value) })} />
-              <Input label={t.buyPrice} type="number" value={form.purchase_price} onChange={(value) => setForm({ ...form, purchase_price: Number(value) })} />
-              <Input label={t.salePrice} type="number" value={form.sale_price} onChange={(value) => setForm({ ...form, sale_price: Number(value) })} />
+              <Input label={t.quantity} type="number" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity: Math.max(0, Number(quantity)) })} />
+              <Input label={t.alert} type="number" value={form.low_stock_threshold} onChange={(value) => setForm({ ...form, low_stock_threshold: Math.max(0, Number(value)) })} />
+              <Input label={t.buyPrice} type="number" value={form.purchase_price} onChange={(value) => setForm({ ...form, purchase_price: Math.max(0, Number(value)) })} />
+              <Input label={t.salePrice} type="number" value={form.sale_price} onChange={(value) => setForm({ ...form, sale_price: Math.max(0, Number(value)) })} />
             </div>
             <datalist id="product-categories">
               {categories.map((item) => <option value={item} key={item} />)}
@@ -357,7 +362,7 @@ export function StockPage({
                   <RefreshCcw size={17} /> {t.generateBarcode}
                 </button>
               )}
-              <button className="gold-button" type="submit"><Save size={18} /> {t.save}</button>
+              <button className="gold-button" type="submit" disabled={saving}><Save size={18} /> {saving ? t.saving : t.save}</button>
             </div>
           </form>
         </div>

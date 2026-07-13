@@ -130,6 +130,7 @@ pub struct Sale {
     pub customer_name: String,
     pub customer_phone: String,
     pub paid_amount: f64,
+    pub collected_amount: f64,
     pub remaining_amount: f64,
     pub due_date: String,
     pub credit_note: String,
@@ -161,6 +162,36 @@ pub struct CreditPaymentInput {
 pub struct CreditAccount {
     pub sale: Sale,
     pub payments: Vec<CreditPayment>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RevenueFilter {
+    pub query: String,
+    pub sale_type: String,
+    pub from_date: String,
+    pub to_date: String,
+    pub page: i64,
+    pub page_size: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RevenueTotals {
+    pub revenue: f64,
+    pub remaining: f64,
+    pub payments: f64,
+    pub expenses: f64,
+    pub profit: f64,
+    pub count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RevenuePageData {
+    pub sales: Vec<Sale>,
+    pub totals: RevenueTotals,
+    pub total_rows: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
 }
 
 #[derive(Debug, Serialize)]
