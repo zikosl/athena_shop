@@ -16,6 +16,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::clients::list_clients,
+            commands::clients::save_client,
             commands::auth::login,
             commands::auth::update_profile,
             commands::credits::list_credits,
@@ -31,6 +33,9 @@ pub fn run() {
             commands::perfumery::save_perfume,
             commands::perfumery::save_perfume_purchase,
             commands::products::list_products,
+            commands::products::list_categories,
+            commands::products::save_category,
+            commands::products::delete_category,
             commands::products::save_product,
             commands::products::adjust_product_stock,
             commands::products::list_stock_movements,

@@ -14,6 +14,8 @@ struct ProductForSale {
     quantity: i64,
     purchase_price: f64,
     sale_price: f64,
+    custom_type: String,
+    custom_config: serde_json::Value,
 }
 
 #[derive(Debug)]
@@ -36,6 +38,8 @@ struct StoredSaleItem {
     quantity: i64,
     unit_price: f64,
     purchase_price: f64,
+    stock_quantity: i64,
+    custom_option: String,
 }
 
 #[derive(Debug, Clone)]
@@ -124,30 +128,59 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                 return Err(AppError::Message("Quantite invalide".into()));
             }
 
+            if item.custom_option.as_deref() == Some("custom_amount") {
+                let unit_price = item.unit_price.unwrap_or_default();
+                let display_name = item
+                    .display_name
+                    .as_deref()
+                    .unwrap_or("Montant personnalisé")
+                    .trim();
+                if !unit_price.is_finite() || unit_price <= 0.0 || display_name.is_empty() {
+                    return Err(AppError::Message("Libelle et prix personnalisé invalides".into()));
+                }
+                let product = ProductForSale {
+                    id: 0,
+                    name: display_name.to_string(),
+                    barcode: String::new(),
+                    quantity: 0,
+                    purchase_price: 0.0,
+                    sale_price: unit_price,
+                    custom_type: String::new(),
+                    custom_config: serde_json::Value::Null,
+                };
+                let line_total = unit_price * item.quantity as f64;
+                subtotal += line_total;
+                gross_profit += line_total;
+                sale_lines.push((product, item.quantity, 0, display_name.to_string(), "custom_amount".to_string(), unit_price, 0.0, line_total));
+                continue;
+            }
+
             let product = get_product_for_sale(&mut tx, item.product_id)?
                 .ok_or_else(|| AppError::Message("Produit introuvable".into()))?;
 
-            if product.quantity < item.quantity && !allow_negative_stock {
+            let requested_stock = if product.custom_type == "printing" { 0 } else { item.stock_quantity.unwrap_or(item.quantity) };
+            if (product.custom_type != "printing" && requested_stock <= 0)
+                || (product.custom_type != "printing" && product.quantity < requested_stock && !allow_negative_stock) {
                 return Err(AppError::Message(format!(
                     "Stock insuffisant pour {}",
                     product.name
                 )));
             }
-
-            let unit_price = item.unit_price.unwrap_or(product.sale_price);
+            let (unit_price, unit_cost) = resolve_custom_line(&product, item, requested_stock)?;
             if unit_price < 0.0 || !unit_price.is_finite() {
                 return Err(AppError::Message("Prix de vente invalide".into()));
             }
             let line_total = unit_price * item.quantity as f64;
             subtotal += line_total;
-            gross_profit += (unit_price - product.purchase_price) * item.quantity as f64;
+            gross_profit += (unit_price - unit_cost) * item.quantity as f64;
 
             tx.execute(
                 "UPDATE products SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2",
-                &[&item.quantity, &product.id],
+                &[&requested_stock, &product.id],
             )?;
 
-            sale_lines.push((product, item.quantity, unit_price, line_total));
+            let display_name = item.display_name.clone().unwrap_or_else(|| product.name.clone());
+            sale_lines.push((product, item.quantity, requested_stock, display_name, item.custom_option.clone().unwrap_or_default(), unit_price, unit_cost, line_total));
         }
 
         for item in &input.perfume_items {
@@ -229,29 +262,47 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
             .get(0);
 
         let mut response_items = Vec::new();
-        for (product, quantity, unit_price, line_total) in sale_lines {
+        for (product, quantity, stock_quantity, display_name, item_custom_option, unit_price, unit_cost, line_total) in sale_lines {
             tx.execute(
                 "INSERT INTO sale_items
-                 (sale_id, product_id, product_name, barcode, quantity, unit_price, purchase_price, line_total)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                 (sale_id, product_id, product_name, barcode, quantity, unit_price, purchase_price, line_total, stock_quantity, display_name, custom_option)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
                 &[
                     &sale_id,
-                    &product.id,
-                    &product.name,
+                    &(if product.id == 0 { None } else { Some(product.id) }),
+                    &display_name,
                     &product.barcode,
                     &quantity,
                     &unit_price,
-                    &product.purchase_price,
+                    &unit_cost,
                     &line_total,
+                    &stock_quantity,
+                    &display_name,
+                    &item_custom_option,
                 ],
             )?;
+            if !item_custom_option.is_empty() && stock_quantity > 0 {
+                insert_custom_stock_movement(
+                    &mut tx,
+                    product.id,
+                    "destock",
+                    stock_quantity,
+                    product.quantity,
+                    product.quantity - stock_quantity,
+                    &format!("Vente {} · {}", item_custom_option, display_name),
+                    sale_id,
+                )?;
+            }
             response_items.push(SaleItem {
                 product_id: product.id,
-                product_name: product.name,
+                product_name: display_name,
                 barcode: product.barcode,
                 quantity,
                 unit_price,
                 line_total,
+                stock_quantity,
+                custom_option: item_custom_option,
+                unit_cost,
             });
         }
         for (perfume, quantity, line_total) in perfume_lines {
@@ -279,6 +330,9 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
                 quantity,
                 unit_price: perfume.sale_price,
                 line_total,
+                stock_quantity: quantity,
+                custom_option: String::new(),
+                unit_cost: perfume.cost_per_ml * perfume.volume_ml,
             });
         }
 
@@ -416,10 +470,15 @@ pub fn return_delivery(db: State<Database>, id: i64) -> AppResult<Sale> {
         }
 
         for item in stored_sale_items(&mut tx, id)? {
+            if item.stock_quantity <= 0 { continue; }
+            let before: i64 = tx.query_one("SELECT quantity FROM products WHERE id = $1", &[&item.product_id])?.get(0);
             tx.execute(
                 "UPDATE products SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2",
-                &[&item.quantity, &item.product_id],
+                &[&item.stock_quantity, &item.product_id],
             )?;
+            if !item.custom_option.is_empty() && item.stock_quantity > 0 {
+                insert_custom_stock_movement(&mut tx, item.product_id, "entry", item.stock_quantity, before, before + item.stock_quantity, &format!("Retour livraison {}", item.product_name), id)?;
+            }
         }
         for item in stored_perfume_sale_items(&mut tx, id)? {
             let returned_volume = item.volume_ml * item.quantity as f64;
@@ -460,6 +519,9 @@ pub fn return_sale_item(db: State<Database>, input: SaleReturnInput) -> AppResul
     db.with_client(|client| {
         let mut tx = client.transaction()?;
         let current_items = stored_sale_items(&mut tx, input.sale_id)?;
+        if current_items.iter().any(|item| !item.custom_option.is_empty()) {
+            return Err(AppError::Message("Les articles personnalisés doivent être retournés en supprimant le ticket complet.".into()));
+        }
         let mut found = false;
         let mut updated_items = Vec::new();
 
@@ -512,10 +574,15 @@ pub fn delete_sale(db: State<Database>, id: i64) -> AppResult<()> {
         }
         let shift_id = sale_shift_id(&mut tx, id)?;
         for item in items {
+            if item.stock_quantity <= 0 { continue; }
+            let before: i64 = tx.query_one("SELECT quantity FROM products WHERE id = $1", &[&item.product_id])?.get(0);
             tx.execute(
                 "UPDATE products SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2",
-                &[&item.quantity, &item.product_id],
+                &[&item.stock_quantity, &item.product_id],
             )?;
+            if !item.custom_option.is_empty() && item.stock_quantity > 0 {
+                insert_custom_stock_movement(&mut tx, item.product_id, "entry", item.stock_quantity, before, before + item.stock_quantity, &format!("Annulation vente {}", item.product_name), id)?;
+            }
         }
         for item in perfume_items {
             let returned_volume = item.volume_ml * item.quantity as f64;
@@ -531,12 +598,30 @@ pub fn delete_sale(db: State<Database>, id: i64) -> AppResult<()> {
     })
 }
 
+fn insert_custom_stock_movement(
+    tx: &mut postgres::Transaction<'_>,
+    product_id: i64,
+    movement_type: &str,
+    quantity: i64,
+    before_quantity: i64,
+    after_quantity: i64,
+    note: &str,
+    sale_id: i64,
+) -> AppResult<()> {
+    tx.execute(
+        "INSERT INTO stock_movements (product_id, movement_type, quantity, before_quantity, after_quantity, note, reference_type, reference_id)
+         VALUES ($1, $2, $3, $4, $5, $6, 'sale', $7)",
+        &[&product_id, &movement_type, &quantity, &before_quantity, &after_quantity, &note, &sale_id],
+    )?;
+    Ok(())
+}
+
 fn get_product_for_sale(
     client: &mut postgres::Transaction<'_>,
     id: i64,
 ) -> AppResult<Option<ProductForSale>> {
     let row = client.query_opt(
-        "SELECT id, name, barcode, quantity, purchase_price, sale_price
+        "SELECT id, name, barcode, quantity, purchase_price, sale_price, custom_type, custom_config
          FROM products WHERE id = $1",
         &[&id],
     )?;
@@ -547,7 +632,111 @@ fn get_product_for_sale(
         quantity: row.get(3),
         purchase_price: row.get(4),
         sale_price: row.get(5),
+        custom_type: row.get(6),
+        custom_config: row.get(7),
     }))
+}
+
+fn resolve_custom_line(
+    product: &ProductForSale,
+    item: &crate::models::CheckoutItemInput,
+    stock_quantity: i64,
+) -> AppResult<(f64, f64)> {
+    let supplied = item.unit_price.unwrap_or(product.sale_price);
+    let option = item.custom_option.as_deref().unwrap_or("");
+    let (expected_price, cost) = match product.custom_type.as_str() {
+        "flexy" => {
+            if item.quantity != 1 || !option.starts_with("flexy:") {
+                return Err(AppError::Message("Montant Flexy invalide".into()));
+            }
+            let option_amount = option.trim_start_matches("flexy:").parse::<i64>().ok();
+            if option_amount != Some(stock_quantity) {
+                return Err(AppError::Message("Montant Flexy invalide".into()));
+            }
+            let tiers = product
+                .custom_config
+                .get("surcharge_tiers")
+                .and_then(serde_json::Value::as_array)
+                .ok_or_else(|| AppError::Message("Paliers Flexy non configurés".into()))?;
+            let mut tiers: Vec<_> = tiers.iter().collect();
+            tiers.sort_by(|a, b| {
+                let upper = |v: &&serde_json::Value| {
+                    v.get("up_to")
+                        .and_then(serde_json::Value::as_f64)
+                        .unwrap_or(f64::INFINITY)
+                };
+                upper(a).total_cmp(&upper(b))
+            });
+            let tier = tiers
+                .into_iter()
+                .find(|tier| {
+                    tier.get("up_to")
+                        .and_then(serde_json::Value::as_f64)
+                        .map(|limit| stock_quantity as f64 <= limit)
+                        .unwrap_or(true)
+                })
+                .ok_or_else(|| {
+                    AppError::Message("Aucun palier Flexy ne correspond à ce montant".into())
+                })?;
+            let surcharge = tier
+                .get("surcharge")
+                .and_then(serde_json::Value::as_f64)
+                .ok_or_else(|| AppError::Message("Frais Flexy invalides".into()))?;
+            (
+                stock_quantity as f64 + surcharge,
+                product.purchase_price * stock_quantity as f64,
+            )
+        }
+        "tobacco" => {
+            let per_box = product
+                .custom_config
+                .get("pieces_per_box")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0);
+            let (price_key, units) = if option == "box" {
+                ("box_sale_price", per_box)
+            } else if option == "piece" {
+                ("piece_sale_price", 1)
+            } else {
+                return Err(AppError::Message("Format de vente tabac invalide".into()));
+            };
+            if per_box <= 0 || stock_quantity != item.quantity.saturating_mul(units) {
+                return Err(AppError::Message("Conversion boîte/pièces invalide".into()));
+            }
+            let price = product
+                .custom_config
+                .get(price_key)
+                .and_then(serde_json::Value::as_f64)
+                .ok_or_else(|| AppError::Message("Prix tabac non configuré".into()))?;
+            (price, product.purchase_price * units as f64)
+        }
+        "printing" => {
+            if stock_quantity != 0 {
+                return Err(AppError::Message("Quantité d'impression invalide".into()));
+            }
+            let price_key = match option {
+                "recto" => "recto_price",
+                "recto_verso" => "recto_verso_price",
+                _ => return Err(AppError::Message("Option d'impression invalide".into())),
+            };
+            let price = product
+                .custom_config
+                .get(price_key)
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(-1.0);
+            if price < 0.0 {
+                return Err(AppError::Message("Prix d'impression manquant".into()));
+            }
+            (price, 0.0)
+        }
+        _ => (supplied, product.purchase_price),
+    };
+    if !supplied.is_finite() || (supplied - expected_price).abs() > 0.001 {
+        return Err(AppError::Message(
+            "Le prix a changé. Retirez puis ajoutez l'article à nouveau.".into(),
+        ));
+    }
+    Ok((expected_price, cost))
 }
 
 fn get_perfume_for_sale(
@@ -629,6 +818,9 @@ fn replace_sale_items(
         }
     }
     let old_items = stored_sale_items(tx, sale_id)?;
+    if old_items.iter().any(|item| !item.custom_option.is_empty()) {
+        return Err(AppError::Message("Les articles personnalisés ne peuvent pas être modifiés depuis l'historique. Supprimez le ticket puis recréez-le.".into()));
+    }
     let allow_negative_stock = allow_negative_stock(tx)?;
 
     if old_items.is_empty() {
@@ -685,8 +877,8 @@ fn replace_sale_items(
         )?;
         tx.execute(
             "INSERT INTO sale_items
-             (sale_id, product_id, product_name, barcode, quantity, unit_price, purchase_price, line_total)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+             (sale_id, product_id, product_name, barcode, quantity, unit_price, purchase_price, line_total, stock_quantity, display_name)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $5, $3)",
             &[
                 &sale_id,
                 &old_item.product_id,
@@ -798,7 +990,7 @@ fn stored_sale_items(
     sale_id: i64,
 ) -> AppResult<Vec<StoredSaleItem>> {
     let rows = client.query(
-        "SELECT product_id, product_name, barcode, quantity, unit_price, purchase_price
+        "SELECT COALESCE(product_id, 0), product_name, barcode, quantity, unit_price, purchase_price, stock_quantity, custom_option
          FROM sale_items WHERE sale_id = $1 ORDER BY id",
         &[&sale_id],
     )?;
@@ -811,6 +1003,8 @@ fn stored_sale_items(
             quantity: row.get(3),
             unit_price: row.get(4),
             purchase_price: row.get(5),
+            stock_quantity: row.get(6),
+            custom_option: row.get(7),
         })
         .collect())
 }
@@ -900,7 +1094,7 @@ fn refresh_closed_shift_closing_amount(
 
 pub fn list_sale_items(client: &mut Client, sale_id: i64) -> AppResult<Vec<SaleItem>> {
     let rows = client.query(
-        "SELECT product_id, product_name, barcode, quantity, unit_price, line_total
+        "SELECT COALESCE(product_id, 0), product_name, barcode, quantity, unit_price, line_total, stock_quantity, custom_option, purchase_price
          FROM sale_items WHERE sale_id = $1 ORDER BY id",
         &[&sale_id],
     )?;
@@ -945,6 +1139,9 @@ fn sale_item_from_row(row: &Row) -> SaleItem {
         quantity: row.get(3),
         unit_price: row.get(4),
         line_total: row.get(5),
+        stock_quantity: row.get(6),
+        custom_option: row.get(7),
+        unit_cost: row.get(8),
     }
 }
 
@@ -960,12 +1157,17 @@ fn perfume_sale_item_from_row(row: &Row) -> SaleItem {
         quantity: row.get(4),
         unit_price: row.get(5),
         line_total: row.get(6),
+        stock_quantity: row.get(4),
+        custom_option: String::new(),
+        unit_cost: 0.0,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::calculate_sale_totals;
+    use super::{calculate_sale_totals, resolve_custom_line, ProductForSale};
+    use crate::models::CheckoutItemInput;
+    use serde_json::json;
 
     #[test]
     fn keeps_negative_profit_visible() {
@@ -989,5 +1191,84 @@ mod tests {
         assert_eq!(totals.paid_amount, 150.0);
         assert_eq!(totals.remaining_amount, 0.0);
         assert_eq!(totals.credit_status, "delivery_paid");
+    }
+
+    #[test]
+    fn flexy_price_and_cost_use_the_configured_amount_tier() {
+        let product = ProductForSale {
+            id: 1,
+            name: "Flexy".into(),
+            barcode: "".into(),
+            quantity: 5000,
+            purchase_price: 0.98,
+            sale_price: 0.0,
+            custom_type: "flexy".into(),
+            custom_config: json!({"surcharge_tiers": [{"up_to": 499, "surcharge": 10}, {"up_to": null, "surcharge": 20}]}),
+        };
+        let item = CheckoutItemInput {
+            product_id: 1,
+            quantity: 1,
+            unit_price: Some(520.0),
+            stock_quantity: Some(500),
+            display_name: None,
+            custom_option: Some("flexy:500".into()),
+        };
+        assert_eq!(
+            resolve_custom_line(&product, &item, 500).unwrap(),
+            (520.0, 490.0)
+        );
+    }
+
+    #[test]
+    fn tobacco_box_consumes_configured_piece_count() {
+        let product = ProductForSale {
+            id: 2,
+            name: "Tabac".into(),
+            barcode: "".into(),
+            quantity: 100,
+            purchase_price: 8.0,
+            sale_price: 10.0,
+            custom_type: "tobacco".into(),
+            custom_config: json!({"pieces_per_box": 20, "piece_sale_price": 10, "box_sale_price": 180}),
+        };
+        let item = CheckoutItemInput {
+            product_id: 2,
+            quantity: 2,
+            unit_price: Some(180.0),
+            stock_quantity: Some(40),
+            display_name: None,
+            custom_option: Some("box".into()),
+        };
+        assert_eq!(
+            resolve_custom_line(&product, &item, 40).unwrap(),
+            (180.0, 160.0)
+        );
+        assert!(resolve_custom_line(&product, &item, 2).is_err());
+    }
+
+    #[test]
+    fn printing_services_are_priced_per_copy_without_stock() {
+        let product = ProductForSale {
+            id: 3,
+            name: "Impression".into(),
+            barcode: "".into(),
+            quantity: 0,
+            purchase_price: 0.0,
+            sale_price: 0.0,
+            custom_type: "printing".into(),
+            custom_config: json!({"recto_price": 15, "recto_verso_price": 25}),
+        };
+        let item = CheckoutItemInput {
+            product_id: 3,
+            quantity: 4,
+            unit_price: Some(25.0),
+            stock_quantity: Some(0),
+            display_name: None,
+            custom_option: Some("recto_verso".into()),
+        };
+        assert_eq!(
+            resolve_custom_line(&product, &item, 0).unwrap(),
+            (25.0, 0.0)
+        );
     }
 }

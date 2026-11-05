@@ -1,11 +1,18 @@
 export type Language = "fr" | "ar";
-export type ViewKey = "apps" | "dashboard" | "stock" | "perfumery" | "pos" | "delivery" | "revenue" | "reports" | "expenses" | "credits" | "zakat" | "settings";
+export type ViewKey = "apps" | "dashboard" | "stock" | "pos" | "delivery" | "revenue" | "reports" | "expenses" | "credits" | "zakat" | "settings";
 
 export interface UserSession {
   id: number;
   username: string;
   display_name: string;
   role: string;
+}
+
+export interface ClientRecord {
+  id: number;
+  name: string;
+  phone: string;
+  created_at: string;
 }
 
 export interface ProfileInput {
@@ -43,6 +50,10 @@ export interface AppSettings {
   ui_density: "compact" | "comfortable" | "spacious";
   pos_layout: "auto" | "side" | "bottom";
   pos_cart_width: number;
+  enable_perfumes: boolean;
+  enable_tobacco: boolean;
+  enable_flexy: boolean;
+  enable_printing: boolean;
 }
 
 export interface Product {
@@ -59,7 +70,19 @@ export interface Product {
   image_data: string;
   created_at: string;
   updated_at: string;
+  custom_type: CustomProductType;
+  custom_config: CustomProductConfig;
 }
+
+export type CustomProductType = "standard" | "flexy" | "tobacco" | "printing";
+export type CustomProductConfig = {
+  surcharge_tiers?: Array<{ up_to: number | null; surcharge: number }>;
+  pieces_per_box?: number;
+  piece_sale_price?: number;
+  box_sale_price?: number;
+  recto_price?: number;
+  recto_verso_price?: number;
+};
 
 export interface ProductInput {
   id?: number;
@@ -73,6 +96,8 @@ export interface ProductInput {
   purchase_price: number;
   sale_price: number;
   image_data: string;
+  custom_type?: CustomProductType;
+  custom_config?: CustomProductConfig;
 }
 
 export type StockMovementType = "entry" | "destock" | "adjustment" | "initial";
@@ -294,6 +319,11 @@ export interface CartItem {
   product: Product;
   quantity: number;
   unit_price: number;
+  stock_quantity?: number;
+  display_name?: string;
+  custom_option?: string;
+  unit_cost?: number;
+  cart_key?: string;
 }
 
 export interface Flacon {
@@ -377,7 +407,7 @@ export interface PerfumeCartItem {
 }
 
 export interface CheckoutInput {
-  items: Array<{ product_id: number; quantity: number; unit_price: number }>;
+  items: Array<{ product_id: number; quantity: number; unit_price: number; stock_quantity?: number; display_name?: string; custom_option?: string }>;
   perfume_items: Array<{ perfume_id: number; flacon_id: number; quantity: number }>;
   discount: number;
   sale_type: "cash" | "credit" | "delivery";
@@ -414,6 +444,9 @@ export interface SaleItem {
   quantity: number;
   unit_price: number;
   line_total: number;
+  stock_quantity?: number;
+  custom_option?: string;
+  unit_cost?: number;
 }
 
 export interface Sale {

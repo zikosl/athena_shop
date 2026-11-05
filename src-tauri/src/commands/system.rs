@@ -19,6 +19,11 @@ fn hide_console(command: &mut Command) -> &mut Command {
     command.creation_flags(CREATE_NO_WINDOW)
 }
 
+#[cfg(not(target_os = "windows"))]
+fn hide_console(command: &mut Command) -> &mut Command {
+    command
+}
+
 fn write_utf8_bom(path: &std::path::Path, content: &str) -> AppResult<()> {
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
     bytes.extend_from_slice(content.as_bytes());
@@ -55,6 +60,10 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             )?
             .map(|row| row.get::<_, String>(0) != "false")
             .unwrap_or(true);
+        let enable_perfumes = app_setting_bool(client, "enable_perfumes", false)?;
+        let enable_tobacco = app_setting_bool(client, "enable_tobacco", true)?;
+        let enable_flexy = app_setting_bool(client, "enable_flexy", true)?;
+        let enable_printing = app_setting_bool(client, "enable_printing", true)?;
         let cash_register_auto_close_time = client
             .query_opt(
                 "SELECT value FROM app_meta WHERE key = 'cash_register_auto_close_time'",
@@ -185,7 +194,7 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
                 &[],
             )?
             .and_then(|row| row.get::<_, String>(0).parse::<i64>().ok())
-            .unwrap_or(320)
+            .unwrap_or(420)
             .clamp(280, 420);
         Ok(AppSettings {
             allow_negative_stock,
@@ -207,6 +216,10 @@ pub fn get_app_settings(db: State<Database>) -> AppResult<AppSettings> {
             ui_density,
             pos_layout,
             pos_cart_width,
+            enable_perfumes,
+            enable_tobacco,
+            enable_flexy,
+            enable_printing,
         })
     })
 }
@@ -257,6 +270,20 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             &[&value],
         )?;
+        for (key, enabled) in [
+            ("enable_perfumes", input.enable_perfumes),
+            ("enable_tobacco", input.enable_tobacco),
+            ("enable_flexy", input.enable_flexy),
+            ("enable_printing", input.enable_printing),
+        ] {
+            let value = if enabled { "true" } else { "false" };
+            client.execute(
+                "INSERT INTO app_meta (key, value)
+                 VALUES ($1, $2)
+                 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                &[&key, &value],
+            )?;
+        }
         client.execute(
             "INSERT INTO app_meta (key, value)
              VALUES ('cash_register_auto_close_time', $1)
@@ -387,6 +414,13 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
             ..input
         })
     })
+}
+
+fn app_setting_bool(client: &mut postgres::Client, key: &str, default: bool) -> AppResult<bool> {
+    Ok(client
+        .query_opt("SELECT value FROM app_meta WHERE key = $1", &[&key])?
+        .map(|row| row.get::<_, String>(0) == "true")
+        .unwrap_or(default))
 }
 
 fn is_valid_hex_color(value: &str) -> bool {
@@ -1253,6 +1287,13 @@ if ($found) {
             format!("Imprimante introuvable: {}", printer_name)
         }))
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ensure_printer_available(_printer_name: &str) -> AppResult<()> {
+    Err(AppError::Message(
+        "L'impression des étiquettes code-barres est disponible uniquement sous Windows".into(),
+    ))
 }
 
 #[tauri::command]

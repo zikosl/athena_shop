@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod clients;
 pub mod credits;
 pub mod dashboard;
 pub mod expenses;

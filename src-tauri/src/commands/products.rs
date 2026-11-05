@@ -19,15 +19,15 @@ pub fn list_products(
         let stock = stock.unwrap_or_else(|| "all".into());
         let rows = client.query(
             "SELECT id, name, barcode, category, size, color, quantity, low_stock_threshold,
-                    purchase_price, sale_price, image_data, created_at::text, updated_at::text
+                    purchase_price, sale_price, image_data, created_at::text, updated_at::text, custom_type, custom_config
              FROM products
              WHERE (name ILIKE $1 OR barcode ILIKE $1 OR category ILIKE $1 OR size ILIKE $1 OR color ILIKE $1)
                AND ($2 = '' OR category = $2)
                AND (
                  $3 = 'all'
-                 OR ($3 = 'available' AND quantity > low_stock_threshold)
-                 OR ($3 = 'low' AND quantity > 0 AND quantity <= low_stock_threshold)
-                 OR ($3 = 'out' AND quantity <= 0)
+                 OR ($3 = 'available' AND (custom_type = 'printing' OR quantity > low_stock_threshold))
+                 OR ($3 = 'low' AND custom_type = 'standard' AND quantity > 0 AND quantity <= low_stock_threshold)
+                 OR ($3 = 'out' AND custom_type <> 'printing' AND quantity <= 0)
                )
              ORDER BY updated_at DESC, id DESC",
             &[&pattern, &category, &stock],
@@ -38,9 +38,96 @@ pub fn list_products(
 }
 
 #[tauri::command]
+pub fn list_categories(db: State<Database>) -> AppResult<Vec<String>> {
+    db.with_client(|client| {
+        let rows = client.query(
+            "SELECT name FROM product_categories
+             UNION SELECT DISTINCT btrim(category) FROM products WHERE btrim(category) <> ''
+             ORDER BY name",
+            &[],
+        )?;
+        Ok(rows.iter().map(|row| row.get(0)).collect())
+    })
+}
+
+#[tauri::command]
+pub fn save_category(
+    db: State<Database>,
+    name: String,
+    old_name: Option<String>,
+) -> AppResult<String> {
+    let name = name.trim().to_string();
+    let old_name = old_name.map(|value| value.trim().to_string());
+    if name.is_empty() || name.chars().count() > 60 {
+        return Err(AppError::Message(
+            "اسم الصنف مطلوب (60 حرفًا كحد أقصى)".into(),
+        ));
+    }
+    db.with_client(|client| {
+        let mut tx = client.transaction()?;
+        let exists: bool = tx
+            .query_one(
+                "SELECT EXISTS(SELECT 1 FROM product_categories WHERE name = $1)",
+                &[&name],
+            )?
+            .get(0);
+        if exists && old_name.as_deref() != Some(name.as_str()) {
+            return Err(AppError::Message("هذا الصنف موجود مسبقًا".into()));
+        }
+        if let Some(old_name) = old_name.filter(|old| old != &name) {
+            tx.execute(
+                "INSERT INTO product_categories (name) VALUES ($1) ON CONFLICT DO NOTHING",
+                &[&name],
+            )?;
+            tx.execute(
+                "UPDATE products SET category = $1, updated_at = NOW() WHERE category = $2",
+                &[&name, &old_name],
+            )?;
+            tx.execute(
+                "DELETE FROM product_categories WHERE name = $1",
+                &[&old_name],
+            )?;
+        } else {
+            tx.execute(
+                "INSERT INTO product_categories (name) VALUES ($1) ON CONFLICT DO NOTHING",
+                &[&name],
+            )?;
+        }
+        tx.commit()?;
+        Ok(name)
+    })
+}
+
+#[tauri::command]
+pub fn delete_category(db: State<Database>, name: String) -> AppResult<()> {
+    let name = name.trim().to_string();
+    db.with_client(|client| {
+        let used: bool = client
+            .query_one(
+                "SELECT EXISTS(SELECT 1 FROM products WHERE category = $1)",
+                &[&name],
+            )?
+            .get(0);
+        if used {
+            return Err(AppError::Message(
+                "لا يمكن حذف صنف مرتبط بمنتجات؛ غيّر أصناف المنتجات أولًا".into(),
+            ));
+        }
+        client.execute("DELETE FROM product_categories WHERE name = $1", &[&name])?;
+        Ok(())
+    })
+}
+
+#[tauri::command]
 pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Product> {
     db.with_client(|client| {
         validate_product(client, &input)?;
+        if !input.category.trim().is_empty() {
+            client.execute(
+                "INSERT INTO product_categories (name) VALUES ($1) ON CONFLICT DO NOTHING",
+                &[&input.category.trim()],
+            )?;
+        }
         let id: i64 = if let Some(id) = input.id {
             let old_quantity: i64 = client
                 .query_one("SELECT quantity FROM products WHERE id = $1", &[&id])?
@@ -49,8 +136,8 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
                 "UPDATE products
                  SET name = $1, barcode = $2, category = $3, size = $4, color = $5,
                      quantity = $6, low_stock_threshold = $7, purchase_price = $8,
-                     sale_price = $9, image_data = $10, updated_at = NOW()
-                 WHERE id = $11",
+                     sale_price = $9, image_data = $10, custom_type = $11, custom_config = $12, updated_at = NOW()
+                 WHERE id = $13",
                 &[
                     &input.name.trim(),
                     &input.barcode.trim(),
@@ -62,6 +149,8 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
                     &input.purchase_price,
                     &input.sale_price,
                     &input.image_data,
+                    &input.custom_type,
+                    &input.custom_config,
                     &id,
                 ],
             )?;
@@ -82,8 +171,8 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
             let id = client
                 .query_one(
                     "INSERT INTO products
-                     (name, barcode, category, size, color, quantity, low_stock_threshold, purchase_price, sale_price, image_data)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                     (name, barcode, category, size, color, quantity, low_stock_threshold, purchase_price, sale_price, image_data, custom_type, custom_config)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                      RETURNING id",
                     &[
                         &input.name.trim(),
@@ -96,6 +185,8 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
                         &input.purchase_price,
                         &input.sale_price,
                         &input.image_data,
+                        &input.custom_type,
+                        &input.custom_config,
                     ],
                 )?
                 .get(0);
@@ -128,6 +219,11 @@ pub fn adjust_product_stock(db: State<Database>, input: StockMovementInput) -> A
 
     db.with_client(|client| {
         let product = get_product(client, input.product_id)?;
+        if product.custom_type == "printing" {
+            return Err(AppError::Message(
+                "خدمات الطباعة لا تملك مخزونا قابلا للتعديل".into(),
+            ));
+        }
         let movement_type = input.movement_type.trim();
         let delta = match movement_type {
             "entry" => input.quantity,
@@ -249,7 +345,7 @@ pub fn regenerate_all_barcodes(db: State<Database>) -> AppResult<Vec<Product>> {
 
         let rows = client.query(
             "SELECT id, name, barcode, category, size, color, quantity, low_stock_threshold,
-                    purchase_price, sale_price, image_data, created_at::text, updated_at::text
+                    purchase_price, sale_price, image_data, created_at::text, updated_at::text, custom_type, custom_config
              FROM products ORDER BY updated_at DESC, id DESC",
             &[],
         )?;
@@ -326,6 +422,89 @@ fn validate_product(client: &mut postgres::Client, input: &ProductInput) -> AppR
     {
         return Err(AppError::Message("Les prix doivent etre positifs".into()));
     }
+    if !["standard", "flexy", "tobacco", "printing"].contains(&input.custom_type.as_str()) {
+        return Err(AppError::Message(
+            "Type de produit personnalisé invalide".into(),
+        ));
+    }
+    if input.custom_type == "tobacco"
+        && input
+            .custom_config
+            .get("pieces_per_box")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0)
+            <= 0
+    {
+        return Err(AppError::Message(
+            "Le nombre de pièces par boîte doit être supérieur à zéro".into(),
+        ));
+    }
+    if input.custom_type == "flexy" {
+        let tiers = input
+            .custom_config
+            .get("surcharge_tiers")
+            .and_then(serde_json::Value::as_array);
+        if tiers.map(|tiers| tiers.is_empty()).unwrap_or(true) {
+            return Err(AppError::Message(
+                "Configurez au moins un palier de frais Flexy".into(),
+            ));
+        }
+        let tiers = tiers.unwrap();
+        let mut upper_bounds = Vec::new();
+        for tier in tiers {
+            let surcharge = tier
+                .get("surcharge")
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(-1.0);
+            if !surcharge.is_finite() || surcharge < 0.0 {
+                return Err(AppError::Message(
+                    "Les frais Flexy doivent être positifs".into(),
+                ));
+            }
+            if let Some(limit) = tier.get("up_to").and_then(serde_json::Value::as_f64) {
+                if !limit.is_finite() || limit <= 0.0 {
+                    return Err(AppError::Message(
+                        "Les limites des paliers doivent être positives".into(),
+                    ));
+                }
+                upper_bounds.push(limit);
+            }
+        }
+        upper_bounds.sort_by(f64::total_cmp);
+        if upper_bounds.windows(2).any(|pair| pair[0] == pair[1])
+            || upper_bounds.len() != tiers.len().saturating_sub(1)
+        {
+            return Err(AppError::Message("Les paliers Flexy doivent avoir des limites uniques et un dernier palier sans limite".into()));
+        }
+    }
+    if input.custom_type == "tobacco"
+        && ["piece_sale_price", "box_sale_price"].iter().any(|key| {
+            input
+                .custom_config
+                .get(*key)
+                .and_then(serde_json::Value::as_f64)
+                .map(|value| !value.is_finite() || value < 0.0)
+                .unwrap_or(true)
+        })
+    {
+        return Err(AppError::Message(
+            "Configurez les prix pièce et boîte du tabac".into(),
+        ));
+    }
+    if input.custom_type == "printing"
+        && ["recto_price", "recto_verso_price"].iter().any(|key| {
+            input
+                .custom_config
+                .get(*key)
+                .and_then(serde_json::Value::as_f64)
+                .map(|value| !value.is_finite() || value < 0.0)
+                .unwrap_or(true)
+        })
+    {
+        return Err(AppError::Message(
+            "Configurez les deux prix d'impression".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -367,7 +546,7 @@ fn allow_negative_stock(client: &mut postgres::Client) -> AppResult<bool> {
 fn get_product(client: &mut postgres::Client, id: i64) -> AppResult<Product> {
     let row = client.query_one(
         "SELECT id, name, barcode, category, size, color, quantity, low_stock_threshold,
-                purchase_price, sale_price, image_data, created_at::text, updated_at::text
+                purchase_price, sale_price, image_data, created_at::text, updated_at::text, custom_type, custom_config
          FROM products WHERE id = $1",
         &[&id],
     )?;
@@ -389,6 +568,8 @@ pub fn product_from_row(row: &Row) -> Product {
         image_data: row.get(10),
         created_at: row.get(11),
         updated_at: row.get(12),
+        custom_type: row.get(13),
+        custom_config: row.get(14),
     }
 }
 

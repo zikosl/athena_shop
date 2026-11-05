@@ -1,7 +1,8 @@
 ﻿import { FormEvent, MouseEvent, ReactNode, useEffect, useMemo, useState } from "react";
-import { Barcode, ClipboardList, Coins, Edit3, History, ImagePlus, PackageMinus, PackagePlus, Plus, RefreshCcw, Save, Search, Trash2, X } from "lucide-react";
+import { Barcode, ClipboardList, Coins, Edit3, History, ImagePlus, PackageMinus, PackagePlus, Plus, RefreshCcw, Save, Search, Tag, Trash2, X } from "lucide-react";
+import { createPortal } from "react-dom";
 import { api } from "../../shared/api";
-import { money } from "../../shared/format";
+import { money, productStockValues } from "../../shared/format";
 import { useText } from "../../shared/i18n";
 import { showErrorToast, showToast } from "../../shared/toast";
 import { Language, Product, ProductInput, ProductStockFilter, StockMovement } from "../../shared/types";
@@ -16,7 +17,9 @@ const emptyProduct: ProductInput = {
   low_stock_threshold: 3,
   purchase_price: 0,
   sale_price: 0,
-  image_data: ""
+  image_data: "",
+  custom_type: "standard",
+  custom_config: {}
 };
 const maxProductImageSize = 5 * 1024 * 1024;
 
@@ -72,6 +75,9 @@ export function StockPage({
   const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; product: Product } | null>(null);
   const [regeneratingBarcodes, setRegeneratingBarcodes] = useState(false);
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+  const [categoryDraft, setCategoryDraft] = useState("");
+  const [editingCategory, setEditingCategory] = useState("");
   const load = () => api.products({ query, category, stock: stockFilter }).then(setProducts);
 
   useEffect(() => {
@@ -103,10 +109,10 @@ export function StockPage({
     };
   }, [contextMenu]);
 
-  const margin = useMemo(() => form.sale_price - form.purchase_price, [form]);
+  const margin = useMemo(() => form.sale_price - form.purchase_price, [form.sale_price, form.purchase_price]);
   const stockTotals = useMemo(() => {
-    const purchaseValue = products.reduce((sum, product) => sum + product.purchase_price * product.quantity, 0);
-    const revenueValue = products.reduce((sum, product) => sum + product.sale_price * product.quantity, 0);
+    const purchaseValue = products.reduce((sum, product) => sum + productStockValues(product).cost, 0);
+    const revenueValue = products.reduce((sum, product) => sum + productStockValues(product).sale, 0);
     return {
       purchaseValue,
       revenueValue,
@@ -119,9 +125,41 @@ export function StockPage({
     [inventoryCounts, products]
   );
 
+  function updateTier(index: number, key: "up_to" | "surcharge", value: number | null) {
+    const tiers = [...(form.custom_config?.surcharge_tiers ?? [])];
+    tiers[index] = { ...tiers[index], [key]: value };
+    setForm({ ...form, custom_config: { ...form.custom_config, surcharge_tiers: tiers } });
+  }
+
   async function refreshCategories() {
-    const items = await api.products();
-    setCategories(Array.from(new Set(items.map((product) => product.category).filter(Boolean))).sort());
+    setCategories(await api.categories());
+  }
+
+  async function saveCategory(event: FormEvent) {
+    event.preventDefault();
+    try {
+      const saved = await api.saveCategory(categoryDraft, editingCategory || undefined);
+      setCategory(saved);
+      setCategoryDraft("");
+      setEditingCategory("");
+      await refreshCategories();
+      await load();
+      onChanged();
+      showToast("تم حفظ الصنف", "success");
+    } catch (err) {
+      showErrorToast(err, "تعذر حفظ الصنف");
+    }
+  }
+
+  async function removeCategory(name: string) {
+    try {
+      await api.deleteCategory(name);
+      if (category === name) setCategory("");
+      await refreshCategories();
+      showToast("تم حذف الصنف", "success");
+    } catch (err) {
+      showErrorToast(err, "تعذر حذف الصنف");
+    }
   }
 
   async function regenerateAllBarcodes() {
@@ -146,7 +184,7 @@ export function StockPage({
   }
 
   function openEditProduct(product: Product) {
-    setForm(product);
+    setForm(product.custom_type === "standard" ? product : { ...product, low_stock_threshold: 0, image_data: "" });
     setFormOpen(true);
   }
 
@@ -155,7 +193,7 @@ export function StockPage({
       product,
       type,
       quantity: 1,
-      purchase_price: type === "entry" ? product.purchase_price : 0,
+      purchase_price: type === "entry" ? product.purchase_price * (product.custom_type === "tobacco" ? product.custom_config?.pieces_per_box ?? 1 : 1) : 0,
       purchase_price_mode: "unit",
       note: type === "entry" ? "شراء مخزون" : "إخراج من المخزون"
     });
@@ -175,14 +213,32 @@ export function StockPage({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    const initialQuantity = form.id ? 0 : (form.custom_type === "standard" || form.custom_type === "flexy") ? form.quantity : 0;
+    if (!form.id && (!Number.isInteger(initialQuantity) || initialQuantity < 0)) {
+      showToast("أدخل كمية أولية صحيحة", "warning");
+      return;
+    }
     try {
-      await api.saveProduct(form);
+      const productInput = form.custom_type === "standard" ? form : { ...form, image_data: "" };
+      const product = await api.saveProduct(form.id ? productInput : { ...productInput, quantity: 0, purchase_price: 0 });
       setForm(newProduct());
       setFormOpen(false);
       await load();
       await refreshCategories();
       onChanged();
-      showToast(form.id ? "تم تحديث المنتج" : "تم إنشاء المنتج", "success");
+      if (!form.id && initialQuantity > 0) {
+        setMovementForm({
+          product,
+          type: "entry",
+          quantity: initialQuantity,
+          purchase_price: 0,
+          purchase_price_mode: "unit",
+          note: "مخزون أولي"
+        });
+        showToast("أكمل إدخال المخزون الأولي بتسجيل تكلفة الشراء", "info");
+      } else {
+        showToast(form.id ? "تم تحديث المنتج" : "تم إنشاء المنتج", "success");
+      }
     } catch (err) {
       showErrorToast(err, "تعذر حفظ المنتج");
     }
@@ -235,13 +291,13 @@ export function StockPage({
     event.preventDefault();
     if (!movementForm) return;
     try {
-      const unitPurchasePrice = movementForm.type === "entry" && movementForm.purchase_price_mode === "total"
-        ? movementForm.purchase_price / Math.max(1, movementForm.quantity)
-        : movementForm.purchase_price;
+      const unitMultiplier = movementForm.product.custom_type === "tobacco" ? movementForm.product.custom_config?.pieces_per_box ?? 1 : 1;
+      const stockQuantity = movementForm.quantity * unitMultiplier;
+      const unitPurchasePrice = entryUnitPurchasePrice(movementForm);
       await api.adjustProductStock({
         product_id: movementForm.product.id,
         movement_type: movementForm.type,
-        quantity: movementForm.quantity,
+        quantity: stockQuantity,
         purchase_price: movementForm.type === "entry" ? unitPurchasePrice : 0,
         note: movementForm.note
       });
@@ -311,6 +367,9 @@ export function StockPage({
           <button className="gold-button compact-button" type="button" onClick={openNewProduct}>
             <Plus size={17} /> {t.newProduct}
           </button>
+          <button className="ghost-button compact-button" type="button" onClick={() => { setCategoryDraft(""); setEditingCategory(""); setCategoryManagerOpen(true); }}>
+            <Tag size={16} /> إدارة الأصناف
+          </button>
           <button className="ghost-button compact-button" type="button" disabled={regeneratingBarcodes} onClick={() => void regenerateAllBarcodes()} title="إعادة إنشاء باركود EAN-8 لكل المخزون">
             <Barcode size={16} /> {regeneratingBarcodes ? "جاري التوليد..." : "تجديد الباركود"}
           </button>
@@ -346,7 +405,7 @@ export function StockPage({
             <option value="out">{t.outOfStock}</option>
           </select>
         </div>
-        <div className="data-table">
+        <div className="data-table stock-table">
           <table>
             <thead>
               <tr>
@@ -355,7 +414,7 @@ export function StockPage({
                 <th>{t.quantity}</th>
                 {inventoryMode && <th>{t.countedQuantity}</th>}
                 {inventoryMode && <th>{t.gap}</th>}
-                <th>{t.buyPrice}</th>
+                <th>{products.some((product) => product.custom_type !== "standard") ? "تكلفة الوحدة الأساسية" : t.buyPrice}</th>
                 <th>{t.salePrice}</th>
                 <th>{t.stockPurchaseValue}</th>
                 <th>{t.stockRevenueValue}</th>
@@ -366,18 +425,17 @@ export function StockPage({
               {products.map((product) => (
                 <tr
                   key={product.id}
-                  className={product.quantity <= product.low_stock_threshold ? "low-row" : ""}
-                  onClick={() => setBarcodeProduct(product)}
+                  className={product.custom_type === "standard" && product.quantity <= product.low_stock_threshold ? "low-row" : ""}
                   onContextMenu={(event) => openContextMenu(event, product)}
                 >
                   <td>
                     <div className="product-cell">
                       {product.image_data ? <img src={product.image_data} alt="" /> : <span className="product-thumb-placeholder"><ImagePlus size={16} /></span>}
-                      <div><strong>{product.name}</strong><span>{product.category} · {product.size} · {product.color}</span></div>
+                      <div><strong>{product.name}</strong><span>{product.custom_type === "flexy" ? "Flexy · الرصيد بالدج" : product.custom_type === "tobacco" ? `تبغ · ${product.custom_config?.pieces_per_box ?? 0} قطعة/علبة` : product.custom_type === "printing" ? "طباعة · مخزون خدمات" : product.category}</span></div>
                     </div>
                   </td>
-                  <td>{product.barcode}</td>
-                  <td>{product.quantity}</td>
+                  <td><button className="stock-barcode-button" type="button" title="طباعة ملصقات الباركود" onClick={(event) => { event.stopPropagation(); setBarcodeProduct(product); }}><Barcode size={14} />{product.barcode}</button></td>
+                  <td>{product.custom_type === "printing" ? "غير محدود" : product.quantity}</td>
                   {inventoryMode && (
                     <td>
                       <input
@@ -390,17 +448,19 @@ export function StockPage({
                     </td>
                   )}
                   {inventoryMode && <td>{(inventoryCounts[product.id] ?? product.quantity) - product.quantity}</td>}
-                  <td>{money(product.purchase_price)}</td>
-                  <td>{money(product.sale_price)}</td>
-                  <td>{money(product.purchase_price * product.quantity)}</td>
-                  <td>{money(product.sale_price * product.quantity)}</td>
-                  <td className="row-actions">
-                    <button title="إدخال مخزون" onClick={(event) => { event.stopPropagation(); openMovement(product, "entry"); }}><PackagePlus size={16} /></button>
-                    <button title="إخراج مخزون" onClick={(event) => { event.stopPropagation(); openMovement(product, "destock"); }}><PackageMinus size={16} /></button>
-                    <button title="حركات المخزون" onClick={(event) => { event.stopPropagation(); void openHistory(product); }}><History size={16} /></button>
-                    <button onClick={(event) => { event.stopPropagation(); openEditProduct(product); }} onContextMenu={(event) => openContextMenu(event, product)}><Edit3 size={16} /></button>
-                    <button className="danger-action" title="حذف المنتج" onClick={(event) => { event.stopPropagation(); void remove(product); }}><Trash2 size={16} /></button>
-                  </td>
+                  <td>{product.custom_type === "printing" ? "لا توجد تكلفة" : money(product.purchase_price)}</td>
+                  <td>{product.custom_type === "flexy" ? "حسب الشريحة" : product.custom_type === "tobacco" ? `${money(product.custom_config?.piece_sale_price ?? 0)} / ${money(product.custom_config?.box_sale_price ?? 0)}` : product.custom_type === "printing" ? `${money(product.custom_config?.recto_price ?? 0)} / ${money(product.custom_config?.recto_verso_price ?? 0)}` : money(product.sale_price)}</td>
+                  <td>{money(productStockValues(product).cost)}</td>
+                  <td>{money(productStockValues(product).sale)}</td>
+                  <td className="row-actions"><div className="row-action-group">
+                    {product.custom_type !== "printing" && <>
+                      <button type="button" aria-label="إدخال مخزون" title="إدخال مخزون" onClick={() => openMovement(product, "entry")}><PackagePlus size={16} /></button>
+                      <button type="button" aria-label="إخراج مخزون" title="إخراج مخزون" onClick={() => openMovement(product, "destock")}><PackageMinus size={16} /></button>
+                      <button type="button" aria-label="حركات المخزون" title="حركات المخزون" onClick={() => void openHistory(product)}><History size={16} /></button>
+                    </>}
+                    <button type="button" aria-label="تعديل المنتج" title="تعديل المنتج" onClick={() => openEditProduct(product)} onContextMenu={(event) => openContextMenu(event, product)}><Edit3 size={16} /></button>
+                    <button type="button" className="danger-action" aria-label="حذف المنتج" title="حذف المنتج" onClick={() => void remove(product)}><Trash2 size={16} /></button>
+                  </div></td>
                 </tr>
               ))}
             </tbody>
@@ -415,29 +475,65 @@ export function StockPage({
         )}
       </section>
 
-      {formOpen && (
-        <div className="modal-backdrop">
-          <form className="panel form-panel form-modal" onSubmit={submit}>
+      {formOpen && createPortal(
+        <div className="modal-backdrop stock-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setFormOpen(false); }}>
+          <form className="panel form-panel form-modal stock-modal-dialog" onSubmit={submit}>
             <div className="section-title">
               <h2><Plus size={18} /> {form.id ? t.edit : t.newProduct}</h2>
               <span />
               <button className="ghost-button compact-button" type="button" onClick={() => setFormOpen(false)}><X size={16} /> {t.close}</button>
             </div>
-            <div className="form-grid">
+            <label className="product-type-field"><span>نوع المنتج</span><select value={form.custom_type ?? "standard"} onChange={(event) => {
+              const type = event.target.value as NonNullable<ProductInput["custom_type"]>;
+              const custom_config = type === "flexy" ? { surcharge_tiers: [{ up_to: 499, surcharge: 10 }, { up_to: null, surcharge: 20 }] }
+                : type === "tobacco" ? { pieces_per_box: 10, piece_sale_price: 0, box_sale_price: 0 }
+                  : type === "printing" ? { recto_price: 0, recto_verso_price: 0 }
+                    : {};
+              setForm({
+                ...form,
+                custom_type: type,
+                custom_config,
+                quantity: !form.id && type !== "standard" ? 0 : form.quantity,
+                low_stock_threshold: type === "standard" ? form.low_stock_threshold || 3 : 0,
+                image_data: type === "standard" ? form.image_data : "",
+                purchase_price: type === "printing" ? 0 : form.purchase_price
+              });
+            }} disabled={!!form.id}><option value="standard">عادي</option><option value="flexy">Flexy</option><option value="tobacco">تبغ</option><option value="printing">طباعة</option></select></label>
+            <div className="form-section-heading"><strong>البيانات الأساسية</strong></div>
+            <div className="form-grid product-core-grid">
               <Input label={t.product} value={form.name} onChange={(name) => setForm({ ...form, name })} />
-              <Input label={t.barcode} value={form.barcode} icon={<Barcode size={16} />} onChange={(barcode) => setForm({ ...form, barcode: barcode.replace(/\D/g, "").slice(0, 8) })} />
+              {form.custom_type === "standard" && <Input label={t.salePrice} type="number" value={form.sale_price} onChange={(value) => setForm({ ...form, sale_price: Number(value) })} />}
+              {!form.id && form.custom_type === "standard" && <Input label="الكمية الأولية" type="number" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity: Number(quantity) })} />}
+              {!form.id && form.custom_type === "flexy" && <Input label="رصيد Flexy المتاح أوليًا (دج)" type="number" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity: Number(quantity) })} />}
+              {form.custom_type === "standard" && <Input label={t.alert} type="number" value={form.low_stock_threshold} onChange={(value) => setForm({ ...form, low_stock_threshold: Number(value) })} />}
+            </div>
+            <div className="form-section-heading"><strong>تفاصيل المنتج</strong></div>
+            <div className="form-grid product-details-grid">
               <Input label={t.category} value={form.category} list="product-categories" onChange={(category) => setForm({ ...form, category })} />
-              <Input label={t.size} value={form.size} onChange={(size) => setForm({ ...form, size })} />
-              <Input label={t.color} value={form.color} onChange={(color) => setForm({ ...form, color })} />
-              <Input label={t.quantity} type="number" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity: Number(quantity) })} />
-              <Input label={t.alert} type="number" value={form.low_stock_threshold} onChange={(value) => setForm({ ...form, low_stock_threshold: Number(value) })} />
-              <Input label={t.buyPrice} type="number" value={form.purchase_price} onChange={(value) => setForm({ ...form, purchase_price: Number(value) })} />
-              <Input label={t.salePrice} type="number" value={form.sale_price} onChange={(value) => setForm({ ...form, sale_price: Number(value) })} />
+              {form.custom_type === "standard" && <Input label={t.barcode} value={form.barcode} icon={<Barcode size={16} />} onChange={(barcode) => setForm({ ...form, barcode: barcode.replace(/\D/g, "").slice(0, 8) })} />}
+            </div>
+            <div className={`custom-settings-section ${form.custom_type === "standard" ? "is-standard" : ""} ${form.custom_type === "flexy" ? "is-flexy" : ""}`}>
+              {form.custom_type === "flexy" && <div className="field form-wide flexy-tier-editor">
+                <span>شرائح رسوم Flexy (حتى المبلغ / الرسوم)</span>
+                <div className="flexy-tier-list">
+                  {(form.custom_config?.surcharge_tiers ?? []).map((tier, index, tiers) => (
+                    <div className="flexy-tier-row" key={index}>
+                      <span className="tier-index">{index + 1}</span>
+                      <Input label="حتى (دج)" type="number" value={tier.up_to ?? ""} placeholder={tier.up_to === null ? "بدون حد" : ""} onChange={(value) => updateTier(index, "up_to", value === "" ? null : Number(value))} />
+                      <Input label="الرسم (دج)" type="number" value={tier.surcharge} onChange={(value) => updateTier(index, "surcharge", Number(value))} />
+                      <button type="button" className="plain-icon flexy-tier-delete" aria-label="حذف الشريحة" title="حذف الشريحة" onClick={() => setForm({ ...form, custom_config: { ...form.custom_config, surcharge_tiers: tiers.filter((_, i) => i !== index) } })}><Trash2 size={17} /></button>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" className="ghost-button tier-add-button" onClick={() => setForm({ ...form, custom_config: { ...form.custom_config, surcharge_tiers: [...(form.custom_config?.surcharge_tiers ?? []), { up_to: null, surcharge: 0 }] } })}><Plus size={16} /> إضافة شريحة</button>
+              </div>}
+              {form.custom_type === "tobacco" && <><Input label="عدد القطع في العلبة" type="number" value={form.custom_config?.pieces_per_box ?? 10} onChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, pieces_per_box: Number(value) } })} /><Input label="سعر بيع القطعة" type="number" value={form.custom_config?.piece_sale_price ?? 0} onChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, piece_sale_price: Number(value) } })} /><Input label="سعر بيع العلبة" type="number" value={form.custom_config?.box_sale_price ?? 0} onChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, box_sale_price: Number(value) } })} /></>}
+              {form.custom_type === "printing" && <><Input label="سعر Recto" type="number" value={form.custom_config?.recto_price ?? 0} onChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, recto_price: Number(value) } })} /><Input label="سعر Recto-verso" type="number" value={form.custom_config?.recto_verso_price ?? 0} onChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, recto_verso_price: Number(value) } })} /></>}
             </div>
             <datalist id="product-categories">
               {categories.map((item) => <option value={item} key={item} />)}
             </datalist>
-            <div className="image-uploader">
+            {form.custom_type === "standard" && <div className="image-uploader">
               <div className="product-image-preview">
                 {form.image_data ? <img src={form.image_data} alt="" /> : <ImagePlus size={30} />}
               </div>
@@ -452,10 +548,10 @@ export function StockPage({
                   </button>
                 )}
               </div>
-            </div>
-            <div className="profit-preview">{t.estimatedMargin} <strong>{money(margin)}</strong></div>
+            </div>}
+            {form.custom_type === "standard" && <div className="profit-preview">{t.estimatedMargin} <strong>{money(margin)}</strong></div>}
             <div className="button-row">
-              {!form.id && (
+              {!form.id && form.custom_type === "standard" && (
                 <button className="ghost-button" type="button" onClick={() => setForm({ ...form, barcode: createBarcode() })}>
                   <RefreshCcw size={17} /> {t.generateBarcode}
                 </button>
@@ -464,11 +560,27 @@ export function StockPage({
             </div>
           </form>
         </div>
+      , document.body)}
+
+      {categoryManagerOpen && createPortal(
+        <div className="modal-backdrop stock-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCategoryManagerOpen(false); }}>
+          <section className="panel form-panel form-modal stock-modal-dialog category-manager-modal" role="dialog" aria-modal="true" aria-labelledby="category-manager-title">
+            <div className="section-title"><h2 id="category-manager-title"><Tag size={18} /> إدارة الأصناف</h2><span /><button className="ghost-button compact-button" type="button" onClick={() => setCategoryManagerOpen(false)}><X size={16} /> {t.close}</button></div>
+            <form className="category-create-row" onSubmit={saveCategory}>
+              <Input label={editingCategory ? "تعديل اسم الصنف" : "اسم الصنف الجديد"} value={categoryDraft} onChange={setCategoryDraft} />
+              <div className="button-row"><button className="gold-button compact-button" type="submit" disabled={!categoryDraft.trim()}><Save size={16} /> {editingCategory ? t.update : "إضافة"}</button>{editingCategory && <button className="ghost-button compact-button" type="button" onClick={() => { setEditingCategory(""); setCategoryDraft(""); }}>إلغاء</button>}</div>
+            </form>
+            <div className="category-manager-list">
+              {categories.map((name) => <div className="category-manager-item" key={name}><strong>{name}</strong><div><button className="plain-icon" type="button" title="تعديل الصنف" aria-label="تعديل الصنف" onClick={() => { setEditingCategory(name); setCategoryDraft(name); }}><Edit3 size={16} /></button><button className="plain-icon danger-action" type="button" title="حذف الصنف" aria-label="حذف الصنف" onClick={() => void removeCategory(name)}><Trash2 size={16} /></button></div></div>)}
+              {!categories.length && <p className="muted">لا توجد أصناف بعد.</p>}
+            </div>
+          </section>
+        </div>, document.body
       )}
 
-      {movementForm && (
-        <div className="modal-backdrop">
-          <form className="panel form-panel compact-form-modal stock-movement-modal" onSubmit={submitMovement}>
+      {movementForm && createPortal(
+        <div className="modal-backdrop stock-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setMovementForm(null); }}>
+          <form className="panel form-panel compact-form-modal stock-movement-modal stock-modal-dialog" onSubmit={submitMovement}>
             <div className="section-title">
               <h2>
                 {movementForm.type === "entry" ? <PackagePlus size={18} /> : <PackageMinus size={18} />}
@@ -484,12 +596,12 @@ export function StockPage({
             </div>
             <div className="form-grid one-column">
               <Input
-                label="الكمية"
+                label={movementForm.product.custom_type === "tobacco" ? `عدد العلب (${movementForm.product.custom_config?.pieces_per_box ?? 1} قطعة/علبة)` : movementForm.product.custom_type === "flexy" ? "مبلغ الرصيد (دج)" : movementForm.product.custom_type === "printing" ? "عدد خدمات الطباعة" : "الكمية"}
                 type="number"
                 value={movementForm.quantity}
                 onChange={(value) => setMovementForm({ ...movementForm, quantity: Math.max(0, Number(value)) })}
               />
-              {movementForm.type === "entry" && (
+              {movementForm.type === "entry" && movementForm.product.custom_type !== "printing" && (
                 <>
                   <div className="segmented wide price-mode-tabs full-field">
                     <button
@@ -497,7 +609,7 @@ export function StockPage({
                       type="button"
                       onClick={() => setMovementForm({ ...movementForm, purchase_price_mode: "unit" })}
                     >
-                      سعر القطعة
+                      {movementForm.product.custom_type === "tobacco" ? "سعر العلبة" : movementForm.product.custom_type === "flexy" ? "تكلفة 1 دج رصيد" : "تكلفة الوحدة"}
                     </button>
                     <button
                       className={movementForm.purchase_price_mode === "total" ? "active" : ""}
@@ -508,7 +620,7 @@ export function StockPage({
                     </button>
                   </div>
                   <Input
-                    label={movementForm.purchase_price_mode === "unit" ? "سعر شراء القطعة" : "سعر شراء الكمية كاملة"}
+                    label={movementForm.purchase_price_mode === "unit" ? movementForm.product.custom_type === "tobacco" ? "تكلفة شراء العلبة" : movementForm.product.custom_type === "flexy" ? "تكلفة الرصيد" : "تكلفة شراء الوحدة" : "تكلفة الكمية كاملة"}
                     type="number"
                     value={movementForm.purchase_price}
                     onChange={(value) => setMovementForm({ ...movementForm, purchase_price: Math.max(0, Number(value)) })}
@@ -521,11 +633,11 @@ export function StockPage({
               </label>
             </div>
             <div className="movement-preview">
-              <span>{movementForm.type === "entry" ? "بعد العملية / تكلفة القطعة" : "بعد العملية"}</span>
+              <span>{movementForm.type === "entry" && movementForm.product.custom_type !== "printing" ? `بعد العملية / تكلفة ${movementForm.product.custom_type === "tobacco" ? "القطعة" : movementForm.product.custom_type === "flexy" ? "الدج" : "الوحدة"}` : "بعد العملية"}</span>
               <strong>
                 {movementForm.type === "entry"
-                  ? `${movementForm.product.quantity + movementForm.quantity} · ${money(entryUnitPurchasePrice(movementForm))}`
-                  : Math.max(0, movementForm.product.quantity - movementForm.quantity)}
+                  ? `${movementForm.product.quantity + movementForm.quantity * (movementForm.product.custom_type === "tobacco" ? movementForm.product.custom_config?.pieces_per_box ?? 1 : 1)}${movementForm.product.custom_type === "printing" ? "" : ` · ${money(entryUnitPurchasePrice(movementForm))}`}`
+                  : Math.max(0, movementForm.product.quantity - movementForm.quantity * (movementForm.product.custom_type === "tobacco" ? movementForm.product.custom_config?.pieces_per_box ?? 1 : 1))}
               </strong>
             </div>
             <div className="button-row">
@@ -535,11 +647,11 @@ export function StockPage({
             </div>
           </form>
         </div>
-      )}
+      , document.body)}
 
-      {historyProduct && (
-        <div className="modal-backdrop">
-          <section className="panel form-panel form-modal stock-history-modal">
+      {historyProduct && createPortal(
+        <div className="modal-backdrop stock-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setHistoryProduct(null); }}>
+          <section className="panel form-panel form-modal stock-history-modal stock-modal-dialog">
             <div className="section-title">
               <h2><History size={18} /> حركات المخزون</h2>
               <span />
@@ -586,7 +698,7 @@ export function StockPage({
             )}
           </section>
         </div>
-      )}
+      , document.body)}
 
       {barcodeProduct && (
         <BarcodePrintModal product={barcodeProduct} onClose={() => setBarcodeProduct(null)} />
@@ -750,26 +862,28 @@ function movementLabel(type: StockMovement["movement_type"]) {
 
 function entryUnitPurchasePrice(form: MovementForm) {
   if (form.type !== "entry") return 0;
+  const multiplier = form.product.custom_type === "tobacco" ? Math.max(1, form.product.custom_config?.pieces_per_box ?? 1) : 1;
   if (form.purchase_price_mode === "total") {
-    return form.quantity > 0 ? form.purchase_price / form.quantity : 0;
+    return form.quantity > 0 ? form.purchase_price / (form.quantity * multiplier) : 0;
   }
-  return form.purchase_price;
+  return form.purchase_price / multiplier;
 }
 
-function Input({ label, value, onChange, type = "text", icon, list }: {
+function Input({ label, value, onChange, type = "text", icon, list, placeholder }: {
   label: string;
   value: string | number;
   onChange: (value: string) => void;
   type?: string;
   icon?: ReactNode;
   list?: string;
+  placeholder?: string;
 }) {
   return (
     <label>
       <span>{label}</span>
       <div className="field">
         {icon}
-        <input type={type} list={list} value={type === "number" && value === 0 ? "" : value} onChange={(event) => onChange(event.target.value)} />
+        <input type={type} list={list} placeholder={placeholder} value={type === "number" && value === 0 ? "" : value} onChange={(event) => onChange(event.target.value)} />
       </div>
     </label>
   );

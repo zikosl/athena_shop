@@ -118,8 +118,21 @@ pub fn get_report(db: State<Database>, input: ReportFilter) -> AppResult<ReportD
             .get(0);
         let row = client.query_one(
             "SELECT
-               COALESCE(SUM(purchase_price * quantity), 0)::float8,
-               COALESCE(SUM(sale_price * quantity), 0)::float8
+               COALESCE(SUM(CASE WHEN custom_type = 'printing'
+                 THEN 0
+                 ELSE purchase_price * quantity END), 0)::float8,
+               COALESCE(SUM(CASE custom_type
+                 WHEN 'flexy' THEN quantity + COALESCE((
+                   SELECT (tier->>'surcharge')::float8
+                   FROM jsonb_array_elements(COALESCE(custom_config->'surcharge_tiers', '[]'::jsonb)) AS tiers(tier)
+                   WHERE NULLIF(tier->>'up_to', 'null') IS NULL OR quantity <= NULLIF(tier->>'up_to', 'null')::float8
+                   ORDER BY CASE WHEN NULLIF(tier->>'up_to', 'null') IS NULL THEN 1 ELSE 0 END, NULLIF(tier->>'up_to', 'null')::float8
+                   LIMIT 1
+                 ), 0)
+                 WHEN 'tobacco' THEN FLOOR(quantity / GREATEST(COALESCE((custom_config->>'pieces_per_box')::float8, 1), 1)) * COALESCE((custom_config->>'box_sale_price')::float8, 0)
+                   + (quantity - FLOOR(quantity / GREATEST(COALESCE((custom_config->>'pieces_per_box')::float8, 1), 1)) * GREATEST(COALESCE((custom_config->>'pieces_per_box')::float8, 1), 1)) * COALESCE((custom_config->>'piece_sale_price')::float8, 0)
+                 WHEN 'printing' THEN COALESCE((custom_config->>'recto_price')::float8, 0) * quantity
+                 ELSE sale_price * quantity END), 0)::float8
              FROM products",
             &[],
         )?;

@@ -1,4 +1,29 @@
-import { Language } from "./types";
+import { Language, Product } from "./types";
+
+export function productStockValues(product: Product) {
+  const quantity = product.quantity;
+  if (product.custom_type === "flexy") {
+    const tiers = [...(product.custom_config?.surcharge_tiers ?? [])].sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity));
+    const tier = tiers.find((item) => item.up_to === null || quantity <= item.up_to);
+    return { cost: product.purchase_price * quantity, sale: quantity + (tier?.surcharge ?? 0) };
+  }
+  if (product.custom_type === "tobacco") {
+    const pieces = Math.max(1, product.custom_config?.pieces_per_box ?? 1);
+    const boxes = Math.floor(quantity / pieces);
+    const loose = quantity % pieces;
+    return {
+      cost: product.purchase_price * quantity,
+      sale: boxes * (product.custom_config?.box_sale_price ?? 0) + loose * (product.custom_config?.piece_sale_price ?? 0)
+    };
+  }
+  if (product.custom_type === "printing") {
+    return {
+      cost: 0,
+      sale: (product.custom_config?.recto_price ?? 0) * quantity
+    };
+  }
+  return { cost: product.purchase_price * quantity, sale: product.sale_price * quantity };
+}
 
 export function money(value: number) {
   return new Intl.NumberFormat("fr-DZ", {

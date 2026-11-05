@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import * as QRCode from "qrcode";
-import { Barcode, Minus, Plus, Printer, Search, ShoppingBag, SprayCan, Trash2 } from "lucide-react";
+import { Barcode, CalendarDays, CircleDollarSign, Minus, Percent, Plus, Printer, Save, Search, ShoppingBag, SprayCan, Trash2, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";
 import { showErrorToast, showToast } from "../../shared/toast";
-import { AppSettings, CartItem, Language, Perfume, PerfumeCartItem, Product, Sale, UserSession } from "../../shared/types";
+import { AppSettings, CartItem, ClientRecord, Language, Perfume, PerfumeCartItem, Product, Sale, UserSession } from "../../shared/types";
 import openzeyLogo from "../../assets/openzey-logo.png";
 
 const orderQrPrefix = "POS:";
@@ -39,50 +39,106 @@ function formatSaleDate(value: string, language: Language, includeTime = true) {
   }).format(parsed);
 }
 
-function displayCategory(category: string) {
-  if (category === "Products") return "المنتجات";
-  if (category === "Perfumerie") return "العطور";
-  return category;
+function isPerfumeCategory(category: string) {
+  return ["perfumerie", "عطور", "العطور"].includes(category.trim().toLocaleLowerCase("ar"));
 }
 
-export function PosPage({ language, user, onSale }: { language: Language; user: UserSession; onSale: () => void }) {
+function displayCategory(category: string) {
+  return category === "Products" ? "المنتجات" : category;
+}
+
+function normalizePhone(value: string) {
+  let digits = value.replace(/\D/g, "");
+  if (digits.startsWith("00213")) digits = `0${digits.slice(5)}`;
+  else if (digits.startsWith("213") && digits.length === 12) digits = `0${digits.slice(3)}`;
+  return digits;
+}
+
+function dueDateAfterDays(daysValue: string) {
+  const days = Number(daysValue);
+  if (!daysValue || !Number.isInteger(days) || days < 1 || days > 3650) return "";
+  const date = new Date(`${todayInputValue()}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function customProductSummary(product: Product) {
+  if (product.custom_type === "flexy") return "Flexy · رسوم حسب الشرائح";
+  if (product.custom_type === "tobacco") return `قطعة ${money(product.custom_config?.piece_sale_price ?? 0)} · علبة ${money(product.custom_config?.box_sale_price ?? 0)}`;
+  if (product.custom_type === "printing") return `Recto ${money(product.custom_config?.recto_price ?? 0)} · Recto-verso ${money(product.custom_config?.recto_verso_price ?? 0)}`;
+  return `${product.quantity} قطعة · ${money(product.sale_price)}`;
+}
+
+type PosServices = Pick<AppSettings, "enable_perfumes" | "enable_tobacco" | "enable_flexy" | "enable_printing">;
+
+const defaultPosServices: PosServices = {
+  enable_perfumes: false,
+  enable_tobacco: true,
+  enable_flexy: true,
+  enable_printing: true
+};
+
+function serviceProductEnabled(product: Product, services: PosServices) {
+  if (isPerfumeCategory(product.category) && !services.enable_perfumes) return false;
+  if (product.custom_type === "flexy" && !services.enable_flexy) return false;
+  if (product.custom_type === "tobacco" && !services.enable_tobacco) return false;
+  if (product.custom_type === "printing" && !services.enable_printing) return false;
+  return true;
+}
+
+export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { language: Language; user: UserSession; shiftOpen: boolean; onOpenShift: () => void; onSale: () => void }) {
   const t = useText(language);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
-  const [assortment, setAssortment] = useState<"all" | "home" | "perfumery">("all");
+  const [assortment, setAssortment] = useState<"all" | "products" | "perfumery">("all");
   const [products, setProducts] = useState<Product[]>([]);
   const [productCatalog, setProductCatalog] = useState<Product[]>([]);
-  const [perfumes, setPerfumes] = useState<Perfume[]>([]);
+  const [services, setServices] = useState<PosServices>(defaultPosServices);
   const [categories, setCategories] = useState<string[]>([]);
+  const [clients, setClients] = useState<ClientRecord[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [perfumes, setPerfumes] = useState<Perfume[]>([]);
   const [perfumeCart, setPerfumeCart] = useState<PerfumeCartItem[]>([]);
   const [discount, setDiscount] = useState(0);
   const [saleDate, setSaleDate] = useState(todayInputValue);
+  const [showSaleDate, setShowSaleDate] = useState(false);
+  const [showDiscount, setShowDiscount] = useState(false);
   const [saleType, setSaleType] = useState<"cash" | "credit" | "delivery">("cash");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [createClientOpen, setCreateClientOpen] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
   const [paidAmount, setPaidAmount] = useState(0);
-  const [dueDate, setDueDate] = useState("");
+  const [dueDays, setDueDays] = useState("");
   const [creditNote, setCreditNote] = useState("");
   const [receipt, setReceipt] = useState<Sale | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [allowNegativeStock, setAllowNegativeStock] = useState(true);
   const [maxDiscount, setMaxDiscount] = useState(200);
+  const [customDraft, setCustomDraft] = useState<{ product: Product; amount: string; quantity: string; option: string } | null>(null);
+  const [customAmountOpen, setCustomAmountOpen] = useState(false);
+  const [customAmount, setCustomAmount] = useState("");
 
   useEffect(() => {
     const effectiveCategory = assortment === "perfumery" ? "Perfumerie" : category;
     api.products({ query, category: effectiveCategory, stock: "all" })
       .then((items) => setProducts(items.filter((product) =>
-        (allowNegativeStock || product.quantity > 0) && assortment !== "perfumery" && (assortment !== "home" || product.category !== "Perfumerie")
+        serviceProductEnabled(product, services) && assortment !== "perfumery" && (assortment !== "products" || !isPerfumeCategory(product.category)) && (allowNegativeStock || product.quantity > 0 || product.custom_type === "printing")
       )))
       .catch((err) => showErrorToast(err, "تعذر تحميل المنتجات"));
-  }, [query, category, assortment, allowNegativeStock]);
+  }, [query, category, assortment, allowNegativeStock, services]);
 
   useEffect(() => {
     api.appSettings()
       .then((settings) => {
         setAllowNegativeStock(settings.allow_negative_stock);
         setMaxDiscount(settings.max_discount_amount);
+        setServices({
+          enable_perfumes: settings.enable_perfumes,
+          enable_tobacco: settings.enable_tobacco,
+          enable_flexy: settings.enable_flexy,
+          enable_printing: settings.enable_printing
+        });
       })
       .catch(() => {
         setAllowNegativeStock(true);
@@ -92,34 +148,85 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
   }, []);
 
   useEffect(() => {
+    if (!services.enable_perfumes) {
+      setPerfumes([]);
+      setPerfumeCart([]);
+      if (assortment === "perfumery") setAssortment("all");
+      return;
+    }
     api.perfumes()
       .then((items) => setPerfumes(items.filter((perfume) => perfume.remaining_volume_ml > 0)))
       .catch((err) => showErrorToast(err, "تعذر تحميل العطور"));
-  }, []);
+  }, [services.enable_perfumes, assortment]);
 
   useEffect(() => {
-    api.products()
-      .then((items) => {
-        setProductCatalog(items);
-        setCategories(Array.from(new Set(items.map((product) => product.category))).sort());
+    Promise.all([api.products(), api.categories()])
+      .then(([items, categoryNames]) => {
+        const visibleProducts = items.filter((product) => serviceProductEnabled(product, services) && (services.enable_perfumes || !isPerfumeCategory(product.category)));
+        setProductCatalog(visibleProducts);
+        setCategories(categoryNames.filter((name) => services.enable_perfumes || !isPerfumeCategory(name)));
       })
       .catch((err) => showErrorToast(err, "تعذر تحميل دليل المنتجات"));
-  }, []);
+  }, [services]);
 
-  const subtotal = useMemo(
-    () => cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)
-      + perfumeCart.reduce((sum, item) => sum + item.price.sale_price * item.quantity, 0),
-    [cart, perfumeCart]
-  );
+  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)
+    + perfumeCart.reduce((sum, item) => sum + item.price.sale_price * item.quantity, 0), [cart, perfumeCart]);
   const visiblePerfumes = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return perfumes.filter((perfume) => !normalized || [perfume.name, perfume.family]
-      .some((value) => value.toLowerCase().includes(normalized)));
+    return perfumes.filter((perfume) => !normalized || [perfume.name, perfume.family].some((value) => value.toLowerCase().includes(normalized)));
   }, [perfumes, query]);
   const total = Math.max(0, subtotal - discount);
   const normalizedPaid = Math.max(0, Math.min(paidAmount, total));
   const creditRemaining = saleType === "credit" ? Math.max(0, total - normalizedPaid) : 0;
+  const normalizedCustomerPhone = normalizePhone(customerPhone);
+  const matchingClients = useMemo(() => normalizedCustomerPhone.length >= 3
+    ? clients.filter((client) => normalizePhone(client.phone).includes(normalizedCustomerPhone)).slice(0, 5)
+    : [], [clients, normalizedCustomerPhone]);
+  const exactClient = clients.find((client) => normalizePhone(client.phone) === normalizedCustomerPhone);
+
+  useEffect(() => {
+    api.clients().then(setClients).catch((err) => showErrorToast(err, "تعذر تحميل دليل العملاء"));
+  }, []);
+
+  useEffect(() => {
+    if (exactClient) setCustomerName(exactClient.name);
+  }, [exactClient?.id]);
+
+  function selectClient(client: ClientRecord) {
+    setCustomerName(client.name);
+    setCustomerPhone(client.phone);
+  }
+
+  function changeCustomerPhone(value: string) {
+    const matched = clients.find((client) => normalizePhone(client.phone) === normalizePhone(value));
+    setCustomerPhone(value);
+    if (matched) setCustomerName(matched.name);
+    else if (exactClient) setCustomerName("");
+  }
+
+  async function createClient() {
+    if (!newClientName.trim()) {
+      showToast("أدخل اسم العميل", "warning");
+      return;
+    }
+    try {
+      const client = await api.saveClient({ name: newClientName, phone: customerPhone });
+      setClients((items) => [...items.filter((item) => item.phone !== client.phone), client]);
+      setCustomerName(client.name);
+      setCustomerPhone(client.phone);
+      setNewClientName("");
+      setCreateClientOpen(false);
+      showToast("تم حفظ العميل", "success");
+    } catch (err) {
+      showErrorToast(err, "تعذر إنشاء العميل");
+    }
+  }
   function addProduct(product: Product) {
+    if (!serviceProductEnabled(product, services)) return;
+    if (product.custom_type && product.custom_type !== "standard") {
+      setCustomDraft({ product, amount: "", quantity: "1", option: product.custom_type === "tobacco" ? "piece" : "recto" });
+      return;
+    }
     if (!allowNegativeStock && product.quantity <= 0) return;
     setCart((items) => {
       const existing = items.find((item) => item.product.id === product.id);
@@ -132,6 +239,81 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       }
       return [...items, { product, quantity: 1, unit_price: product.sale_price }];
     });
+  }
+
+  function confirmCustomProduct() {
+    if (!customDraft) return;
+    const { product } = customDraft;
+    const quantity = Math.floor(Number(customDraft.quantity));
+    let stockQuantity = quantity;
+    let unitPrice = product.sale_price;
+    let unitCost = product.purchase_price;
+    let displayName = product.name;
+    let customOption = customDraft.option;
+    if (product.custom_type === "flexy") {
+      const amount = Math.floor(Number(customDraft.amount));
+      const tiers = [...(product.custom_config?.surcharge_tiers ?? [])].sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity));
+      const tier = tiers.find((item) => item.up_to === null || amount <= item.up_to);
+      if (!Number.isFinite(amount) || amount <= 0 || !tier) { showToast("تحقق من مبلغ Flexy وشرائح الرسوم", "warning"); return; }
+      stockQuantity = amount;
+      unitPrice = amount + tier.surcharge;
+      unitCost = product.purchase_price * amount;
+      displayName = `${product.name} ${amount} دج`;
+      customOption = `flexy:${amount}`;
+    } else if (product.custom_type === "tobacco") {
+      const piecesPerBox = Math.max(1, product.custom_config?.pieces_per_box ?? 1);
+      const isBox = customDraft.option === "box";
+      stockQuantity = quantity * (isBox ? piecesPerBox : 1);
+      unitPrice = isBox ? (product.custom_config?.box_sale_price ?? 0) : (product.custom_config?.piece_sale_price ?? 0);
+      unitCost = product.purchase_price * (isBox ? piecesPerBox : 1);
+      displayName = `${product.name} (${isBox ? "علبة" : "قطعة"})`;
+    } else if (product.custom_type === "printing") {
+      const duplex = customDraft.option === "recto_verso";
+      unitPrice = duplex ? (product.custom_config?.recto_verso_price ?? 0) : (product.custom_config?.recto_price ?? 0);
+      unitCost = 0;
+      displayName = `${product.name} (${duplex ? "Recto-verso" : "Recto"})`;
+    }
+    if (product.custom_type !== "flexy" && (!Number.isFinite(quantity) || quantity <= 0)) { showToast("أدخل كمية صحيحة", "warning"); return; }
+    if (product.custom_type !== "printing" && stockQuantity > product.quantity && !allowNegativeStock) { showToast("المخزون غير كاف", "warning"); return; }
+    setCart((items) => [...items, { product, quantity: product.custom_type === "flexy" ? 1 : quantity, unit_price: unitPrice, unit_cost: unitCost, stock_quantity: stockQuantity, display_name: displayName, custom_option: customOption, cart_key: `${product.id}-${Date.now()}-${Math.random()}` }]);
+    setCustomDraft(null);
+  }
+
+  function addCustomAmount() {
+    const price = Number(customAmount);
+    if (!Number.isFinite(price) || price <= 0) {
+      showToast("أدخل مبلغًا صحيحًا أكبر من صفر", "warning");
+      return;
+    }
+    const product: Product = {
+      id: 0,
+      name: "مبلغ مخصص",
+      barcode: "",
+      category: "",
+      size: "",
+      color: "",
+      quantity: 0,
+      low_stock_threshold: 0,
+      purchase_price: 0,
+      sale_price: price,
+      image_data: "",
+      created_at: "",
+      updated_at: "",
+      custom_type: "standard",
+      custom_config: {}
+    };
+    setCart((items) => [...items, {
+      product,
+      quantity: 1,
+      unit_price: price,
+      stock_quantity: 0,
+      display_name: "مبلغ مخصص",
+      custom_option: "custom_amount",
+      unit_cost: 0,
+      cart_key: `custom-amount-${Date.now()}-${Math.random()}`
+    }]);
+    setCustomAmount("");
+    setCustomAmountOpen(false);
   }
 
   async function addScannedBarcode(value: string) {
@@ -156,6 +338,10 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
         showToast("لم يتم العثور على منتج بهذا الباركود", "error");
         return;
       }
+      if (!serviceProductEnabled(product, services)) {
+        showToast("هذه الخدمة معطلة من الإعدادات", "warning");
+        return;
+      }
       if (!allowNegativeStock && product.quantity <= 0) {
         showToast("هذا المنتج غير متوفر في المخزون", "error");
         setQuery("");
@@ -176,13 +362,6 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       .filter((item) => item.quantity > 0));
   }
 
-  function setItemPrice(productId: number, unitPrice: number) {
-    const safePrice = Number.isFinite(unitPrice) ? Math.max(0, unitPrice) : 0;
-    setCart((items) => items.map((item) => item.product.id === productId
-      ? { ...item, unit_price: safePrice }
-      : item));
-  }
-
   function addPerfume(perfume: Perfume, flaconId: number) {
     const price = perfume.prices.find((item) => item.flacon_id === flaconId);
     if (!price || price.sale_price <= 0) return;
@@ -190,29 +369,30 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
     if (maxQty <= 0) return;
     setPerfumeCart((items) => {
       const existing = items.find((item) => item.perfume.id === perfume.id && item.price.flacon_id === flaconId);
-      if (existing) {
-        return items.map((item) => item.perfume.id === perfume.id && item.price.flacon_id === flaconId
-          ? { ...item, quantity: Math.min(item.quantity + 1, maxQty) }
-          : item);
-      }
+      if (existing) return items.map((item) => item.perfume.id === perfume.id && item.price.flacon_id === flaconId
+        ? { ...item, quantity: Math.min(item.quantity + 1, maxQty) }
+        : item);
       return [...items, { perfume, price, quantity: 1 }];
     });
   }
 
   function setPerfumeQty(perfumeId: number, flaconId: number, quantity: number) {
-    setPerfumeCart((items) => items
-      .map((item) => {
-        if (item.perfume.id !== perfumeId || item.price.flacon_id !== flaconId) return item;
-        const maxQty = Math.floor(item.perfume.remaining_volume_ml / item.price.volume_ml);
-        return { ...item, quantity: Math.max(1, Math.min(quantity, maxQty)) };
-      })
-      .filter((item) => item.quantity > 0));
+    setPerfumeCart((items) => items.map((item) => {
+      if (item.perfume.id !== perfumeId || item.price.flacon_id !== flaconId) return item;
+      const maxQty = Math.floor(item.perfume.remaining_volume_ml / item.price.volume_ml);
+      return { ...item, quantity: Math.max(1, Math.min(quantity, maxQty)) };
+    }));
   }
 
   async function checkout() {
     if (checkingOut) return;
     if (!cart.length && !perfumeCart.length) {
       showToast("أضف منتجًا واحدًا على الأقل إلى السلة", "warning");
+      return;
+    }
+    if (saleType !== "delivery" && !shiftOpen) {
+      onOpenShift();
+      showToast("افتح الصندوق أولًا لإتمام عملية البيع", "warning");
       return;
     }
     if (cart.some((item) => !Number.isFinite(item.unit_price) || item.unit_price < 0)) {
@@ -231,6 +411,10 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       showToast(t.requiredCreditCustomer, "warning");
       return;
     }
+    if (saleType === "credit" && dueDays && !dueDateAfterDays(dueDays)) {
+      showToast("أدخل عدد أيام صحيحًا بين 1 و3650", "warning");
+      return;
+    }
     if (paidAmount < 0 || paidAmount > total) {
       showToast("المبلغ المدفوع غير صالح", "warning");
       return;
@@ -242,6 +426,9 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
           product_id: item.product.id,
           quantity: item.quantity,
           unit_price: item.unit_price
+          ,stock_quantity: item.stock_quantity,
+          display_name: item.display_name,
+          custom_option: item.custom_option
         })),
         perfume_items: perfumeCart.map((item) => ({
           perfume_id: item.perfume.id,
@@ -253,7 +440,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
         paid_amount: saleType === "cash" || saleType === "delivery" ? (saleType === "cash" ? total : 0) : normalizedPaid,
         customer_name: customerName,
         customer_phone: customerPhone,
-        due_date: dueDate,
+        due_date: saleType === "credit" ? dueDateAfterDays(dueDays) : "",
         credit_note: creditNote,
         sale_date: saleDate,
         cashier: user.display_name
@@ -265,17 +452,19 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
       setSaleType("cash");
       setCustomerName("");
       setCustomerPhone("");
+      setDueDays("");
       setPaidAmount(0);
-      setDueDate("");
       setCreditNote("");
       setSaleDate(todayInputValue());
-      const nextProducts = await api.products({ query, category, stock: "all" });
+      const nextProducts = await api.products({ query, category: assortment === "perfumery" ? "Perfumerie" : category, stock: "all" });
       setProducts(nextProducts.filter((product) =>
-        (allowNegativeStock || product.quantity > 0) && assortment !== "perfumery" && (assortment !== "home" || product.category !== "Perfumerie")
+        serviceProductEnabled(product, services) && assortment !== "perfumery" && (assortment !== "products" || !isPerfumeCategory(product.category)) && (allowNegativeStock || product.quantity > 0 || product.custom_type === "printing")
       ));
-      const nextPerfumes = await api.perfumes();
-      setPerfumes(nextPerfumes.filter((perfume) => perfume.remaining_volume_ml > 0));
-      setProductCatalog(await api.products({ stock: "all" }));
+      const nextCatalog = await api.products({ stock: "all" });
+      const visibleCatalog = nextCatalog.filter((product) => serviceProductEnabled(product, services) && (services.enable_perfumes || !isPerfumeCategory(product.category)));
+      setProductCatalog(visibleCatalog);
+      setCategories((await api.categories()).filter((name) => services.enable_perfumes || !isPerfumeCategory(name)));
+      if (services.enable_perfumes) setPerfumes((await api.perfumes()).filter((perfume) => perfume.remaining_volume_ml > 0));
       onSale();
       showToast(sale.sale_type === "delivery" ? "تم إرسال الطلب إلى التوصيل" : "تم إنشاء الفاتورة بنجاح", "success");
     } catch (err) {
@@ -285,19 +474,61 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
     }
   }
 
+  useEffect(() => {
+    function handlePosShortcut(event: KeyboardEvent) {
+      if (event.isComposing) return;
+
+      if (event.key === "Escape") {
+        if (createClientOpen) setCreateClientOpen(false);
+        else if (customAmountOpen) setCustomAmountOpen(false);
+        else if (customDraft) setCustomDraft(null);
+        else if (receipt) setReceipt(null);
+        else return;
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === "F10") {
+        if (customDraft || customAmountOpen || createClientOpen || receipt) return;
+        event.preventDefault();
+        void checkout();
+        return;
+      }
+
+      if (customDraft || customAmountOpen || createClientOpen || receipt) return;
+      if (event.key === "F6") {
+        event.preventDefault();
+        setCustomAmountOpen(true);
+      } else if (event.key === "F2") {
+        event.preventDefault();
+        document.querySelector<HTMLInputElement>(".pos-grid .searchbar input")?.focus();
+      } else if (event.key === "F3") {
+        event.preventDefault();
+        setShowSaleDate((shown) => !shown);
+      } else if (event.key === "F4") {
+        event.preventDefault();
+        setShowDiscount((shown) => !shown);
+      }
+    }
+
+    window.addEventListener("keydown", handlePosShortcut);
+    return () => window.removeEventListener("keydown", handlePosShortcut);
+  }, [checkout, customDraft, customAmountOpen, createClientOpen, receipt]);
+
   return (
     <section className="pos-grid">
       <section className="panel table-panel">
         <div className="segmented pos-mode-tabs">
           <button className={assortment === "all" ? "active" : ""} type="button" onClick={() => setAssortment("all")}>الكل</button>
-          <button className={assortment === "home" ? "active" : ""} type="button" onClick={() => setAssortment("home")}>المنتجات</button>
-          <button className={assortment === "perfumery" ? "active" : ""} type="button" onClick={() => setAssortment("perfumery")}>العطور</button>
+          <button className={assortment === "products" ? "active" : ""} type="button" onClick={() => setAssortment("products")}>المنتجات</button>
+          {services.enable_perfumes && <button className={assortment === "perfumery" ? "active" : ""} type="button" onClick={() => setAssortment("perfumery")}>العطور</button>}
         </div>
-        <div className="filter-row">
+        <div className="filter-row pos-filter-row">
           <div className="searchbar">
             <Search size={18} />
             <input
               autoFocus
+              aria-keyshortcuts="F2"
               placeholder={t.search}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -309,15 +540,16 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
               }}
             />
           </div>
+          <button className="ghost-button custom-amount-trigger" type="button" aria-keyshortcuts="F6" onClick={() => setCustomAmountOpen(true)}>
+            <CircleDollarSign size={18} /> <span>مبلغ مخصص</span><kbd>F6</kbd>
+          </button>
           <select aria-label={t.category} value={category} disabled={assortment === "perfumery"} onChange={(event) => setCategory(event.target.value)}>
             <option value="">{t.allCategories}</option>
-            {categories
-              .filter((item) => assortment !== "home" || item !== "Perfumerie")
-              .map((item) => <option value={item} key={item}>{displayCategory(item)}</option>)}
+            {categories.map((item) => <option value={item} key={item}>{displayCategory(item)}</option>)}
           </select>
         </div>
         <div className="product-picker">
-          {assortment !== "home" && visiblePerfumes.map((perfume) => (
+          {assortment !== "products" && services.enable_perfumes && visiblePerfumes.map((perfume) => (
             <article key={`perfume-${perfume.id}`} className="product-tile perfume-tile">
               <span><SprayCan size={22} /></span>
               <strong>{perfume.name}</strong>
@@ -325,12 +557,7 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
               <div className="flacon-choice-row">
                 {perfume.prices
                   .filter((price) => price.sale_price > 0 && perfume.remaining_volume_ml >= price.volume_ml)
-                  .map((price) => (
-                    <button type="button" key={price.flacon_id} onClick={() => addPerfume(perfume, price.flacon_id)}>
-                      {price.flacon_name}
-                      <small>{money(price.sale_price)}</small>
-                    </button>
-                  ))}
+                  .map((price) => <button type="button" key={price.flacon_id} onClick={() => addPerfume(perfume, price.flacon_id)}>{price.flacon_name}<small>{money(price.sale_price)}</small></button>)}
               </div>
             </article>
           ))}
@@ -339,90 +566,67 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
               <span className="product-tile-media">
                 {product.image_data ? <img src={product.image_data} alt="" /> : <ShoppingBag size={22} />}
               </span>
-              <strong>{product.name}</strong>
-              <em><Barcode size={13} /> {product.barcode}</em>
-              <small>{product.quantity} قطعة · {money(product.sale_price)}</small>
+              <span className="product-tile-overlay">
+                <strong>{product.name}</strong>
+                <small>{product.custom_type === "standard" ? money(product.sale_price) : customProductSummary(product)}</small>
+              </span>
             </button>
           ))}
         </div>
       </section>
 
       <aside className="panel cart-panel">
-        <div className="section-title"><h2>{t.cart}</h2><span /></div>
+        <div className="section-title cart-heading">
+          <h2>{t.cart}</h2>
+          <button className={`cart-option-toggle ${showSaleDate ? "active" : ""}`} type="button" title="تاريخ الفاتورة" aria-label="تاريخ الفاتورة" aria-keyshortcuts="F3" aria-pressed={showSaleDate} onClick={() => setShowSaleDate((shown) => !shown)}><CalendarDays size={17} /></button>
+          <button className={`cart-option-toggle ${showDiscount ? "active" : ""}`} type="button" title={t.discount} aria-label={t.discount} aria-keyshortcuts="F4" aria-pressed={showDiscount} onClick={() => setShowDiscount((shown) => !shown)}><Percent size={17} /></button>
+          <span />
+        </div>
         <div className="cart-lines">
           {cart.map((item) => (
-            <article key={item.product.id} className="cart-line">
-              <div>
-                <strong>{item.product.name}</strong>
-                <span>{item.product.barcode}</span>
+            <article key={item.cart_key ?? item.product.id} className="cart-line">
+              <div className="cart-item-info">
+                <strong>{item.display_name ?? item.product.name}</strong>
+                <span className="cart-unit-price">{money(item.unit_price)} / {item.custom_option?.startsWith("standard") || !item.custom_option ? "قطعة" : "وحدة"}</span>
               </div>
-              <div className="qty-control">
-                <button onClick={() => setQty(item.product.id, item.quantity - 1)}><Minus size={14} /></button>
+              {!item.custom_option && <div className="qty-control">
+                <button type="button" aria-label="تقليل الكمية" onClick={() => setQty(item.product.id, item.quantity - 1)}><Minus size={14} /></button>
                 <b>{item.quantity}</b>
-                <button onClick={() => setQty(item.product.id, item.quantity + 1)}><Plus size={14} /></button>
-              </div>
-              <label className="cart-price-field">
-                <span>سعر البيع</span>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={item.unit_price === 0 ? "" : item.unit_price}
-                  onChange={(event) => setItemPrice(item.product.id, Number(event.target.value))}
-                />
-              </label>
-              <strong>{money(item.unit_price * item.quantity)}</strong>
-              <button className="plain-icon" onClick={() => setCart(cart.filter((line) => line.product.id !== item.product.id))}><Trash2 size={16} /></button>
+                <button type="button" aria-label="زيادة الكمية" onClick={() => setQty(item.product.id, item.quantity + 1)}><Plus size={14} /></button>
+              </div>}
+              <button type="button" className="plain-icon" aria-label="حذف المنتج" onClick={() => setCart(cart.filter((line) => (line.cart_key ?? String(line.product.id)) !== (item.cart_key ?? String(item.product.id))))}><Trash2 size={16} /></button>
             </article>
           ))}
           {perfumeCart.map((item) => (
             <article key={`${item.perfume.id}-${item.price.flacon_id}`} className="cart-line perfume-cart-line">
-              <div>
+              <div className="cart-item-info">
                 <strong>{item.perfume.name}</strong>
                 <span>{item.price.flacon_name} · {item.price.volume_ml} ml</span>
+                <span className="cart-unit-price">سعر القارورة: {money(item.price.sale_price)}</span>
               </div>
               <div className="qty-control">
-                <button onClick={() => setPerfumeQty(item.perfume.id, item.price.flacon_id, item.quantity - 1)}><Minus size={14} /></button>
+                <button type="button" aria-label="تقليل الكمية" onClick={() => setPerfumeQty(item.perfume.id, item.price.flacon_id, item.quantity - 1)}><Minus size={14} /></button>
                 <b>{item.quantity}</b>
-                <button onClick={() => setPerfumeQty(item.perfume.id, item.price.flacon_id, item.quantity + 1)}><Plus size={14} /></button>
+                <button type="button" aria-label="زيادة الكمية" onClick={() => setPerfumeQty(item.perfume.id, item.price.flacon_id, item.quantity + 1)}><Plus size={14} /></button>
               </div>
-              <strong>{money(item.price.sale_price * item.quantity)}</strong>
-              <button
-                className="plain-icon"
-                onClick={() => setPerfumeCart(perfumeCart.filter((line) =>
-                  line.perfume.id !== item.perfume.id || line.price.flacon_id !== item.price.flacon_id
-                ))}
-              >
-                <Trash2 size={16} />
-              </button>
+              <button type="button" className="plain-icon" aria-label="حذف المنتج" onClick={() => setPerfumeCart((items) => items.filter((line) => line.perfume.id !== item.perfume.id || line.price.flacon_id !== item.price.flacon_id))}><Trash2 size={16} /></button>
             </article>
           ))}
         </div>
-        <label>
+        {showSaleDate && <label className="cart-option-field">
           <span>تاريخ الفاتورة</span>
           <div className="field">
-            <input
-              type="date"
-              max={todayInputValue()}
-              value={saleDate}
-              onChange={(event) => setSaleDate(event.target.value || todayInputValue())}
-            />
+            <input type="date" max={todayInputValue()} value={saleDate} onChange={(event) => setSaleDate(event.target.value || todayInputValue())} />
           </div>
           <small>{formatSaleDate(`${saleDate}T12:00:00`, language, false)}</small>
-        </label>
-        <label>
+        </label>}
+        {showDiscount && <label className="cart-option-field">
           <span>{t.discount}</span>
           <div className="field">
-            <input
-              type="number"
-              min={0}
-              max={maxDiscount}
-              value={discount === 0 ? "" : discount}
-              onChange={(event) => setDiscount(Math.max(0, Math.min(maxDiscount, Number(event.target.value))))}
-            />
+            <input type="number" min={0} max={maxDiscount} value={discount === 0 ? "" : discount} onChange={(event) => setDiscount(Math.max(0, Math.min(maxDiscount, Number(event.target.value))))} />
           </div>
           <small>{`${t.discountMax.replace("200", String(maxDiscount))}`}</small>
-        </label>
+        </label>}
         <label>
           <span>{t.payment}</span>
           <div className="segmented wide">
@@ -433,10 +637,15 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
         </label>
         {(saleType === "credit" || saleType === "delivery") && (
           <div className="credit-fields">
+            <div className="client-phone-field">
+              <label><span>{t.phone}</span><div className="field"><input type="tel" inputMode="tel" autoComplete="tel" value={customerPhone} onChange={(event) => changeCustomerPhone(event.target.value)} /></div></label>
+              {matchingClients.length > 0 && !exactClient && <div className="client-match-list">{matchingClients.map((client) => <button type="button" key={client.id} onClick={() => selectClient(client)}><strong>{client.name}</strong><span>{client.phone}</span></button>)}</div>}
+              {normalizedCustomerPhone.length >= 9 && normalizedCustomerPhone.length <= 12 && !exactClient && <button className="ghost-button compact-button create-client-trigger" type="button" onClick={() => { setNewClientName(customerName); setCreateClientOpen(true); }}><Plus size={15} /> إنشاء عميل بهذا الرقم</button>}
+              {exactClient && <small className="client-match-confirmation">عميل محفوظ: {exactClient.name}</small>}
+            </div>
             <label><span>{t.customer}</span><div className="field"><input value={customerName} onChange={(event) => setCustomerName(event.target.value)} /></div></label>
-            <label><span>{t.phone}</span><div className="field"><input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} /></div></label>
             {saleType === "credit" && <label><span>{t.paidNow}</span><div className="field"><input type="number" min={0} max={total} value={paidAmount === 0 ? "" : paidAmount} onChange={(event) => setPaidAmount(Number(event.target.value))} /></div></label>}
-            {saleType === "credit" && <label><span>{t.dueDate}</span><div className="field"><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></div></label>}
+            {saleType === "credit" && <label><span>موعد السداد بعد (أيام) · اختياري</span><div className="field"><input type="number" min={1} max={3650} step={1} placeholder="مثال: 15" value={dueDays} onChange={(event) => setDueDays(event.target.value)} /></div>{dueDays && dueDateAfterDays(dueDays) && <small>التاريخ المتوقع: {dueDateAfterDays(dueDays)}</small>}</label>}
             <label className="full-field"><span>{saleType === "delivery" ? "العنوان / ملاحظة التوصيل" : t.note}</span><textarea value={creditNote} onChange={(event) => setCreditNote(event.target.value)} /></label>
           </div>
         )}
@@ -446,8 +655,19 @@ export function PosPage({ language, user, onSale }: { language: Language; user: 
           {saleType === "delivery" && <span>توصيل في الانتظار <b>{money(total)}</b></span>}
           <span>{t.total} <strong>{money(total)}</strong></span>
         </div>
-        <button className="gold-button" disabled={checkingOut} onClick={checkout}>{checkingOut ? "جار التسجيل..." : t.checkout}</button>
+        <button className="gold-button" aria-keyshortcuts="F10" disabled={checkingOut} onClick={checkout}>{checkingOut ? "جار التسجيل..." : t.checkout}</button>
       </aside>
+
+      {customDraft && <div className="modal-backdrop"><section className="panel form-panel form-modal"><div className="section-title"><h2>{customDraft.product.name}</h2><span /><button className="plain-icon" onClick={() => setCustomDraft(null)}><X size={18} /></button></div>
+        {customDraft.product.custom_type === "flexy" && <><label className="field"><span>مبلغ التعبئة (دج)</span><input autoFocus type="number" min="1" value={customDraft.amount} onChange={(event) => setCustomDraft({ ...customDraft, amount: event.target.value })} /></label><p>الرسوم: {money((customDraft.product.custom_config?.surcharge_tiers ?? []).sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity)).find((tier) => tier.up_to === null || Number(customDraft.amount) <= tier.up_to)?.surcharge ?? 0)} · الإجمالي: {money(Number(customDraft.amount || 0) + ((customDraft.product.custom_config?.surcharge_tiers ?? []).sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity)).find((tier) => tier.up_to === null || Number(customDraft.amount) <= tier.up_to)?.surcharge ?? 0))}</p></>}
+        {customDraft.product.custom_type === "tobacco" && <><label className="field"><span>نوع البيع</span><select value={customDraft.option} onChange={(event) => setCustomDraft({ ...customDraft, option: event.target.value })}><option value="piece">قطعة · {money(customDraft.product.custom_config?.piece_sale_price ?? 0)}</option><option value="box">علبة · {money(customDraft.product.custom_config?.box_sale_price ?? 0)}</option></select></label><label className="field"><span>الكمية</span><input type="number" min="1" value={customDraft.quantity} onChange={(event) => setCustomDraft({ ...customDraft, quantity: event.target.value })} /></label><p>خصم المخزون: {Number(customDraft.quantity || 0) * (customDraft.option === "box" ? (customDraft.product.custom_config?.pieces_per_box ?? 1) : 1)} قطعة</p></>}
+        {customDraft.product.custom_type === "printing" && <><label className="field"><span>نوع الطباعة</span><select value={customDraft.option} onChange={(event) => setCustomDraft({ ...customDraft, option: event.target.value })}><option value="recto">Recto · {money(customDraft.product.custom_config?.recto_price ?? 0)}</option><option value="recto_verso">Recto-verso · {money(customDraft.product.custom_config?.recto_verso_price ?? 0)}</option></select></label><label className="field"><span>عدد الخدمات</span><input type="number" min="1" value={customDraft.quantity} onChange={(event) => setCustomDraft({ ...customDraft, quantity: event.target.value })} /></label></>}
+        <div className="button-row"><button type="button" className="ghost-button" onClick={() => setCustomDraft(null)}>{t.close}</button><button type="button" className="gold-button" onClick={confirmCustomProduct}>إضافة · {customDraft.product.custom_type === "flexy" ? money(Number(customDraft.amount || 0) + ((customDraft.product.custom_config?.surcharge_tiers ?? []).sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity)).find((tier) => tier.up_to === null || Number(customDraft.amount) <= tier.up_to)?.surcharge ?? 0)) : money((customDraft.product.custom_type === "tobacco" ? customDraft.option === "box" ? customDraft.product.custom_config?.box_sale_price ?? 0 : customDraft.product.custom_config?.piece_sale_price ?? 0 : customDraft.option === "recto_verso" ? customDraft.product.custom_config?.recto_verso_price ?? 0 : customDraft.product.custom_config?.recto_price ?? 0) * Number(customDraft.quantity || 0))}</button></div>
+      </section></div>}
+
+      {customAmountOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCustomAmountOpen(false); }}><section className="panel form-panel form-modal custom-amount-modal" role="dialog" aria-modal="true" aria-labelledby="custom-amount-title"><div className="section-title"><h2 id="custom-amount-title">مبلغ مخصص</h2><span /><button className="plain-icon" type="button" aria-label={t.close} onClick={() => setCustomAmountOpen(false)}><X size={18} /></button></div><label className="field"><span>المبلغ (دج)</span><input autoFocus type="number" min="1" step="1" value={customAmount} onChange={(event) => setCustomAmount(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addCustomAmount(); } }} /></label><div className="button-row"><button type="button" className="ghost-button" onClick={() => setCustomAmountOpen(false)}>{t.close}</button><button type="button" className="gold-button" onClick={addCustomAmount}>إضافة إلى الطلب · {money(Number(customAmount) || 0)}</button></div></section></div>}
+
+      {createClientOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateClientOpen(false); }}><form className="panel form-panel form-modal client-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-client-title" onSubmit={(event) => { event.preventDefault(); void createClient(); }}><div className="section-title"><h2 id="create-client-title">إنشاء عميل</h2><span /><button className="plain-icon" type="button" aria-label={t.close} onClick={() => setCreateClientOpen(false)}><X size={18} /></button></div><label><span>رقم الهاتف</span><div className="field"><input value={customerPhone} readOnly /></div></label><label><span>اسم العميل</span><div className="field"><input autoFocus value={newClientName} onChange={(event) => setNewClientName(event.target.value)} /></div></label><div className="button-row"><button className="ghost-button" type="button" onClick={() => setCreateClientOpen(false)}>{t.close}</button><button className="gold-button" type="submit" disabled={!newClientName.trim()}><Save size={17} /> إنشاء العميل</button></div></form></div>}
 
       {receipt && <ReceiptModal sale={receipt} language={language} onClose={() => setReceipt(null)} />}
     </section>

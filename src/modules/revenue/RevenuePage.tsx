@@ -205,8 +205,9 @@ function TicketDetails({
   const [prices, setPrices] = useState<Record<number, number>>(
     Object.fromEntries(sale.items.map((item) => [item.product_id, item.unit_price]))
   );
-  const editableItems = sale.items.filter((item) => item.product_id > 0);
-  const editSubtotal = sale.items.filter((item) => item.product_id < 0).reduce((sum, item) => sum + item.line_total, 0)
+  const hasCustomItems = sale.items.some((item) => !!item.custom_option);
+  const editableItems = hasCustomItems ? [] : sale.items.filter((item) => item.product_id > 0);
+  const editSubtotal = sale.items.filter((item) => item.product_id < 0 || !!item.custom_option).reduce((sum, item) => sum + item.line_total, 0)
     + editableItems.reduce((sum, item) => (
     sum + (prices[item.product_id] ?? item.unit_price) * (quantities[item.product_id] ?? item.quantity)
   ), 0);
@@ -349,7 +350,7 @@ function TicketDetails({
                       : item.line_total
                   )}</td>
                   <td className="row-actions">
-                    <button type="button" title="Retour" onClick={() => void returnOne(item.product_id)} disabled={editing || item.product_id < 0}>
+                    <button type="button" title={item.custom_option ? "Pour préserver le stock, supprimez le ticket complet" : "Retour"} onClick={() => void returnOne(item.product_id)} disabled={editing || item.product_id < 0 || !!item.custom_option}>
                       <RotateCcw size={16} />
                     </button>
                   </td>

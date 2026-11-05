@@ -35,7 +35,11 @@ const defaultSettings: AppSettings = {
   ui_zoom: 100,
   ui_density: "comfortable",
   pos_layout: "auto",
-  pos_cart_width: 320
+  pos_cart_width: 420,
+  enable_perfumes: false,
+  enable_tobacco: true,
+  enable_flexy: true,
+  enable_printing: true
 };
 
 export function SettingsPage({
@@ -227,6 +231,21 @@ export function SettingsPage({
         </div>
       </article>
 
+      <article className="setting-row profile-editor service-settings" style={{ display: tab === "interface" ? undefined : "none" }}>
+        <div>
+          <SlidersHorizontal size={22} />
+          <strong>خدمات نقطة البيع</strong>
+          <span>اختر الخدمات التي تظهر للكاشير أثناء البيع.</span>
+        </div>
+        <div className="profile-fields service-toggle-grid">
+          <label className="toggle-row"><input type="checkbox" checked={settings.enable_perfumes} onChange={(event) => setSettings({ ...settings, enable_perfumes: event.target.checked })} /><span>العطور</span></label>
+          <label className="toggle-row"><input type="checkbox" checked={settings.enable_tobacco} onChange={(event) => setSettings({ ...settings, enable_tobacco: event.target.checked })} /><span>التبغ</span></label>
+          <label className="toggle-row"><input type="checkbox" checked={settings.enable_flexy} onChange={(event) => setSettings({ ...settings, enable_flexy: event.target.checked })} /><span>Flexy</span></label>
+          <label className="toggle-row"><input type="checkbox" checked={settings.enable_printing} onChange={(event) => setSettings({ ...settings, enable_printing: event.target.checked })} /><span>خدمات الطباعة</span></label>
+          <button className="gold-button" type="button" disabled={savingSettings} onClick={() => void saveSettings()}><Save size={18} /> {t.save}</button>
+        </div>
+      </article>
+
       <article className="setting-row profile-editor" style={{ display: tab === "interface" ? undefined : "none" }}>
         <div>
           <SlidersHorizontal size={22} />
@@ -291,7 +310,7 @@ export function SettingsPage({
               />
             </div>
           </label>
-          <p className="helper-text">على شاشة 1024px يفضل اختيار تلقائي أو جانبية مع عرض 300-320px.</p>
+          <p className="helper-text">على الشاشات الضيقة اختر العرض التلقائي لتوفير مساحة المنتجات.</p>
           <button className="gold-button" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</button>
         </div>
       </article>

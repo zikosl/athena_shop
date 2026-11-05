@@ -23,7 +23,7 @@ pub fn get_dashboard(db: State<Database>) -> AppResult<DashboardStats> {
 
         let low_stock_count: i64 = client
             .query_one(
-                "SELECT COUNT(*)::bigint FROM products WHERE quantity <= low_stock_threshold",
+                "SELECT COUNT(*)::bigint FROM products WHERE custom_type = 'standard' AND quantity <= low_stock_threshold",
                 &[],
             )?
             .get(0);

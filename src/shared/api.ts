@@ -5,6 +5,7 @@ import {
   CashShift,
   CheckoutInput,
   CloseShiftInput,
+  ClientRecord,
   CreditAccount,
   CreditPaymentInput,
   DashboardStats,
@@ -37,7 +38,7 @@ import {
   SaleUpdateInput,
   UserSession
 } from "./types";
-import { dateInputValue, todayInputValue } from "./format";
+import { dateInputValue, productStockValues, todayInputValue } from "./format";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 const demoDbKey = "opensoft-demo-db";
@@ -63,12 +64,18 @@ function defaultSettings(): AppSettings {
     ui_zoom: 100,
     ui_density: "comfortable",
     pos_layout: "auto",
-    pos_cart_width: 320
+    pos_cart_width: 420,
+    enable_perfumes: false,
+    enable_tobacco: true,
+    enable_flexy: true,
+    enable_printing: true
   };
 }
 
 type Db = {
   products: Product[];
+  categories: string[];
+  clients: ClientRecord[];
   expenses: Expense[];
   sales: Sale[];
   creditPayments: CreditAccount["payments"];
@@ -90,6 +97,8 @@ const seed: Db = {
     sampleProduct(3, "عطر مسك", "AS100003", "عطور", "12ml", "أبيض", 24, 5, 1400, 2900),
     sampleProduct(4, "قارورة عطر", "AS100004", "إكسسوارات", "30ml", "شفاف", 3, 4, 900, 1850)
   ],
+  categories: ["أقمصة", "عطور", "إكسسوارات"],
+  clients: [],
   expenses: [],
   sales: [],
   creditPayments: [],
@@ -134,7 +143,9 @@ function sampleProduct(
     sale_price: sale,
     image_data: "",
     created_at: now,
-    updated_at: now
+    updated_at: now,
+    custom_type: "standard",
+    custom_config: {}
   };
 }
 
@@ -147,10 +158,24 @@ function readDb(): Db {
   }
   if (!localStorage.getItem(demoDbKey)) localStorage.setItem(demoDbKey, raw);
   const parsed = JSON.parse(raw) as Partial<Db>;
+  const dbSales = (parsed.sales ?? []).map(normalizeSale);
+  const clientsByPhone = new Map<string, ClientRecord>();
+  for (const client of parsed.clients ?? []) {
+    const phone = normalizePhone(client.phone);
+    clientsByPhone.set(phone, { ...client, phone });
+  }
+  for (const sale of dbSales) {
+    const phone = normalizePhone(sale.customer_phone);
+    if (sale.customer_name.trim() && phone && !clientsByPhone.has(phone)) {
+      clientsByPhone.set(phone, { id: sale.id, name: sale.customer_name.trim(), phone, created_at: sale.created_at });
+    }
+  }
   return {
     products: (parsed.products ?? seed.products).map(normalizeProduct),
+    categories: Array.from(new Set([...(parsed.categories ?? []), ...(parsed.products ?? seed.products).map((product) => product.category)].filter(Boolean))).sort(),
+    clients: Array.from(clientsByPhone.values()),
     expenses: parsed.expenses ?? [],
-    sales: (parsed.sales ?? []).map(normalizeSale),
+    sales: dbSales,
     creditPayments: parsed.creditPayments ?? [],
     flacons: (parsed.flacons ?? seed.flacons).map(normalizeFlacon),
     perfumes: parsed.perfumes ?? [],
@@ -183,7 +208,11 @@ function readDb(): Db {
       ui_zoom: Math.min(125, Math.max(80, Number(parsed.settings?.ui_zoom ?? 100))),
       ui_density: parsed.settings?.ui_density ?? "comfortable",
       pos_layout: parsed.settings?.pos_layout ?? "auto",
-      pos_cart_width: parsed.settings?.pos_cart_width ?? 320
+      pos_cart_width: parsed.settings?.pos_cart_width ?? 420,
+      enable_perfumes: parsed.settings?.enable_perfumes ?? false,
+      enable_tobacco: parsed.settings?.enable_tobacco ?? true,
+      enable_flexy: parsed.settings?.enable_flexy ?? true,
+      enable_printing: parsed.settings?.enable_printing ?? true
     }
   };
 }
@@ -191,7 +220,9 @@ function readDb(): Db {
 function normalizeProduct(product: Product): Product {
   return {
     ...product,
-    image_data: product.image_data ?? ""
+    image_data: product.image_data ?? "",
+    custom_type: product.custom_type ?? "standard",
+    custom_config: product.custom_config ?? {}
   };
 }
 
@@ -214,7 +245,13 @@ function normalizeSale(sale: Sale): Sale {
     remaining_amount: sale.remaining_amount ?? 0,
     due_date: sale.due_date ?? "",
     credit_note: sale.credit_note ?? "",
-    credit_status: sale.credit_status ?? "paid"
+    credit_status: sale.credit_status ?? "paid",
+    items: (sale.items ?? []).map((item) => ({
+      ...item,
+      stock_quantity: item.stock_quantity ?? item.quantity,
+      custom_option: item.custom_option ?? "",
+      unit_cost: item.unit_cost ?? 0
+    }))
   };
 }
 
@@ -222,9 +259,18 @@ function writeDb(db: Db) {
   localStorage.setItem(demoDbKey, JSON.stringify(db));
 }
 
+function normalizePhone(value: string) {
+  let digits = value.replace(/\D/g, "");
+  if (digits.startsWith("00213")) digits = `0${digits.slice(5)}`;
+  else if (digits.startsWith("213") && digits.length === 12) digits = `0${digits.slice(3)}`;
+  return digits;
+}
+
 function makeEmptyDb(): Db {
   return {
     products: [],
+    categories: [],
+    clients: [],
     expenses: [],
     sales: [],
     creditPayments: [],
@@ -282,6 +328,11 @@ function makeDummyDb(): Db {
   ];
   return {
     products,
+    categories: Array.from(new Set(products.map((product) => product.category).filter(Boolean))).sort(),
+    clients: Array.from(new Map(sales.filter((sale) => sale.customer_name.trim() && sale.customer_phone.trim()).map((sale) => {
+      const phone = normalizePhone(sale.customer_phone);
+      return [phone, { id: sale.id, name: sale.customer_name.trim(), phone, created_at: sale.created_at } as ClientRecord];
+    })).values()),
     expenses: [
       { id: 1, label: "كراء المحل", category: "ثابت", amount: 18000, note: "بيانات تجريبية", expense_date: date(2).slice(0, 10), created_at: date(2) },
       { id: 2, label: "إعلانات إنستغرام", category: "تسويق", amount: 4200, note: "حملة تجريبية", expense_date: date(1).slice(0, 10), created_at: date(1) },
@@ -362,6 +413,25 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 async function mockCall<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const db = readDb();
 
+  if (command === "list_clients") return db.clients as T;
+
+  if (command === "save_client") {
+    const input = args?.input as { name: string; phone: string };
+    const name = input.name.trim();
+    const phone = normalizePhone(input.phone);
+    if (!name || name.length > 100) throw new Error("اسم العميل مطلوب (100 حرف كحد أقصى)");
+    if (phone.length < 9 || phone.length > 12) throw new Error("أدخل رقم هاتف صحيحًا");
+    const existing = db.clients.find((client) => client.phone === phone);
+    const client: ClientRecord = existing
+      ? { ...existing, name }
+      : { id: Date.now(), name, phone, created_at: new Date().toISOString() };
+    db.clients = existing
+      ? db.clients.map((item) => item.id === existing.id ? client : item)
+      : [...db.clients, client];
+    writeDb(db);
+    return client as T;
+  }
+
   if (command === "login") {
     const input = args?.input as { username: string; password: string };
     if (input.username === "admin" && input.password === "admin123") {
@@ -418,7 +488,11 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       ui_zoom: Math.min(125, Math.max(80, Number(input.ui_zoom || 100))),
       ui_density: input.ui_density ?? "comfortable",
       pos_layout: input.pos_layout ?? "auto",
-      pos_cart_width: Math.min(420, Math.max(280, Number(input.pos_cart_width || 320)))
+      pos_cart_width: Math.min(420, Math.max(280, Number(input.pos_cart_width || 420))),
+      enable_perfumes: Boolean(input.enable_perfumes),
+      enable_tobacco: Boolean(input.enable_tobacco),
+      enable_flexy: Boolean(input.enable_flexy),
+      enable_printing: Boolean(input.enable_printing)
     };
     writeDb(db);
     return db.settings as T;
@@ -618,12 +692,37 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
         .some((value) => value.toLowerCase().includes(query));
       const matchesCategory = !category || product.category.toLowerCase() === category;
       const matchesStock =
-        stock === "available" ? product.quantity > product.low_stock_threshold :
-        stock === "low" ? product.quantity > 0 && product.quantity <= product.low_stock_threshold :
-        stock === "out" ? product.quantity <= 0 :
+        stock === "available" ? product.custom_type === "printing" || product.quantity > product.low_stock_threshold :
+        stock === "low" ? product.custom_type === "standard" && product.quantity > 0 && product.quantity <= product.low_stock_threshold :
+        stock === "out" ? product.custom_type !== "printing" && product.quantity <= 0 :
         true;
       return matchesQuery && matchesCategory && matchesStock;
     }) as T;
+  }
+
+  if (command === "list_categories") return db.categories as T;
+
+  if (command === "save_category") {
+    const name = String(args?.name ?? "").trim();
+    const oldName = String(args?.old_name ?? "").trim();
+    if (!name || name.length > 60) throw new Error("اسم الصنف مطلوب (60 حرفًا كحد أقصى)");
+    if (db.categories.includes(name) && name !== oldName) throw new Error("هذا الصنف موجود مسبقًا");
+    if (oldName) {
+      db.categories = db.categories.filter((category) => category !== oldName);
+      db.products = db.products.map((product) => product.category === oldName ? { ...product, category: name, updated_at: new Date().toISOString() } : product);
+    }
+    if (!db.categories.includes(name)) db.categories.push(name);
+    db.categories.sort((a, b) => a.localeCompare(b));
+    writeDb(db);
+    return name as T;
+  }
+
+  if (command === "delete_category") {
+    const name = String(args?.name ?? "").trim();
+    if (db.products.some((product) => product.category === name)) throw new Error("لا يمكن حذف صنف مرتبط بمنتجات؛ غيّر أصناف المنتجات أولًا");
+    db.categories = db.categories.filter((category) => category !== name);
+    writeDb(db);
+    return undefined as T;
   }
 
   if (command === "save_product") {
@@ -642,6 +741,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       db.products = db.products.map((product) =>
         product.id === input.id ? { ...product, ...input, updated_at: now } as Product : product
       );
+      if (input.category && !db.categories.includes(input.category)) db.categories.push(input.category);
       if (existing && existing.quantity !== input.quantity) {
         db.stockMovements.unshift(makeDemoStockMovement(
           { ...existing, ...input, updated_at: now } as Product,
@@ -656,8 +756,9 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       writeDb(db);
       return db.products.find((product) => product.id === input.id) as T;
     }
-    const product = { ...input, id: Date.now(), created_at: now, updated_at: now } as Product;
+    const product = { ...input, custom_type: input.custom_type ?? "standard", custom_config: input.custom_config ?? {}, id: Date.now(), created_at: now, updated_at: now } as Product;
     db.products.unshift(product);
+    if (product.category && !db.categories.includes(product.category)) db.categories.push(product.category);
     if (product.quantity > 0) {
       db.stockMovements.unshift(makeDemoStockMovement(product, "initial", product.quantity, 0, product.quantity, product.purchase_price, "مخزون أولي"));
     }
@@ -669,6 +770,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     const input = args?.input as StockMovementInput;
     const product = db.products.find((item) => item.id === input.product_id);
     if (!product) throw new Error("المنتج غير موجود");
+    if (product.custom_type === "printing") throw new Error("خدمات الطباعة لا تملك مخزونا قابلا للتعديل");
     if (input.quantity <= 0) throw new Error("الكمية يجب أن تكون أكبر من صفر");
     const before = product.quantity;
     const delta = input.movement_type === "entry" ? input.quantity : -input.quantity;
@@ -885,20 +987,62 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     const createdAt = `${selectedDate}T${new Date().toTimeString().slice(0, 8)}`;
     let grossProfit = 0;
     const items = input.items.map((item) => {
+      if (item.custom_option === "custom_amount" && item.product_id === 0) {
+        if (!Number.isInteger(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.unit_price) || Number(item.unit_price) <= 0) {
+          throw new Error("المبلغ المخصص غير صالح");
+        }
+        const lineTotal = Number(item.unit_price) * item.quantity;
+        grossProfit += lineTotal;
+        return {
+          product_id: 0,
+          product_name: item.display_name?.trim() || "مبلغ مخصص",
+          barcode: "",
+          quantity: item.quantity,
+          unit_price: Number(item.unit_price),
+          line_total: lineTotal,
+          stock_quantity: 0,
+          custom_option: "custom_amount",
+          unit_cost: 0
+        };
+      }
       const product = db.products.find((candidate) => candidate.id === item.product_id);
       if (!product) throw new Error("المنتج غير موجود");
       if (!Number.isInteger(item.quantity) || item.quantity <= 0) throw new Error("الكمية غير صالحة");
-      if (product.quantity < item.quantity && !db.settings.allow_negative_stock) throw new Error(`المخزون غير كاف للمنتج ${product.name}`);
-      const unitPrice = Number.isFinite(item.unit_price) ? Math.max(0, item.unit_price) : product.sale_price;
-      product.quantity -= item.quantity;
-      grossProfit += (unitPrice - product.purchase_price) * item.quantity;
+      const stockQuantity = product.custom_type === "printing" ? 0 : (item.stock_quantity ?? item.quantity);
+      if (product.custom_type !== "printing" && product.quantity < stockQuantity && !db.settings.allow_negative_stock) throw new Error(`المخزون غير كاف للمنتج ${product.name}`);
+      const option = item.custom_option ?? "";
+      let expectedPrice = Number.isFinite(item.unit_price) ? Math.max(0, item.unit_price) : product.sale_price;
+      let unitCost = product.purchase_price;
+      if (product.custom_type === "flexy") {
+        const tier = [...(product.custom_config?.surcharge_tiers ?? [])].sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity)).find((candidate) => candidate.up_to === null || stockQuantity <= candidate.up_to);
+        if (!option.startsWith(`flexy:${stockQuantity}`) || item.quantity !== 1 || !tier) throw new Error("مبلغ Flexy غير صالح");
+        expectedPrice = stockQuantity + tier.surcharge;
+        unitCost = product.purchase_price * stockQuantity;
+      } else if (product.custom_type === "tobacco") {
+        const box = option === "box";
+        const multiplier = box ? (product.custom_config?.pieces_per_box ?? 0) : 1;
+        if ((!box && option !== "piece") || multiplier <= 0 || stockQuantity !== item.quantity * multiplier) throw new Error("تحويل علبة التبغ غير صالح");
+        expectedPrice = box ? (product.custom_config?.box_sale_price ?? -1) : (product.custom_config?.piece_sale_price ?? -1);
+        unitCost = product.purchase_price * multiplier;
+      } else if (product.custom_type === "printing") {
+        if (!Number.isInteger(item.quantity) || item.quantity <= 0) throw new Error("كمية الطباعة غير صالحة");
+        expectedPrice = option === "recto" ? (product.custom_config?.recto_price ?? -1) : option === "recto_verso" ? (product.custom_config?.recto_verso_price ?? -1) : -1;
+        unitCost = 0;
+      }
+      const unitPrice = expectedPrice;
+      if (Math.abs(unitPrice - Number(item.unit_price)) > 0.001 || unitPrice < 0 || unitCost < 0) throw new Error("تغير السعر أو التكلفة، أعد إضافة المنتج");
+      product.quantity -= stockQuantity;
+      grossProfit += (unitPrice - unitCost) * item.quantity;
       return {
         product_id: product.id,
-        product_name: product.name,
+        product_name: item.display_name ?? product.name,
         barcode: product.barcode,
         quantity: item.quantity,
         unit_price: unitPrice,
-        line_total: unitPrice * item.quantity
+        line_total: unitPrice * item.quantity,
+        stock_quantity: stockQuantity,
+        custom_option: option,
+        unit_cost: unitCost
       };
     });
     const perfumeItems = (input.perfume_items ?? []).map((item) => {
@@ -950,6 +1094,10 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       created_at: createdAt,
       items: [...items, ...perfumeItems]
     };
+    for (const item of items.filter((line) => !!line.custom_option && (line.stock_quantity ?? line.quantity) > 0)) {
+      const product = db.products.find((candidate) => candidate.id === item.product_id)!;
+      db.stockMovements.unshift(makeDemoStockMovement(product, "destock", item.stock_quantity ?? item.quantity, product.quantity + (item.stock_quantity ?? item.quantity), product.quantity, item.unit_cost ?? product.purchase_price, `Vente ${item.custom_option} · ${item.product_name}`));
+    }
     db.sales.unshift(sale);
     writeDb(db);
     return sale as T;
@@ -1001,7 +1149,12 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     if (sale.credit_status !== "delivery_pending") throw new Error("تمت معالجة طلب التوصيل من قبل");
     for (const item of sale.items) {
       const product = db.products.find((product) => product.id === item.product_id);
-      if (product) product.quantity += item.quantity;
+      if (product) {
+        const before = product.quantity;
+        const quantity = item.stock_quantity ?? item.quantity;
+        product.quantity += quantity;
+        if (item.custom_option && quantity > 0) db.stockMovements.unshift(makeDemoStockMovement(product, "entry", quantity, before, product.quantity, item.unit_cost ?? product.purchase_price, `Retour livraison · ${item.product_name}`));
+      }
     }
     sale.paid_amount = 0;
     sale.remaining_amount = 0;
@@ -1021,6 +1174,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     const input = args?.input as SaleReturnInput;
     const sale = db.sales.find((item) => item.id === input.sale_id);
     if (!sale) throw new Error("الفاتورة غير موجودة");
+    if (sale.items.some((item) => item.product_id === input.product_id && item.custom_option)) throw new Error("لحماية رصيد المخزون، ألغِ الفاتورة كاملة لإرجاع منتج مخصص");
     const updatedItems = sale.items.map((item) => ({
       product_id: item.product_id,
       quantity: item.product_id === input.product_id ? item.quantity - input.quantity : item.quantity,
@@ -1039,7 +1193,12 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     if (!sale) throw new Error("الفاتورة غير موجودة");
     for (const item of sale.items) {
       const product = db.products.find((product) => product.id === item.product_id);
-      if (product) product.quantity += item.quantity;
+      if (product) {
+        const before = product.quantity;
+        const quantity = item.stock_quantity ?? item.quantity;
+        product.quantity += quantity;
+        if (item.custom_option && quantity > 0) db.stockMovements.unshift(makeDemoStockMovement(product, "entry", quantity, before, product.quantity, item.unit_cost ?? product.purchase_price, `إلغاء البيع · ${item.product_name}`));
+      }
     }
     db.sales = db.sales.filter((item) => item.id !== id);
     db.creditPayments = db.creditPayments.filter((payment) => payment.sale_id !== id);
@@ -1099,7 +1258,7 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       revenue_yesterday: yesterdayStats.revenue,
       expenses_yesterday: yesterdayStats.expenses,
       profit_yesterday: yesterdayStats.profit,
-      low_stock_count: db.products.filter((product) => product.quantity <= product.low_stock_threshold).length,
+      low_stock_count: db.products.filter((product) => product.custom_type === "standard" && product.quantity <= product.low_stock_threshold).length,
       open_credit_count: db.sales.filter((sale) => sale.sale_type === "credit" && sale.remaining_amount > 0).length,
       credit_remaining_total: db.sales.reduce((sum, sale) => sum + (sale.remaining_amount ?? 0), 0),
       credit_payments_today: todayStats.creditPayments,
@@ -1266,8 +1425,8 @@ function buildDemoReport(db: Db, input: ReportFilter): ReportData {
     supplier_remaining: db.purchaseOrders
       .filter((order) => order.status !== "draft")
       .reduce((sum, order) => sum + order.remaining_amount, 0),
-    stock_purchase_value: db.products.reduce((sum, product) => sum + product.purchase_price * product.quantity, 0),
-    stock_sale_value: db.products.reduce((sum, product) => sum + product.sale_price * product.quantity, 0)
+    stock_purchase_value: db.products.reduce((sum, product) => sum + productStockValues(product).cost, 0),
+    stock_sale_value: db.products.reduce((sum, product) => sum + productStockValues(product).sale, 0)
   };
   const productTotals = new Map<string, { name: string; quantity: number; total: number }>();
   filteredSales.flatMap((sale) => sale.items).forEach((item) => {
@@ -1453,6 +1612,7 @@ function replaceDemoSaleItems(db: Db, saleId: number, items: SaleUpdateInput["it
   const sale = db.sales.find((item) => item.id === saleId);
   if (!sale) throw new Error("الفاتورة غير موجودة");
   if (!items.length || items.every((item) => item.quantity <= 0)) throw new Error("يجب أن تحتوي الفاتورة على منتج واحد على الأقل");
+  if (sale.items.some((item) => item.custom_option)) throw new Error("لا يمكن تعديل أسطر المنتجات المخصصة من سجل المبيعات؛ ألغِ الفاتورة وأنشئها من جديد");
 
   for (const item of sale.items) {
     const product = db.products.find((product) => product.id === item.product_id);
@@ -1563,6 +1723,9 @@ export const api = {
       stock: normalized.stock ?? "all"
     });
   },
+  categories: () => call<string[]>("list_categories"),
+  saveCategory: (name: string, oldName?: string) => call<string>("save_category", { name, old_name: oldName }),
+  deleteCategory: (name: string) => call<void>("delete_category", { name }),
   saveProduct: (input: ProductInput) => call<Product>("save_product", { input }),
   regenerateAllBarcodes: () => call<Product[]>("regenerate_all_barcodes"),
   adjustProductStock: (input: StockMovementInput) => call<Product>("adjust_product_stock", { input }),
@@ -1596,5 +1759,7 @@ export const api = {
   returnSaleItem: (input: SaleReturnInput) => call<Sale>("return_sale_item", { input }),
   deleteSale: (id: number) => call<void>("delete_sale", { id }),
   credits: () => call<CreditAccount[]>("list_credits"),
+  clients: () => call<ClientRecord[]>("list_clients"),
+  saveClient: (input: { name: string; phone: string }) => call<ClientRecord>("save_client", { input }),
   addCreditPayment: (input: CreditPaymentInput) => call<CreditAccount>("add_credit_payment", { input })
 };

@@ -173,9 +173,20 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           purchase_price DOUBLE PRECISION NOT NULL DEFAULT 0,
           sale_price DOUBLE PRECISION NOT NULL DEFAULT 0,
           image_data TEXT NOT NULL DEFAULT '',
+          custom_type TEXT NOT NULL DEFAULT 'standard',
+          custom_config JSONB NOT NULL DEFAULT '{}'::jsonb,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+
+        CREATE TABLE IF NOT EXISTS product_categories (
+          name TEXT PRIMARY KEY,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        INSERT INTO product_categories (name)
+        SELECT DISTINCT btrim(category) FROM products WHERE btrim(category) <> ''
+        ON CONFLICT (name) DO NOTHING;
 
         CREATE TABLE IF NOT EXISTS stock_movements (
           id BIGSERIAL PRIMARY KEY,
@@ -224,6 +235,9 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           quantity BIGINT NOT NULL,
           unit_purchase_price DOUBLE PRECISION NOT NULL,
           line_total DOUBLE PRECISION NOT NULL
+          ,stock_quantity BIGINT NOT NULL DEFAULT 0
+          ,display_name TEXT NOT NULL DEFAULT ''
+          ,custom_option TEXT NOT NULL DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS expenses (
@@ -258,10 +272,25 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
+        CREATE TABLE IF NOT EXISTS clients (
+          id BIGSERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          phone TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        INSERT INTO clients (name, phone)
+        SELECT DISTINCT ON (regexp_replace(customer_phone, '[^0-9]', '', 'g'))
+               btrim(customer_name), regexp_replace(customer_phone, '[^0-9]', '', 'g')
+        FROM sales
+        WHERE btrim(customer_name) <> '' AND regexp_replace(customer_phone, '[^0-9]', '', 'g') <> ''
+        ORDER BY regexp_replace(customer_phone, '[^0-9]', '', 'g'), created_at DESC
+        ON CONFLICT (phone) DO NOTHING;
+
         CREATE TABLE IF NOT EXISTS sale_items (
           id BIGSERIAL PRIMARY KEY,
           sale_id BIGINT NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
-          product_id BIGINT NOT NULL REFERENCES products(id),
+          product_id BIGINT REFERENCES products(id),
           product_name TEXT NOT NULL,
           barcode TEXT NOT NULL,
           quantity BIGINT NOT NULL,
@@ -368,6 +397,14 @@ fn create_schema(client: &mut Client) -> AppResult<()> {
     client.batch_execute(
         "
         ALTER TABLE products ADD COLUMN IF NOT EXISTS image_data TEXT NOT NULL DEFAULT '';
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS custom_type TEXT NOT NULL DEFAULT 'standard';
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS custom_config JSONB NOT NULL DEFAULT '{}'::jsonb;
+        ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS stock_quantity BIGINT NOT NULL DEFAULT 0;
+        ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT '';
+        ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS custom_option TEXT NOT NULL DEFAULT '';
+        ALTER TABLE sale_items ALTER COLUMN product_id DROP NOT NULL;
+        UPDATE sale_items SET stock_quantity = quantity WHERE stock_quantity = 0;
+        UPDATE sale_items SET display_name = product_name WHERE display_name = '';
         ALTER TABLE sales ADD COLUMN IF NOT EXISTS shift_id BIGINT REFERENCES cash_shifts(id);
         ALTER TABLE sales ADD COLUMN IF NOT EXISTS collected_at TIMESTAMPTZ;
         ALTER TABLE expenses ADD COLUMN IF NOT EXISTS shift_id BIGINT REFERENCES cash_shifts(id);

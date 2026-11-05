@@ -37,6 +37,10 @@ pub struct AppSettings {
     pub ui_density: String,
     pub pos_layout: String,
     pub pos_cart_width: i64,
+    pub enable_perfumes: bool,
+    pub enable_tobacco: bool,
+    pub enable_flexy: bool,
+    pub enable_printing: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,6 +58,8 @@ pub struct Product {
     pub image_data: String,
     pub created_at: String,
     pub updated_at: String,
+    pub custom_type: String,
+    pub custom_config: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,6 +75,14 @@ pub struct ProductInput {
     pub purchase_price: f64,
     pub sale_price: f64,
     pub image_data: String,
+    #[serde(default = "default_custom_type")]
+    pub custom_type: String,
+    #[serde(default)]
+    pub custom_config: serde_json::Value,
+}
+
+fn default_custom_type() -> String {
+    "standard".into()
 }
 
 #[derive(Debug, Deserialize)]
@@ -214,6 +228,12 @@ pub struct CheckoutItemInput {
     pub quantity: i64,
     #[serde(default)]
     pub unit_price: Option<f64>,
+    #[serde(default)]
+    pub stock_quantity: Option<i64>,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub custom_option: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -351,6 +371,12 @@ pub struct SaleItem {
     pub quantity: i64,
     pub unit_price: f64,
     pub line_total: f64,
+    #[serde(default)]
+    pub stock_quantity: i64,
+    #[serde(default)]
+    pub custom_option: String,
+    #[serde(default)]
+    pub unit_cost: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -397,6 +423,20 @@ pub struct CreditPaymentInput {
 pub struct CreditAccount {
     pub sale: Sale,
     pub payments: Vec<CreditPayment>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ClientRecord {
+    pub id: i64,
+    pub name: String,
+    pub phone: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ClientInput {
+    pub name: String,
+    pub phone: String,
 }
 
 #[derive(Debug, Serialize)]

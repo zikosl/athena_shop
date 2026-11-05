@@ -27,7 +27,6 @@ import { DeliveryPage } from "../modules/delivery/DeliveryPage";
 import { ExpensesPage } from "../modules/expenses/ExpensesPage";
 import { CreditsPage } from "../modules/credits/CreditsPage";
 import { PosPage } from "../modules/pos/PosPage";
-import { PerfumeryPage } from "../modules/perfumery/PerfumeryPage";
 import { ReportsPage } from "../modules/reports/ReportsPage";
 import { RevenuePage } from "../modules/revenue/RevenuePage";
 import { SettingsPage } from "../modules/settings/SettingsPage";
@@ -48,7 +47,6 @@ const viewLabels: Record<ViewKey, string> = {
   revenue: "الطلبات",
   delivery: "التوصيل",
   stock: "المخزون",
-  perfumery: "العطور",
   credits: "العملاء والديون",
   expenses: "المصاريف",
   reports: "التقارير",
@@ -109,7 +107,11 @@ const defaultAppSettings: AppSettings = {
   ui_zoom: 100,
   ui_density: "comfortable",
   pos_layout: "auto",
-  pos_cart_width: 320
+  pos_cart_width: 420,
+  enable_perfumes: false,
+  enable_tobacco: true,
+  enable_flexy: true,
+  enable_printing: true
 };
 
 export function App() {
@@ -268,8 +270,7 @@ export function App() {
     }
     if (view === "dashboard") return <DashboardPage language={language} onNavigate={navigate} onOpenAlerts={openStockAlerts} refreshToken={refreshToken} />;
     if (view === "stock") return <StockPage language={language} onChanged={refresh} initialStockFilter={stockFilter} />;
-    if (view === "perfumery") return <PerfumeryPage language={language} onChanged={refresh} />;
-    if (view === "pos") return <PosPage language={language} user={user} onSale={refresh} />;
+    if (view === "pos") return <PosPage language={language} user={user} shiftOpen={Boolean(shift)} onOpenShift={() => setShiftModalOpen(true)} onSale={refresh} />;
     if (view === "delivery") return <DeliveryPage language={language} onChanged={refresh} />;
     if (view === "revenue") return <RevenuePage language={language} onChanged={refresh} />;
     if (view === "reports") return <ReportsPage language={language} />;
@@ -381,32 +382,32 @@ export function App() {
           </section>
 
           <section className="top-actions">
-            <button className="glass-pill icon-only" title="معلومات التطبيق" onClick={() => setInfoOpen(true)}><Info size={18} /></button>
-            <button className="glass-pill icon-only" title={t.alerts} onClick={openStockAlerts}><Bell size={18} />{alertCount > 0 && <b>{alertCount}</b>}</button>
-            <button className="glass-pill" title="الصندوق" onClick={() => setShiftModalOpen(true)}>
-              <CircleDollarSign size={17} />
-              <span>{shift ? `الصندوق ${money(shift.expected_amount)}` : "فتح الصندوق"}</span>
-            </button>
-            <button className="glass-pill icon-only" title="\u0641\u062a\u062d \u062f\u0631\u062c \u0627\u0644\u0635\u0646\u062f\u0648\u0642" onClick={() => void openDrawer()}>
-              <Wallet size={18} />
-            </button>
-            <button
-              className="glass-pill icon-only"
-              title={theme === "dark" ? "الوضع الفاتح" : "الوضع الداكن"}
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            >
-              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-            <button className="glass-pill" onClick={() => void saveData()} title={t.saveData}>
-              <Save size={17} />
-              <span>{t.saveData}</span>
-            </button>
-            <div className="glass-pill"><ReceiptText size={17} />{appDateLabel(now, language)}</div>
-            <div className="glass-pill"><Scale size={17} />{hijriDateLabel(now, language)}</div>
-            <div className="glass-pill"><CreditCard size={17} />{user.display_name}</div>
-            <button className="glass-pill icon-only" title={t.logout} onClick={() => void logout()}>
-              <LogOut size={18} />
-            </button>
+            <div className="header-account-group">
+              <button className="glass-pill icon-only" title={t.logout} aria-label={t.logout} onClick={() => void logout()}><LogOut size={18} /></button>
+              <div className="glass-pill header-user"><CreditCard size={17} /><span>{user.display_name}</span></div>
+            </div>
+            <div className="header-date-group" aria-label="التاريخ">
+              <div className="glass-pill header-date"><Scale size={16} /><span>{hijriDateLabel(now, language)}</span></div>
+              <div className="glass-pill header-date"><ReceiptText size={16} /><span>{appDateLabel(now, language)}</span></div>
+            </div>
+            <div className="header-primary-group">
+              <button className="glass-pill header-save" onClick={() => void saveData()} title={t.saveData}>
+                <Save size={17} /><span>{t.saveData}</span>
+              </button>
+              <button className={`glass-pill header-cash ${shift ? "is-open" : ""}`} title="الصندوق" onClick={() => setShiftModalOpen(true)}>
+                <CircleDollarSign size={17} /><span>{shift ? `الصندوق ${money(shift.expected_amount)}` : "فتح الصندوق"}</span>
+              </button>
+            </div>
+            <div className="header-utility-group">
+              <button className="glass-pill icon-only" title="فتح درج الصندوق" aria-label="فتح درج الصندوق" onClick={() => void openDrawer()}><Wallet size={18} /></button>
+              <button className="glass-pill icon-only" title={theme === "dark" ? "الوضع الفاتح" : "الوضع الداكن"} aria-label={theme === "dark" ? "الوضع الفاتح" : "الوضع الداكن"} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+                {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
+              <button className="glass-pill icon-only header-alerts" title={t.alerts} aria-label={`${t.alerts}${alertCount > 0 ? `: ${alertCount}` : ""}`} onClick={openStockAlerts}>
+                <Bell size={18} />{alertCount > 0 && <b>{alertCount}</b>}
+              </button>
+              <button className="glass-pill icon-only" title="معلومات التطبيق" aria-label="معلومات التطبيق" onClick={() => setInfoOpen(true)}><Info size={18} /></button>
+            </div>
           </section>
         </header>
 
