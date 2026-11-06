@@ -49,14 +49,27 @@ type SelectFieldProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "value" | 
   selectClassName?: string;
 };
 
+type SelectControlProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "value" | "onChange"> & {
+  value: string;
+  onValueChange: (value: string) => void;
+  options: SelectOption[];
+  placeholder?: string;
+};
+
+export function SelectControl({ value, onValueChange, options, placeholder, className = "", ...selectProps }: SelectControlProps) {
+  return (
+    <select {...selectProps} className={["ui-select-control", className].filter(Boolean).join(" ")} value={value} onChange={(event) => onValueChange(event.target.value)}>
+      {placeholder !== undefined && <option value="" disabled>{placeholder}</option>}
+      {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+    </select>
+  );
+}
+
 export function SelectField({ label, value, onValueChange, options, placeholder, className = "", selectClassName = "", ...selectProps }: SelectFieldProps) {
   return (
     <label className={["ui-field-label", className].filter(Boolean).join(" ")}>
       <span>{label}</span>
-      <select {...selectProps} className={["ui-select-control", selectClassName].filter(Boolean).join(" ")} value={value} onChange={(event) => onValueChange(event.target.value)}>
-        {placeholder !== undefined && <option value="" disabled>{placeholder}</option>}
-        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
+      <SelectControl {...selectProps} className={selectClassName} value={value} onValueChange={onValueChange} options={options} placeholder={placeholder} />
     </label>
   );
 }

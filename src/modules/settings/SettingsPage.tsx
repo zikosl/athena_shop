@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { DatabaseZap, LayoutPanelLeft, PackageMinus, Palette, Printer, Save, SlidersHorizontal, Trash2, UserRound } from "lucide-react";
 import { api } from "../../shared/api";
 import { useText } from "../../shared/i18n";
+import { localized } from "../../shared/i18n";
 import { showErrorToast, showToast } from "../../shared/toast";
 import { AppSettings, Language, UserSession } from "../../shared/types";
 import { Button, SectionHeader, SelectField, TextField } from "../../shared/ui";
@@ -9,12 +10,12 @@ import { Button, SectionHeader, SelectField, TextField } from "../../shared/ui";
 const zoomStep = 5;
 type SettingsTab = "profile" | "interface" | "printing" | "system";
 const themePresets = [
-  { name: "أزرق OpenZey", value: "#2563eb" },
-  { name: "أزرق داكن", value: "#1d4ed8" },
-  { name: "فيروزي", value: "#0f766e" },
-  { name: "أخضر", value: "#15803d" },
-  { name: "بنفسجي", value: "#7c3aed" },
-  { name: "أحمر", value: "#dc2626" }
+  { name: ["أزرق OpenZey", "Bleu OpenZey"], value: "#2563eb" },
+  { name: ["أزرق داكن", "Bleu foncé"], value: "#1d4ed8" },
+  { name: ["فيروزي", "Turquoise"], value: "#0f766e" },
+  { name: ["أخضر", "Vert"], value: "#15803d" },
+  { name: ["بنفسجي", "Violet"], value: "#7c3aed" },
+  { name: ["أحمر", "Rouge"], value: "#dc2626" }
 ] as const;
 
 const defaultSettings: AppSettings = {
@@ -45,16 +46,19 @@ const defaultSettings: AppSettings = {
 
 export function SettingsPage({
   language,
+  onLanguageChange,
   user,
   onUserChanged,
   onSettingsChanged
 }: {
   language: Language;
+  onLanguageChange: (language: Language) => void;
   user: UserSession;
   onUserChanged: (user: UserSession) => void;
   onSettingsChanged?: (settings: AppSettings) => void;
 }) {
   const t = useText(language);
+  const tr = (arabic: string, french: string) => localized(language, arabic, french);
   const [profile, setProfile] = useState({
     username: user.username,
     display_name: user.display_name,
@@ -75,13 +79,13 @@ export function SettingsPage({
         setSettings(normalized);
         onSettingsChanged?.(normalized);
       })
-      .catch((err) => showErrorToast(err, "تعذر تحميل الإعدادات"));
+      .catch((err) => showErrorToast(err, tr("تعذر تحميل الإعدادات", "Impossible de charger les paramètres")));
     api.printers()
       .then(setPrinters)
       .catch((err) => {
         setPrinters([]);
-        showToast("تعذر قراءة طابعات Windows. تحقق من اتصال الطابعة.", "warning", {
-          title: "الطابعات غير متاحة"
+        showToast(tr("تعذر قراءة طابعات Windows. تحقق من اتصال الطابعة.", "Impossible de détecter les imprimantes Windows. Vérifiez leur connexion."), "warning", {
+          title: tr("الطابعات غير متاحة", "Imprimantes indisponibles")
         });
         console.warn(err);
       });
@@ -112,9 +116,9 @@ export function SettingsPage({
       });
       setProfile({ username: updated.username, display_name: updated.display_name, password: "" });
       onUserChanged(updated);
-      showToast("تم حفظ بيانات الحساب", "success");
+      showToast(tr("تم حفظ بيانات الحساب", "Informations du compte enregistrées"), "success");
     } catch (err) {
-      showErrorToast(err, "تعذر حفظ الحساب");
+      showErrorToast(err, tr("تعذر حفظ الحساب", "Impossible d’enregistrer le compte"));
     } finally {
       setSavingProfile(false);
     }
@@ -128,35 +132,35 @@ export function SettingsPage({
       const normalized = { ...defaultSettings, ...saved };
       setSettings(normalized);
       onSettingsChanged?.(normalized);
-      showToast("تم حفظ الإعدادات وتطبيقها", "success");
+      showToast(tr("تم حفظ الإعدادات وتطبيقها", "Paramètres enregistrés et appliqués"), "success");
     } catch (err) {
-      showErrorToast(err, "تعذر حفظ الإعدادات");
+      showErrorToast(err, tr("تعذر حفظ الإعدادات", "Impossible d’enregistrer les paramètres"));
     } finally {
       setSavingSettings(false);
     }
   }
 
   async function resetDummyData() {
-    if (!window.confirm("هل تريد إعادة تهيئة قاعدة البيانات ببيانات تجريبية؟ سيتم استبدال المنتجات والمبيعات والديون والمصاريف الحالية.")) return;
+    if (!window.confirm(tr("هل تريد إعادة تهيئة قاعدة البيانات ببيانات تجريبية؟ سيتم استبدال المنتجات والمبيعات والديون والمصاريف الحالية.", "Réinitialiser la base avec des données de démonstration ? Les produits, ventes, crédits et dépenses actuels seront remplacés."))) return;
     setResettingData(true);
     try {
       await api.resetWithDummyData();
-      showToast("تمت إعادة التهيئة ببيانات تجريبية", "success");
+      showToast(tr("تمت إعادة التهيئة ببيانات تجريبية", "Base réinitialisée avec des données de démonstration"), "success");
     } catch (err) {
-      showErrorToast(err, "تعذرت إعادة تهيئة البيانات");
+      showErrorToast(err, tr("تعذرت إعادة تهيئة البيانات", "Impossible de réinitialiser les données"));
     } finally {
       setResettingData(false);
     }
   }
 
   async function emptyDatabase() {
-    if (!window.confirm("تأكيد نهائي: هل تريد تفريغ قاعدة البيانات بالكامل؟ سيتم حذف المنتجات، المبيعات، المصاريف، الديون، العطور، والقوارير. حساب المدير سيبقى محفوظا.")) return;
+    if (!window.confirm(tr("تأكيد نهائي: هل تريد تفريغ قاعدة البيانات بالكامل؟ سيتم حذف المنتجات، المبيعات، المصاريف، الديون، العطور، والقوارير. حساب المدير سيبقى محفوظا.", "Confirmation finale : vider entièrement la base de données ? Les produits, ventes, dépenses, crédits, parfums et flacons seront supprimés. Le compte administrateur sera conservé."))) return;
     setEmptyingData(true);
     try {
       await api.emptyDatabase();
-      showToast("تم تفريغ قاعدة البيانات بنجاح", "success");
+      showToast(tr("تم تفريغ قاعدة البيانات بنجاح", "Base de données vidée"), "success");
     } catch (err) {
-      showErrorToast(err, "تعذر تفريغ قاعدة البيانات");
+      showErrorToast(err, tr("تعذر تفريغ قاعدة البيانات", "Impossible de vider la base de données"));
     } finally {
       setEmptyingData(false);
     }
@@ -166,27 +170,43 @@ export function SettingsPage({
     <section className="panel settings-panel">
       <SectionHeader title={t.settings} />
       <div className="segmented wide settings-tabs">
-        <button type="button" className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>الحساب</button>
-        <button type="button" className={tab === "interface" ? "active" : ""} onClick={() => setTab("interface")}>الواجهة</button>
-        <button type="button" className={tab === "printing" ? "active" : ""} onClick={() => setTab("printing")}>الطباعة والتذاكر</button>
-        <button type="button" className={tab === "system" ? "active" : ""} onClick={() => setTab("system")}>النظام</button>
+        <button type="button" className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>{tr("الحساب", "Compte")}</button>
+        <button type="button" className={tab === "interface" ? "active" : ""} onClick={() => setTab("interface")}>{tr("الواجهة", "Interface")}</button>
+        <button type="button" className={tab === "printing" ? "active" : ""} onClick={() => setTab("printing")}>{tr("الطباعة والتذاكر", "Impression et tickets")}</button>
+        <button type="button" className={tab === "system" ? "active" : ""} onClick={() => setTab("system")}>{tr("النظام", "Système")}</button>
       </div>
 
       <form className="setting-row profile-editor" onSubmit={submit} style={{ display: tab === "profile" ? undefined : "none" }}>
         <div><UserRound size={22} /><strong>{t.adminAccount}</strong><span>{user.role}</span></div>
         <div className="profile-fields">
           <TextField label={t.username} value={profile.username} onValueChange={(username) => setProfile({ ...profile, username })} />
-          <TextField label="الاسم المعروض" value={profile.display_name} onValueChange={(display_name) => setProfile({ ...profile, display_name })} />
-          <TextField label="كلمة مرور جديدة" type="password" value={profile.password} onValueChange={(password) => setProfile({ ...profile, password })} />
+          <TextField label={tr("الاسم المعروض", "Nom affiché")} value={profile.display_name} onValueChange={(display_name) => setProfile({ ...profile, display_name })} />
+          <TextField label={tr("كلمة مرور جديدة", "Nouveau mot de passe")} type="password" value={profile.password} onValueChange={(password) => setProfile({ ...profile, password })} />
           <Button variant="primary" disabled={!profile.username.trim() || !profile.display_name.trim()}><Save size={18} /> {t.save}</Button>
         </div>
       </form>
 
       <article className="setting-row profile-editor" style={{ display: tab === "interface" ? undefined : "none" }}>
         <div>
+          <SlidersHorizontal size={22} />
+          <strong>{tr("لغة التطبيق", "Langue de l’application")}</strong>
+          <span>{tr("اختر لغة الواجهة واتجاه العرض.", "Choisissez la langue et le sens de l’interface.")}</span>
+        </div>
+        <div className="profile-fields">
+          <SelectField
+            label={t.language}
+            value={language}
+            onValueChange={(value) => onLanguageChange(value as Language)}
+            options={[{ value: "ar", label: "العربية" }, { value: "fr", label: "Français" }]}
+          />
+        </div>
+      </article>
+
+      <article className="setting-row profile-editor" style={{ display: tab === "interface" ? undefined : "none" }}>
+        <div>
           <Palette size={22} />
-          <strong>هوية المؤسسة</strong>
-          <span>اختر اللون الرئيسي الذي سيظهر في الأزرار، الحالات النشطة والروابط داخل OpenSoft.</span>
+          <strong>{tr("هوية المؤسسة", "Identité de l’entreprise")}</strong>
+          <span>{tr("اختر اللون الرئيسي الذي سيظهر في الأزرار، الحالات النشطة والروابط داخل OpenSoft.", "Choisissez la couleur principale des boutons, états actifs et liens dans OpenSoft.")}</span>
         </div>
         <div className="profile-fields">
           <div className="theme-preset-grid">
@@ -198,18 +218,18 @@ export function SettingsPage({
                 onClick={() => updateSettings({ ...settings, theme_primary_color: preset.value })}
               >
                 <span className="theme-swatch" style={{ backgroundColor: preset.value }} />
-                {preset.name}
+                {preset.name[language === "ar" ? 0 : 1]}
               </button>
             ))}
           </div>
           <label className="theme-custom-label">
-            <span>لون مخصص</span>
+            <span>{tr("لون مخصص", "Couleur personnalisée")}</span>
             <div className="theme-color-field">
               <input
                 type="color"
                 value={settings.theme_primary_color}
                 onChange={(event) => updateSettings({ ...settings, theme_primary_color: event.target.value })}
-                aria-label="اختيار اللون الرئيسي"
+                aria-label={tr("اختيار اللون الرئيسي", "Choisir la couleur principale")}
               />
               <input
                 value={settings.theme_primary_color}
@@ -225,7 +245,7 @@ export function SettingsPage({
               />
             </div>
           </label>
-          <p className="helper-text">يمكن التبديل بين الوضع الفاتح والداكن من الشريط العلوي. اللون المختار يعمل في الوضعين تلقائيًا.</p>
+          <p className="helper-text">{tr("يمكن التبديل بين الوضع الفاتح والداكن من الشريط العلوي. اللون المختار يعمل في الوضعين تلقائيًا.", "Vous pouvez changer de thème depuis la barre supérieure. La couleur choisie s’adapte automatiquement aux deux modes.")}</p>
           <Button variant="primary" type="button" disabled={savingSettings} onClick={() => void saveSettings()}>
             <Save size={18} /> {savingSettings ? "جار الحفظ..." : t.save}
           </Button>
@@ -235,14 +255,14 @@ export function SettingsPage({
       <article className="setting-row profile-editor service-settings" style={{ display: tab === "interface" ? undefined : "none" }}>
         <div>
           <SlidersHorizontal size={22} />
-          <strong>خدمات نقطة البيع</strong>
-          <span>اختر الخدمات التي تظهر للكاشير أثناء البيع.</span>
+          <strong>{tr("خدمات نقطة البيع", "Services de caisse")}</strong>
+          <span>{tr("اختر الخدمات التي تظهر للكاشير أثناء البيع.", "Choisissez les services affichés au caissier pendant la vente.")}</span>
         </div>
         <div className="profile-fields service-toggle-grid">
-          <label className="toggle-row"><input type="checkbox" checked={settings.enable_perfumes} onChange={(event) => setSettings({ ...settings, enable_perfumes: event.target.checked })} /><span>العطور</span></label>
-          <label className="toggle-row"><input type="checkbox" checked={settings.enable_tobacco} onChange={(event) => setSettings({ ...settings, enable_tobacco: event.target.checked })} /><span>التبغ</span></label>
+          <label className="toggle-row"><input type="checkbox" checked={settings.enable_perfumes} onChange={(event) => setSettings({ ...settings, enable_perfumes: event.target.checked })} /><span>{tr("العطور", "Parfums")}</span></label>
+          <label className="toggle-row"><input type="checkbox" checked={settings.enable_tobacco} onChange={(event) => setSettings({ ...settings, enable_tobacco: event.target.checked })} /><span>{tr("التبغ", "Tabac")}</span></label>
           <label className="toggle-row"><input type="checkbox" checked={settings.enable_flexy} onChange={(event) => setSettings({ ...settings, enable_flexy: event.target.checked })} /><span>Flexy</span></label>
-          <label className="toggle-row"><input type="checkbox" checked={settings.enable_printing} onChange={(event) => setSettings({ ...settings, enable_printing: event.target.checked })} /><span>خدمات الطباعة</span></label>
+          <label className="toggle-row"><input type="checkbox" checked={settings.enable_printing} onChange={(event) => setSettings({ ...settings, enable_printing: event.target.checked })} /><span>{tr("خدمات الطباعة", "Services d’impression")}</span></label>
           <Button variant="primary" type="button" disabled={savingSettings} onClick={() => void saveSettings()}><Save size={18} /> {t.save}</Button>
         </div>
       </article>
@@ -250,20 +270,20 @@ export function SettingsPage({
       <article className="setting-row profile-editor" style={{ display: tab === "interface" ? undefined : "none" }}>
         <div>
           <SlidersHorizontal size={22} />
-          <strong>مظهر الواجهة</strong>
-          <span>اضبط حجم الخط وكثافة العناصر حسب شاشة العمل.</span>
+          <strong>{tr("مظهر الواجهة", "Apparence de l’interface")}</strong>
+          <span>{tr("اضبط حجم الخط وكثافة العناصر حسب شاشة العمل.", "Réglez la taille du texte et la densité selon votre écran de travail.")}</span>
         </div>
         <div className="profile-fields">
           <label>
-            <span>حجم الخط</span>
+            <span>{tr("حجم الخط", "Taille du texte")}</span>
             <div className="segmented wide">
-              <button className={settings.ui_font_scale === "small" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_font_scale: "small" })}>صغير</button>
-              <button className={settings.ui_font_scale === "normal" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_font_scale: "normal" })}>عادي</button>
-              <button className={settings.ui_font_scale === "large" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_font_scale: "large" })}>كبير</button>
+              <button className={settings.ui_font_scale === "small" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_font_scale: "small" })}>{tr("صغير", "Petit")}</button>
+              <button className={settings.ui_font_scale === "normal" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_font_scale: "normal" })}>{tr("عادي", "Normal")}</button>
+              <button className={settings.ui_font_scale === "large" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_font_scale: "large" })}>{tr("كبير", "Grand")}</button>
             </div>
           </label>
           <label>
-            <span>تكبير الواجهة: {settings.ui_zoom ?? 100}%</span>
+            <span>{tr("تكبير الواجهة:", "Zoom de l’interface :")} {settings.ui_zoom ?? 100}%</span>
             <div className="segmented wide zoom-controls">
               <button type="button" onClick={() => updateZoom((settings.ui_zoom ?? 100) - zoomStep)}>-</button>
               <button className={(settings.ui_zoom ?? 100) === 100 ? "active" : ""} type="button" onClick={() => updateZoom(100)}>100%</button>
@@ -271,14 +291,14 @@ export function SettingsPage({
             </div>
           </label>
           <label>
-            <span>كثافة العناصر</span>
+            <span>{tr("كثافة العناصر", "Densité de l’interface")}</span>
             <div className="segmented wide">
-              <button className={settings.ui_density === "compact" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_density: "compact" })}>مضغوط</button>
-              <button className={settings.ui_density === "comfortable" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_density: "comfortable" })}>مريح</button>
-              <button className={settings.ui_density === "spacious" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_density: "spacious" })}>واسع</button>
+              <button className={settings.ui_density === "compact" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_density: "compact" })}>{tr("مضغوط", "Compact")}</button>
+              <button className={settings.ui_density === "comfortable" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_density: "comfortable" })}>{tr("مريح", "Confortable")}</button>
+              <button className={settings.ui_density === "spacious" ? "active" : ""} type="button" onClick={() => updateSettings({ ...settings, ui_density: "spacious" })}>{tr("واسع", "Aéré")}</button>
             </div>
           </label>
-          <p className="helper-text">الوضع المضغوط مناسب لشاشات 1024px لأنه يقلل المسافات ويحافظ على البيانات ظاهرة.</p>
+          <p className="helper-text">{tr("الوضع المضغوط مناسب لشاشات 1024px لأنه يقلل المسافات ويحافظ على البيانات ظاهرة.", "Le mode compact convient aux écrans de 1024 px : il réduit l’espacement et garde davantage d’informations visibles.")}</p>
           <Button variant="primary" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</Button>
         </div>
       </article>
@@ -341,13 +361,13 @@ export function SettingsPage({
       <article className="setting-row profile-editor" style={{ display: tab === "printing" ? undefined : "none" }}>
         <div>
           <Printer size={22} />
-          <strong>الطابعات</strong>
-          <span>اختر طابعة مخصصة للفواتير وطابعة أخرى لملصقات الباركود.</span>
+          <strong>{tr("الطابعات", "Imprimantes")}</strong>
+          <span>{tr("اختر طابعة مخصصة للفواتير وطابعة أخرى لملصقات الباركود.", "Choisissez une imprimante pour les factures et une autre pour les étiquettes de codes-barres.")}</span>
         </div>
         <div className="profile-fields">
-          <SelectField label="طابعة فاتورة نقطة البيع" value={settings.invoice_printer} onValueChange={(invoice_printer) => setSettings({ ...settings, invoice_printer })} options={[{ value: "", label: "الطابعة الافتراضية" }, ...printers.map((printer) => ({ value: printer, label: printer }))]} />
-          <SelectField label="طابعة ملصقات الباركود" value={settings.barcode_printer} onValueChange={(barcode_printer) => setSettings({ ...settings, barcode_printer })} options={[{ value: "", label: "الطابعة الافتراضية" }, ...printers.map((printer) => ({ value: printer, label: printer }))]} />
-          {!printers.length && <p className="helper-text">لم يتم العثور على طابعات. تأكد من إعدادات Windows ثم أعد فتح الصفحة.</p>}
+          <SelectField label={tr("طابعة فاتورة نقطة البيع", "Imprimante des factures de vente")} value={settings.invoice_printer} onValueChange={(invoice_printer) => setSettings({ ...settings, invoice_printer })} options={[{ value: "", label: tr("الطابعة الافتراضية", "Imprimante par défaut") }, ...printers.map((printer) => ({ value: printer, label: printer }))]} />
+          <SelectField label={tr("طابعة ملصقات الباركود", "Imprimante des étiquettes code-barres")} value={settings.barcode_printer} onValueChange={(barcode_printer) => setSettings({ ...settings, barcode_printer })} options={[{ value: "", label: tr("الطابعة الافتراضية", "Imprimante par défaut") }, ...printers.map((printer) => ({ value: printer, label: printer }))]} />
+          {!printers.length && <p className="helper-text">{tr("لم يتم العثور على طابعات. تأكد من إعدادات Windows ثم أعد فتح الصفحة.", "Aucune imprimante détectée. Vérifiez les paramètres Windows puis rechargez cette page.")}</p>}
           <Button variant="primary" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</Button>
         </div>
       </article>
@@ -355,25 +375,25 @@ export function SettingsPage({
       <article className="setting-row profile-editor" style={{ display: tab === "printing" ? undefined : "none" }}>
         <div>
           <Printer size={22} />
-          <strong>ضبط التذكرة والباركود</strong>
-          <span>إعدادات منفصلة لتذكرة البيع وملصق الباركود، مناسبة لمقاسات 20x40 مم.</span>
+          <strong>{tr("ضبط التذكرة والباركود", "Format des tickets et codes-barres")}</strong>
+          <span>{tr("إعدادات منفصلة لتذكرة البيع وملصق الباركود، مناسبة لمقاسات 20x40 مم.", "Réglages distincts pour les tickets de vente et les étiquettes code-barres, adaptés au format 20 × 40 mm.")}</span>
         </div>
         <div className="profile-fields">
-          <TextField label="عنوان الفاتورة" value={settings.receipt_title} onValueChange={(receipt_title) => setSettings({ ...settings, receipt_title })} />
-          <TextField label="العنوان الفرعي" value={settings.receipt_subtitle} onValueChange={(receipt_subtitle) => setSettings({ ...settings, receipt_subtitle })} />
+          <TextField label={tr("عنوان الفاتورة", "Titre du ticket")} value={settings.receipt_title} onValueChange={(receipt_title) => setSettings({ ...settings, receipt_title })} />
+          <TextField label={tr("العنوان الفرعي", "Sous-titre")} value={settings.receipt_subtitle} onValueChange={(receipt_subtitle) => setSettings({ ...settings, receipt_subtitle })} />
           <label className="toggle-row">
             <input
               type="checkbox"
               checked={settings.show_invoice_logo}
               onChange={(event) => setSettings({ ...settings, show_invoice_logo: event.target.checked })}
             />
-            <span>إظهار الشعار في الفاتورة</span>
+            <span>{tr("إظهار الشعار في الفاتورة", "Afficher le logo sur le ticket")}</span>
           </label>
-          <TextField label="عرض نص الفاتورة بالحروف" type="number" min={24} max={48} value={settings.ticket_width_chars} onValueChange={(value) => setSettings({ ...settings, ticket_width_chars: Number(value) })} />
-          <TextField label="عرض ملصق الباركود بالملم" type="number" min={20} max={100} value={settings.barcode_label_width_mm} onValueChange={(value) => setSettings({ ...settings, barcode_label_width_mm: Number(value) })} />
-          <TextField label="ارتفاع ملصق الباركود بالملم" type="number" min={10} max={80} value={settings.barcode_label_height_mm} onValueChange={(value) => setSettings({ ...settings, barcode_label_height_mm: Number(value) })} />
+          <TextField label={tr("عرض نص الفاتورة بالحروف", "Largeur du ticket (caractères)")} type="number" min={24} max={48} value={settings.ticket_width_chars} onValueChange={(value) => setSettings({ ...settings, ticket_width_chars: Number(value) })} />
+          <TextField label={tr("عرض ملصق الباركود بالملم", "Largeur de l’étiquette (mm)")} type="number" min={20} max={100} value={settings.barcode_label_width_mm} onValueChange={(value) => setSettings({ ...settings, barcode_label_width_mm: Number(value) })} />
+          <TextField label={tr("ارتفاع ملصق الباركود بالملم", "Hauteur de l’étiquette (mm)")} type="number" min={10} max={80} value={settings.barcode_label_height_mm} onValueChange={(value) => setSettings({ ...settings, barcode_label_height_mm: Number(value) })} />
           <label className="barcode-range-field">
-            <span>كثافة طباعة الباركود: {settings.barcode_darkness}/5</span>
+            <span>{tr("كثافة طباعة الباركود:", "Densité d’impression du code-barres :")} {settings.barcode_darkness}/5</span>
             <input
               type="range"
               min={1}
@@ -384,31 +404,31 @@ export function SettingsPage({
             />
           </label>
           <label className="barcode-speed-field">
-            <span>سرعة طباعة الباركود</span>
+            <span>{tr("سرعة طباعة الباركود", "Vitesse d’impression du code-barres")}</span>
             <div className="segmented wide">
-              <button className={settings.barcode_speed === "slow" ? "active" : ""} type="button" onClick={() => setSettings({ ...settings, barcode_speed: "slow" })}>بطيئة · أفضل جودة</button>
-              <button className={settings.barcode_speed === "normal" ? "active" : ""} type="button" onClick={() => setSettings({ ...settings, barcode_speed: "normal" })}>عادية</button>
-              <button className={settings.barcode_speed === "fast" ? "active" : ""} type="button" onClick={() => setSettings({ ...settings, barcode_speed: "fast" })}>سريعة</button>
+              <button className={settings.barcode_speed === "slow" ? "active" : ""} type="button" onClick={() => setSettings({ ...settings, barcode_speed: "slow" })}>{tr("بطيئة · أفضل جودة", "Lente · meilleure qualité")}</button>
+              <button className={settings.barcode_speed === "normal" ? "active" : ""} type="button" onClick={() => setSettings({ ...settings, barcode_speed: "normal" })}>{tr("عادية", "Normale")}</button>
+              <button className={settings.barcode_speed === "fast" ? "active" : ""} type="button" onClick={() => setSettings({ ...settings, barcode_speed: "fast" })}>{tr("سريعة", "Rapide")}</button>
             </div>
           </label>
-          <p className="helper-text">لملصقات 20x40 مم اجعل العرض 40 والارتفاع 20. إذا كان الباركود لا يقرأ، جرّب تقليل طول اسم المنتج أو زيادة الارتفاع قليلا.</p>
-          <Button variant="primary" type="button" disabled={savingSettings} onClick={() => void saveSettings()}><Save size={18} /> {savingSettings ? "جار الحفظ..." : t.save}</Button>
+          <p className="helper-text">{tr("لملصقات 20x40 مم اجعل العرض 40 والارتفاع 20. إذا كان الباركود لا يقرأ، جرّب تقليل طول اسم المنتج أو زيادة الارتفاع قليلا.", "Pour une étiquette 20 × 40 mm, réglez la largeur sur 40 et la hauteur sur 20. Si le code-barres est illisible, raccourcissez le nom du produit ou augmentez légèrement la hauteur.")}</p>
+          <Button variant="primary" type="button" disabled={savingSettings} onClick={() => void saveSettings()}><Save size={18} /> {savingSettings ? tr("جار الحفظ...", "Enregistrement...") : t.save}</Button>
         </div>
       </article>
 
       <article className="setting-row debug-reset-row" style={{ display: tab === "system" ? undefined : "none" }}>
         <div>
           <DatabaseZap size={22} />
-          <strong>إدارة بيانات التجربة</strong>
-          <span>أدوات مؤقتة لاختبار النظام أو تفريغ بيانات العمل.</span>
+          <strong>{tr("إدارة بيانات التجربة", "Gestion des données de test")}</strong>
+          <span>{tr("أدوات مؤقتة لاختبار النظام أو تفريغ بيانات العمل.", "Outils temporaires pour tester le système ou vider les données de travail.")}</span>
         </div>
         <div className="profile-fields">
-          <p className="helper-text">زر البيانات التجريبية يستبدل بيانات العمل بأرقام جاهزة للاختبار. زر التفريغ يحذف كل بيانات العمل ويترك حساب المدير فقط.</p>
+          <p className="helper-text">{tr("زر البيانات التجريبية يستبدل بيانات العمل بأرقام جاهزة للاختبار. زر التفريغ يحذف كل بيانات العمل ويترك حساب المدير فقط.", "Les données de démonstration remplacent les données de travail par des exemples. La suppression vide toutes les données et conserve uniquement le compte administrateur.")}</p>
           <button className="ghost-button danger-action" type="button" disabled={resettingData || emptyingData} onClick={() => void resetDummyData()}>
-            <DatabaseZap size={18} /> تهيئة بيانات تجريبية
+            <DatabaseZap size={18} /> {resettingData ? tr("جار التهيئة...", "Réinitialisation...") : tr("تهيئة بيانات تجريبية", "Charger les données de démonstration")}
           </button>
           <button className="ghost-button danger-action" type="button" disabled={resettingData || emptyingData} onClick={() => void emptyDatabase()}>
-            <Trash2 size={18} /> تفريغ قاعدة البيانات
+            <Trash2 size={18} /> {emptyingData ? tr("جار التفريغ...", "Suppression en cours...") : tr("تفريغ قاعدة البيانات", "Vider la base de données")}
           </button>
         </div>
       </article>

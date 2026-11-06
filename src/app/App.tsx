@@ -34,26 +34,31 @@ import { StockPage } from "../modules/stock/StockPage";
 import { ZakatPage } from "../modules/zakat/ZakatPage";
 import { api } from "../shared/api";
 import { appDateLabel, hijriDateLabel, money } from "../shared/format";
-import { useText } from "../shared/i18n";
+import { localized, useText } from "../shared/i18n";
 import { AppToast, showErrorToast, showToast } from "../shared/toast";
 import { AppSettings, CashShift, Language, ProductStockFilter, UserSession, ViewKey } from "../shared/types";
 import { Button, SectionHeader, TextField } from "../shared/ui";
 import openzeyLogo from "../assets/openzey-logo.png";
 import openzeyLogoWhite from "../assets/openzey-logo-white.png";
 
-const viewLabels: Record<ViewKey, string> = {
-  apps: "التطبيقات",
-  dashboard: "لوحة المتابعة",
-  pos: "المبيعات",
-  revenue: "الطلبات",
-  delivery: "التوصيل",
-  stock: "المخزون",
-  credits: "العملاء والديون",
-  expenses: "المصاريف",
-  reports: "التقارير",
-  zakat: "الزكاة",
-  settings: "الإعدادات"
+const viewLabels: Record<ViewKey, [string, string]> = {
+  apps: ["التطبيقات", "Applications"],
+  dashboard: ["لوحة المتابعة", "Tableau de bord"],
+  pos: ["المبيعات", "Ventes"],
+  revenue: ["الطلبات", "Recettes"],
+  delivery: ["التوصيل", "Livraison"],
+  stock: ["المخزون", "Stock"],
+  credits: ["العملاء والديون", "Clients et crédits"],
+  expenses: ["المصاريف", "Dépenses"],
+  reports: ["التقارير", "Rapports"],
+  zakat: ["الزكاة", "Zakat"],
+  settings: ["الإعدادات", "Paramètres"]
 };
+
+function viewFromLocation(): ViewKey {
+  const route = window.location.hash.replace(/^#\/?/, "").split(/[?&]/, 1)[0] as ViewKey;
+  return Object.prototype.hasOwnProperty.call(viewLabels, route) ? route : "apps";
+}
 
 type Theme = "dark" | "light";
 
@@ -116,9 +121,12 @@ const defaultAppSettings: AppSettings = {
 };
 
 export function App() {
-  const [language] = useState<Language>("ar");
+  const [language, setLanguage] = useState<Language>(() => {
+    const saved = readStorage(storageKeys.lang, legacyStorageKeys.lang);
+    return saved === "fr" || saved === "ar" ? saved : "fr";
+  });
   const [theme, setTheme] = useState<Theme>(() => (readStorage(storageKeys.theme, legacyStorageKeys.theme) as Theme) || "dark");
-  const [view, setView] = useState<ViewKey>("apps");
+  const [view, setView] = useState<ViewKey>(viewFromLocation);
   const [stockFilter, setStockFilter] = useState<ProductStockFilter>("all");
   const [databaseConfigured, setDatabaseConfigured] = useState<boolean | null>(null);
   const [user, setUser] = useState<UserSession | null>(() => {
@@ -143,7 +151,7 @@ export function App() {
   const t = useText(language);
   const primaryColor = normalizeThemeColor(appSettings.theme_primary_color);
   const activeLogo = theme === "dark" ? openzeyLogoWhite : openzeyLogo;
-  const currentViewLabel = viewLabels[view];
+  const currentViewLabel = localized(language, ...viewLabels[view]);
 
   useEffect(() => {
     localStorage.setItem(storageKeys.lang, language);
@@ -155,6 +163,13 @@ export function App() {
     localStorage.setItem(storageKeys.theme, theme);
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--accent", primaryColor);
+    document.documentElement.style.setProperty("--accent-strong", shadeColor(primaryColor, -22));
+    document.documentElement.style.setProperty("--accent-soft", `${primaryColor}1f`);
+    document.documentElement.style.setProperty("--brand-primary", primaryColor);
+  }, [primaryColor]);
 
   useEffect(() => {
     api.isDatabaseConfigured()
@@ -213,11 +228,24 @@ export function App() {
   const refresh = useCallback(() => setRefreshToken((token) => token + 1), []);
   const navigate = useCallback((nextView: ViewKey) => {
     if (nextView === view) return;
+    const nextUrl = new URL(window.location.href);
+    nextUrl.hash = `/${nextView}`;
+    window.history.pushState({ appView: nextView }, "", nextUrl);
     setView(nextView);
     window.requestAnimationFrame(() => {
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
   }, [view]);
+
+  useEffect(() => {
+    const syncView = () => setView(viewFromLocation());
+    window.addEventListener("popstate", syncView);
+    window.addEventListener("hashchange", syncView);
+    return () => {
+      window.removeEventListener("popstate", syncView);
+      window.removeEventListener("hashchange", syncView);
+    };
+  }, []);
   const refreshShift = useCallback(async () => {
     setShift(await api.currentShift());
     refresh();
@@ -262,6 +290,7 @@ export function App() {
     if (view === "apps") {
       return (
         <AppLauncherPage
+          language={language}
           userName={user.display_name}
           shiftOpen={Boolean(shift)}
           alertCount={alertCount}
@@ -278,7 +307,7 @@ export function App() {
     if (view === "expenses") return <ExpensesPage language={language} onChanged={refresh} />;
     if (view === "credits") return <CreditsPage language={language} user={user} onChanged={refresh} />;
     if (view === "zakat") return <ZakatPage language={language} />;
-    return <SettingsPage language={language} user={user} onUserChanged={updateUserSession} onSettingsChanged={setAppSettings} />;
+    return <SettingsPage language={language} onLanguageChange={setLanguage} user={user} onUserChanged={updateUserSession} onSettingsChanged={setAppSettings} />;
   }, [alertCount, language, navigate, openStockAlerts, refresh, refreshToken, shift, stockFilter, updateUserSession, user, view]);
 
   const toastViewport = (
@@ -298,17 +327,18 @@ export function App() {
             : toast.tone === "warning"
               ? "تنبيه"
               : "معلومة";
+        const localizedTitle = toast.title || localized(language, defaultTitle, toast.tone === "success" ? "Terminé" : toast.tone === "error" ? "Échec de l’opération" : toast.tone === "warning" ? "Attention" : "Information");
         return (
           <article key={toast.id} className={`toast-card ${toast.tone}`} role={toast.tone === "error" ? "alert" : "status"}>
             <span className="toast-icon"><ToastIcon size={20} /></span>
             <span className="toast-content">
-              <strong>{toast.title || defaultTitle}</strong>
+              <strong>{localizedTitle}</strong>
               <small>{toast.message}</small>
             </span>
             <button
               className="toast-close"
               type="button"
-              aria-label="إغلاق الإشعار"
+              aria-label={localized(language, "إغلاق الإشعار", "Fermer la notification")}
               onClick={() => setToasts((items) => items.filter((item) => item.id !== toast.id))}
             >
               <X size={16} />
@@ -325,7 +355,7 @@ export function App() {
   }
 
   if (!databaseConfigured) {
-    return <><DatabaseSetupPage onConfigured={() => setDatabaseConfigured(true)} />{toastViewport}</>;
+    return <><DatabaseSetupPage language={language} onConfigured={() => setDatabaseConfigured(true)} />{toastViewport}</>;
   }
 
   if (!user) {
@@ -387,7 +417,7 @@ export function App() {
               <button className="glass-pill icon-only" title={t.logout} aria-label={t.logout} onClick={() => void logout()}><LogOut size={18} /></button>
               <div className="glass-pill header-user"><CreditCard size={17} /><span>{user.display_name}</span></div>
             </div>
-            <div className="header-date-group" aria-label="التاريخ">
+            <div className="header-date-group" aria-label={localized(language, "التاريخ", "Date")}>
               <div className="glass-pill header-date"><Scale size={16} /><span>{hijriDateLabel(now, language)}</span></div>
               <div className="glass-pill header-date"><ReceiptText size={16} /><span>{appDateLabel(now, language)}</span></div>
             </div>
@@ -395,19 +425,19 @@ export function App() {
               <button className="glass-pill header-save" onClick={() => void saveData()} title={t.saveData}>
                 <Save size={17} /><span>{t.saveData}</span>
               </button>
-              <button className={`glass-pill header-cash ${shift ? "is-open" : ""}`} title="الصندوق" onClick={() => setShiftModalOpen(true)}>
-                <CircleDollarSign size={17} /><span>{shift ? `الصندوق ${money(shift.expected_amount)}` : "فتح الصندوق"}</span>
+              <button className={`glass-pill header-cash ${shift ? "is-open" : ""}`} title={localized(language, "الصندوق", "Caisse")} onClick={() => setShiftModalOpen(true)}>
+                <CircleDollarSign size={17} /><span>{shift ? `${localized(language, "الصندوق", "Caisse")} ${money(shift.expected_amount)}` : localized(language, "فتح الصندوق", "Ouvrir la caisse")}</span>
               </button>
             </div>
             <div className="header-utility-group">
-              <button className="glass-pill icon-only" title="فتح درج الصندوق" aria-label="فتح درج الصندوق" onClick={() => void openDrawer()}><Wallet size={18} /></button>
-              <button className="glass-pill icon-only" title={theme === "dark" ? "الوضع الفاتح" : "الوضع الداكن"} aria-label={theme === "dark" ? "الوضع الفاتح" : "الوضع الداكن"} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+              <button className="glass-pill icon-only" title={localized(language, "فتح درج الصندوق", "Ouvrir le tiroir-caisse")} aria-label={localized(language, "فتح درج الصندوق", "Ouvrir le tiroir-caisse")} onClick={() => void openDrawer()}><Wallet size={18} /></button>
+              <button className="glass-pill icon-only" title={theme === "dark" ? localized(language, "الوضع الفاتح", "Mode clair") : localized(language, "الوضع الداكن", "Mode sombre")} aria-label={theme === "dark" ? localized(language, "الوضع الفاتح", "Mode clair") : localized(language, "الوضع الداكن", "Mode sombre")} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
                 {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
               </button>
               <button className="glass-pill icon-only header-alerts" title={t.alerts} aria-label={`${t.alerts}${alertCount > 0 ? `: ${alertCount}` : ""}`} onClick={openStockAlerts}>
                 <Bell size={18} />{alertCount > 0 && <b>{alertCount}</b>}
               </button>
-              <button className="glass-pill icon-only" title="معلومات التطبيق" aria-label="معلومات التطبيق" onClick={() => setInfoOpen(true)}><Info size={18} /></button>
+              <button className="glass-pill icon-only" title={localized(language, "معلومات التطبيق", "À propos")} aria-label={localized(language, "معلومات التطبيق", "À propos")} onClick={() => setInfoOpen(true)}><Info size={18} /></button>
             </div>
           </section>
         </header>
@@ -415,20 +445,21 @@ export function App() {
         <div className="screen screen-enter" key={view}>{screen}</div>
         {shiftModalOpen && user && (
           <CashShiftModal
+            language={language}
             shift={shift}
             cashier={user.display_name}
             onClose={() => setShiftModalOpen(false)}
             onChanged={() => void refreshShift()}
           />
         )}
-        {infoOpen && <OpenzeyInfoModal theme={theme} onClose={() => setInfoOpen(false)} />}
+        {infoOpen && <OpenzeyInfoModal theme={theme} language={language} onClose={() => setInfoOpen(false)} />}
       </main>
       {toastViewport}
     </div>
   );
 }
 
-function OpenzeyInfoModal({ theme, onClose }: { theme: Theme; onClose: () => void }) {
+function OpenzeyInfoModal({ theme, language, onClose }: { theme: Theme; language: Language; onClose: () => void }) {
   const logo = theme === "dark" ? openzeyLogoWhite : openzeyLogo;
   async function openWebsite() {
     showToast("جار فتح موقع OpenZey...", "info");
@@ -443,22 +474,22 @@ function OpenzeyInfoModal({ theme, onClose }: { theme: Theme; onClose: () => voi
     <div className="modal-backdrop">
       <section className="panel compact-form-modal openzey-info-modal">
         <div className="section-title">
-          <h2><Info size={18} /> عن OpenSoft</h2>
+          <h2><Info size={18} /> {localized(language, "عن OpenSoft", "À propos d’OpenSoft")}</h2>
           <span />
-          <button className="ghost-button compact-button" type="button" onClick={onClose}><X size={16} /> إغلاق</button>
+          <button className="ghost-button compact-button" type="button" onClick={onClose}><X size={16} /> {localized(language, "إغلاق", "Fermer")}</button>
         </div>
         <div className="openzey-brand">
           <img src={logo} alt="Openzey" />
           <div>
             <strong>OpenSoft by OpenZey</strong>
-            <span>منصة معيارية لإدارة عمليات المؤسسات</span>
+            <span>{localized(language, "منصة معيارية لإدارة عمليات المؤسسات", "Une plateforme modulaire pour gérer votre entreprise")}</span>
           </div>
         </div>
         <p>
-          OpenSoft منتج من OpenZey يجمع تطبيقات المبيعات والمخزون والعملاء والمصاريف والتقارير في مساحة عمل واحدة قابلة للتخصيص.
+          {localized(language, "OpenSoft منتج من OpenZey يجمع تطبيقات المبيعات والمخزون والعملاء والمصاريف والتقارير في مساحة عمل واحدة قابلة للتخصيص.", "OpenSoft, conçu par OpenZey, réunit les ventes, le stock, les clients, les dépenses et les rapports dans un espace de travail personnalisable.")}
         </p>
         <p className="helper-text">
-          للدعم التقني، التخصيص أو إضافة وحدات جديدة، يمكن التواصل مباشرة مع فريق OpenZey.
+          {localized(language, "للدعم التقني، التخصيص أو إضافة وحدات جديدة، يمكن التواصل مباشرة مع فريق OpenZey.", "Pour le support, la personnalisation ou l’ajout de modules, contactez l’équipe OpenZey.")}
         </p>
         <button className="gold-button openzey-link" type="button" onClick={() => void openWebsite()}>
           <ExternalLink size={17} /> openzey.com
@@ -469,16 +500,19 @@ function OpenzeyInfoModal({ theme, onClose }: { theme: Theme; onClose: () => voi
 }
 
 function CashShiftModal({
+  language,
   shift,
   cashier,
   onClose,
   onChanged
 }: {
+  language: Language;
   shift: CashShift | null;
   cashier: string;
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const t = useText(language);
   const [openingAmount, setOpeningAmount] = useState(0);
   const [busy, setBusy] = useState(false);
 
@@ -520,30 +554,30 @@ function CashShiftModal({
   return (
     <div className="modal-backdrop">
       <section className="panel compact-form-modal cash-shift-modal">
-        <SectionHeader title={<><CircleDollarSign size={18} /> الصندوق</>} />
+        <SectionHeader title={<><CircleDollarSign size={18} /> {localized(language, "الصندوق", "Caisse")}</>} />
         {shift ? (
           <div className="cash-shift-body">
             <div className="summary-strip compact">
-              <article><span>مبلغ الفتح</span><strong>{money(shift.opening_amount)}</strong></article>
-              <article><span>مبيعات نقدية</span><strong>{money(shift.cash_sales)}</strong></article>
-              <article><span>دفعات الدين</span><strong>{money(shift.credit_payments)}</strong></article>
-              <article><span>المصاريف</span><strong>{money(shift.expenses)}</strong></article>
-              <article><span>المبلغ المتوقع</span><strong>{money(shift.expected_amount)}</strong></article>
-              <article><span>الغلق التلقائي</span><strong>{shift.auto_close_at.slice(0, 16)}</strong></article>
+              <article><span>{localized(language, "مبلغ الفتح", "Fonds d’ouverture")}</span><strong>{money(shift.opening_amount)}</strong></article>
+              <article><span>{localized(language, "مبيعات نقدية", "Ventes en espèces")}</span><strong>{money(shift.cash_sales)}</strong></article>
+              <article><span>{localized(language, "دفعات الدين", "Paiements de crédit")}</span><strong>{money(shift.credit_payments)}</strong></article>
+              <article><span>{t.expenses}</span><strong>{money(shift.expenses)}</strong></article>
+              <article><span>{localized(language, "المبلغ المتوقع", "Montant attendu")}</span><strong>{money(shift.expected_amount)}</strong></article>
+              <article><span>{localized(language, "الغلق التلقائي", "Fermeture automatique")}</span><strong>{shift.auto_close_at.slice(0, 16)}</strong></article>
             </div>
-            <p className="helper-text">{"عند الغلق سيسجل النظام المبلغ المتوقع تلقائيا بدون إدخال مبلغ."}</p>
+            <p className="helper-text">{localized(language, "عند الغلق سيسجل النظام المبلغ المتوقع تلقائيا بدون إدخال مبلغ.", "À la fermeture, le montant attendu est enregistré automatiquement.")}</p>
             <div className="modal-actions">
-              <Button variant="primary" type="button" disabled={busy} onClick={() => void closeCaisse()}>{busy ? "جار الغلق..." : "غلق الصندوق"}</Button>
-              <Button type="button" disabled={busy} onClick={onClose}>إغلاق</Button>
+              <Button variant="primary" type="button" disabled={busy} onClick={() => void closeCaisse()}>{busy ? localized(language, "جار الغلق...", "Fermeture...") : localized(language, "غلق الصندوق", "Fermer la caisse")}</Button>
+              <Button type="button" disabled={busy} onClick={onClose}>{t.close}</Button>
             </div>
           </div>
         ) : (
           <div className="cash-shift-body">
-            <TextField label="مبلغ الفتح" type="number" min={0} value={openingAmount} onValueChange={(value) => setOpeningAmount(Number(value))} />
-            <p className="helper-text">{"وقت الغلق التلقائي يحدده المدير من الإعدادات."}</p>
+            <TextField label={localized(language, "مبلغ الفتح", "Fonds d’ouverture")} type="number" min={0} value={openingAmount} onValueChange={(value) => setOpeningAmount(Number(value))} />
+            <p className="helper-text">{localized(language, "وقت الغلق التلقائي يحدده المدير من الإعدادات.", "L’heure de fermeture automatique est définie dans les paramètres.")}</p>
             <div className="modal-actions">
-              <Button variant="primary" type="button" disabled={busy} onClick={() => void openCaisse()}>{busy ? "جار الفتح..." : "فتح الصندوق"}</Button>
-              <Button type="button" disabled={busy} onClick={onClose}>إغلاق</Button>
+              <Button variant="primary" type="button" disabled={busy} onClick={() => void openCaisse()}>{busy ? localized(language, "جار الفتح...", "Ouverture...") : localized(language, "فتح الصندوق", "Ouvrir la caisse")}</Button>
+              <Button type="button" disabled={busy} onClick={onClose}>{t.close}</Button>
             </div>
           </div>
         )}

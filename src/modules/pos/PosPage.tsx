@@ -4,9 +4,10 @@ import { Barcode, CalendarDays, CircleDollarSign, Minus, Percent, Plus, Printer,
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";
+import { localized } from "../../shared/i18n";
 import { showErrorToast, showToast } from "../../shared/toast";
 import { AppSettings, CartItem, ClientRecord, Language, Perfume, PerfumeCartItem, Product, Sale, UserSession } from "../../shared/types";
-import { Button, SelectField, TextAreaField, TextField } from "../../shared/ui";
+import { Button, SelectControl, SelectField, TextAreaField, TextField } from "../../shared/ui";
 import openzeyLogo from "../../assets/openzey-logo.png";
 
 const orderQrPrefix = "POS:";
@@ -79,6 +80,27 @@ function customProductSummary(product: Product) {
   return `${product.quantity} قطعة · ${money(product.sale_price)}`;
 }
 
+function flexyFee(product: Product, amount: number) {
+  const tiers = [...(product.custom_config?.surcharge_tiers ?? [])].sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity));
+  return tiers.find((tier) => tier.up_to === null || amount <= tier.up_to)?.surcharge ?? 0;
+}
+
+function uniqueFlexyProduct(products: Product[]) {
+  let foundFlexy = false;
+  return products.filter((product) => {
+    if (product.custom_type !== "flexy") return true;
+    if (foundFlexy) return false;
+    foundFlexy = true;
+    return true;
+  });
+}
+
+function createServiceBarcode() {
+  const body = `2${Math.floor(Math.random() * 1_000_000).toString().padStart(6, "0")}`;
+  const sum = body.split("").reduce((total, digit, index) => total + Number(digit) * (index % 2 === 0 ? 3 : 1), 0);
+  return `${body}${(10 - sum % 10) % 10}`;
+}
+
 type PosServices = Pick<AppSettings, "enable_perfumes" | "enable_tobacco" | "enable_flexy" | "enable_printing">;
 
 const defaultPosServices: PosServices = {
@@ -98,6 +120,7 @@ function serviceProductEnabled(product: Product, services: PosServices) {
 
 export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { language: Language; user: UserSession; shiftOpen: boolean; onOpenShift: () => void; onSale: () => void }) {
   const t = useText(language);
+  const tr = (arabic: string, french: string) => localized(language, arabic, french);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [assortment, setAssortment] = useState<PosAssortment>("all");
@@ -132,7 +155,7 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
   useEffect(() => {
     const effectiveCategory = assortment === "perfumery" ? "Perfumerie" : category;
     api.products({ query, category: effectiveCategory, stock: "all" })
-      .then((items) => setProducts(items.filter((product) =>
+      .then((items) => setProducts(uniqueFlexyProduct(items).filter((product) =>
         serviceProductEnabled(product, services) && matchesAssortment(product, assortment) && (allowNegativeStock || product.quantity > 0 || product.custom_type === "printing")
       )))
       .catch((err) => showErrorToast(err, "تعذر تحميل المنتجات"));
@@ -171,8 +194,26 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
 
   useEffect(() => {
     Promise.all([api.products(), api.categories()])
-      .then(([items, categoryNames]) => {
-        const visibleProducts = items.filter((product) => serviceProductEnabled(product, services) && (services.enable_perfumes || !isPerfumeCategory(product.category)));
+      .then(async ([loadedItems, categoryNames]) => {
+        let items = loadedItems;
+        if (services.enable_flexy && !items.some((product) => product.custom_type === "flexy")) {
+          const service = await api.saveProduct({
+            name: "Flexy",
+            barcode: createServiceBarcode(),
+            category: "",
+            size: "",
+            color: "",
+            quantity: 0,
+            low_stock_threshold: 0,
+            purchase_price: 0,
+            sale_price: 0,
+            image_data: "",
+            custom_type: "flexy",
+            custom_config: { surcharge_tiers: [{ up_to: 499, surcharge: 10 }, { up_to: null, surcharge: 20 }], quick_amounts: [40, 50, 100, 1500, 2000] }
+          });
+          items = [...items, service];
+        }
+        const visibleProducts = uniqueFlexyProduct(items).filter((product) => serviceProductEnabled(product, services) && (services.enable_perfumes || !isPerfumeCategory(product.category)));
         setProductCatalog(visibleProducts);
         setCategories(categoryNames.filter((name) => services.enable_perfumes || !isPerfumeCategory(name)));
       })
@@ -216,7 +257,7 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
 
   async function createClient() {
     if (!newClientName.trim()) {
-      showToast("أدخل اسم العميل", "warning");
+      showToast(tr("أدخل اسم العميل", "Saisissez le nom du client"), "warning");
       return;
     }
     try {
@@ -226,9 +267,9 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
       setCustomerPhone(client.phone);
       setNewClientName("");
       setCreateClientOpen(false);
-      showToast("تم حفظ العميل", "success");
+      showToast(tr("تم حفظ العميل", "Client enregistré"), "success");
     } catch (err) {
-      showErrorToast(err, "تعذر إنشاء العميل");
+      showErrorToast(err, tr("تعذر إنشاء العميل", "Impossible de créer le client"));
     }
   }
   function addProduct(product: Product) {
@@ -262,11 +303,11 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
     let customOption = customDraft.option;
     if (product.custom_type === "flexy") {
       const amount = Math.floor(Number(customDraft.amount));
-      const tiers = [...(product.custom_config?.surcharge_tiers ?? [])].sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity));
-      const tier = tiers.find((item) => item.up_to === null || amount <= item.up_to);
-      if (!Number.isFinite(amount) || amount <= 0 || !tier) { showToast("تحقق من مبلغ Flexy وشرائح الرسوم", "warning"); return; }
+      const surcharge = flexyFee(product, amount);
+      const hasMatchingTier = (product.custom_config?.surcharge_tiers ?? []).some((tier) => tier.up_to === null || amount <= tier.up_to);
+      if (!Number.isFinite(amount) || amount <= 0 || !hasMatchingTier) { showToast(tr("تحقق من مبلغ Flexy وشرائح الرسوم", "Vérifiez le montant Flexy et les tranches de frais"), "warning"); return; }
       stockQuantity = amount;
-      unitPrice = amount + tier.surcharge;
+      unitPrice = amount + surcharge;
       unitCost = product.purchase_price * amount;
       displayName = `${product.name} ${amount} دج`;
       customOption = `flexy:${amount}`;
@@ -283,8 +324,8 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
       unitCost = 0;
       displayName = `${product.name} (${duplex ? "Recto-verso" : "Recto"})`;
     }
-    if (product.custom_type !== "flexy" && (!Number.isFinite(quantity) || quantity <= 0)) { showToast("أدخل كمية صحيحة", "warning"); return; }
-    if (product.custom_type !== "printing" && stockQuantity > product.quantity && !allowNegativeStock) { showToast("المخزون غير كاف", "warning"); return; }
+    if (product.custom_type !== "flexy" && (!Number.isFinite(quantity) || quantity <= 0)) { showToast(tr("أدخل كمية صحيحة", "Saisissez une quantité valide"), "warning"); return; }
+    if (product.custom_type !== "printing" && stockQuantity > product.quantity && !allowNegativeStock) { showToast(tr("المخزون غير كاف", "Stock insuffisant"), "warning"); return; }
     setCart((items) => [...items, { product, quantity: product.custom_type === "flexy" ? 1 : quantity, unit_price: unitPrice, unit_cost: unitCost, stock_quantity: stockQuantity, display_name: displayName, custom_option: customOption, cart_key: `${product.id}-${Date.now()}-${Math.random()}` }]);
     setCustomDraft(null);
   }
@@ -292,7 +333,7 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
   function addCustomAmount() {
     const price = Number(customAmount);
     if (!Number.isFinite(price) || price <= 0) {
-      showToast("أدخل مبلغًا صحيحًا أكبر من صفر", "warning");
+      showToast(tr("أدخل مبلغًا صحيحًا أكبر من صفر", "Saisissez un montant supérieur à zéro"), "warning");
       return;
     }
     const product: Product = {
@@ -335,7 +376,7 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
         const matchedSale = await api.sale(orderRef.id);
         setReceipt(matchedSale);
         setQuery("");
-        showToast("تم فتح الفاتورة", "success");
+        showToast(tr("تم فتح الفاتورة", "Facture ouverte"), "success");
         return;
       }
 
@@ -345,22 +386,22 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
         product = matches.find((item) => item.barcode.trim().toLowerCase() === barcode.toLowerCase());
       }
       if (!product) {
-        showToast("لم يتم العثور على منتج بهذا الباركود", "error");
+        showToast(tr("لم يتم العثور على منتج بهذا الباركود", "Aucun produit ne correspond à ce code-barres"), "error");
         return;
       }
       if (!serviceProductEnabled(product, services)) {
-        showToast("هذه الخدمة معطلة من الإعدادات", "warning");
+        showToast(tr("هذه الخدمة معطلة من الإعدادات", "Ce service est désactivé dans les paramètres"), "warning");
         return;
       }
       if (!allowNegativeStock && product.quantity <= 0) {
-        showToast("هذا المنتج غير متوفر في المخزون", "error");
+        showToast(tr("هذا المنتج غير متوفر في المخزون", "Ce produit est en rupture de stock"), "error");
         setQuery("");
         return;
       }
       addProduct(product);
       setQuery("");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "تعذرت قراءة الباركود", "error");
+      showToast(err instanceof Error ? err.message : tr("تعذرت قراءة الباركود", "Impossible de lire le code-barres"), "error");
     }
   }
 
@@ -397,20 +438,20 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
   async function checkout() {
     if (checkingOut) return;
     if (!cart.length && !perfumeCart.length) {
-      showToast("أضف منتجًا واحدًا على الأقل إلى السلة", "warning");
+      showToast(tr("أضف منتجًا واحدًا على الأقل إلى السلة", "Ajoutez au moins un article au panier"), "warning");
       return;
     }
     if (saleType !== "delivery" && !shiftOpen) {
       onOpenShift();
-      showToast("افتح الصندوق أولًا لإتمام عملية البيع", "warning");
+      showToast(tr("افتح الصندوق أولًا لإتمام عملية البيع", "Ouvrez la caisse avant de finaliser la vente"), "warning");
       return;
     }
     if (cart.some((item) => !Number.isFinite(item.unit_price) || item.unit_price < 0)) {
-      showToast("تحقق من أسعار المنتجات في السلة", "warning");
+      showToast(tr("تحقق من أسعار المنتجات في السلة", "Vérifiez les prix des articles dans le panier"), "warning");
       return;
     }
     if (discount < 0 || discount > maxDiscount) {
-      showToast(`أقصى تخفيض مسموح هو ${maxDiscount}`, "warning");
+      showToast(tr(`أقصى تخفيض مسموح هو ${maxDiscount}`, `La remise maximale autorisée est de ${maxDiscount}`), "warning");
       return;
     }
     if (discount > subtotal) {
@@ -422,11 +463,11 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
       return;
     }
     if (saleType === "credit" && dueDays && !dueDateAfterDays(dueDays)) {
-      showToast("أدخل عدد أيام صحيحًا بين 1 و3650", "warning");
+      showToast(tr("أدخل عدد أيام صحيحًا بين 1 و3650", "Saisissez un nombre de jours entre 1 et 3650"), "warning");
       return;
     }
     if (paidAmount < 0 || paidAmount > total) {
-      showToast("المبلغ المدفوع غير صالح", "warning");
+      showToast(tr("المبلغ المدفوع غير صالح", "Le montant payé est invalide"), "warning");
       return;
     }
     setCheckingOut(true);
@@ -436,7 +477,7 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
           product_id: item.product.id,
           quantity: item.quantity,
           unit_price: item.unit_price
-          ,stock_quantity: item.stock_quantity,
+          , stock_quantity: item.stock_quantity,
           display_name: item.display_name,
           custom_option: item.custom_option
         })),
@@ -476,9 +517,9 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
       setCategories((await api.categories()).filter((name) => services.enable_perfumes || !isPerfumeCategory(name)));
       if (services.enable_perfumes) setPerfumes((await api.perfumes()).filter((perfume) => perfume.remaining_volume_ml > 0));
       onSale();
-      showToast(sale.sale_type === "delivery" ? "تم إرسال الطلب إلى التوصيل" : "تم إنشاء الفاتورة بنجاح", "success");
+      showToast(sale.sale_type === "delivery" ? tr("تم إرسال الطلب إلى التوصيل", "Commande envoyée en livraison") : tr("تم إنشاء الفاتورة بنجاح", "Facture créée avec succès"), "success");
     } catch (err) {
-      showErrorToast(err, "تعذر إنشاء الفاتورة");
+      showErrorToast(err, tr("تعذر إنشاء الفاتورة", "Impossible de créer la facture"));
     } finally {
       setCheckingOut(false);
     }
@@ -529,11 +570,11 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
     <section className="pos-grid">
       <section className="panel table-panel">
         <div className="segmented pos-mode-tabs">
-          <button className={assortment === "all" ? "active" : ""} type="button" onClick={() => { setAssortment("all"); setCategory(""); }}>الكل</button>
-          <button className={assortment === "products" ? "active" : ""} type="button" onClick={() => { setAssortment("products"); setCategory(""); }}>المنتجات</button>
+          <button className={assortment === "all" ? "active" : ""} type="button" onClick={() => { setAssortment("all"); setCategory(""); }}>{tr("الكل", "Tout")}</button>
+          <button className={assortment === "products" ? "active" : ""} type="button" onClick={() => { setAssortment("products"); setCategory(""); }}>{tr("المنتجات", "Produits")}</button>
           {services.enable_flexy && <button className={assortment === "flexy" ? "active" : ""} type="button" onClick={() => { setAssortment("flexy"); setCategory(""); }}>Flexy</button>}
-          {services.enable_tobacco && <button className={assortment === "tobacco" ? "active" : ""} type="button" onClick={() => { setAssortment("tobacco"); setCategory(""); }}>التبغ</button>}
-          {services.enable_printing && <button className={assortment === "printing" ? "active" : ""} type="button" onClick={() => { setAssortment("printing"); setCategory(""); }}>الطباعة</button>}
+          {services.enable_tobacco && <button className={assortment === "tobacco" ? "active" : ""} type="button" onClick={() => { setAssortment("tobacco"); setCategory(""); }}>{tr("التبغ", "Tabac")}</button>}
+          {services.enable_printing && <button className={assortment === "printing" ? "active" : ""} type="button" onClick={() => { setAssortment("printing"); setCategory(""); }}>{tr("الطباعة", "Impression")}</button>}
           {services.enable_perfumes && <button className={assortment === "perfumery" ? "active" : ""} type="button" onClick={() => { setAssortment("perfumery"); setCategory(""); }}>العطور</button>}
         </div>
         <div className={`filter-row pos-filter-row${assortment === "all" || assortment === "products" ? "" : " pos-filter-row-service"}`}>
@@ -556,10 +597,7 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
           <button className="ghost-button custom-amount-trigger" type="button" aria-keyshortcuts="F6" onClick={() => setCustomAmountOpen(true)}>
             <CircleDollarSign size={18} /> <span>مبلغ مخصص</span><kbd>F6</kbd>
           </button>
-          {(assortment === "all" || assortment === "products") && <select aria-label={t.category} value={category} onChange={(event) => setCategory(event.target.value)}>
-            <option value="">{t.allCategories}</option>
-            {categories.map((item) => <option value={item} key={item}>{displayCategory(item)}</option>)}
-          </select>}
+          {(assortment === "all" || assortment === "products") && <SelectControl aria-label={t.category} value={category} onValueChange={setCategory} options={[{ value: "", label: t.allCategories }, ...categories.map((item) => ({ value: item, label: displayCategory(item) }))]} />}
         </div>
         <div className="product-picker">
           {(assortment === "all" || assortment === "perfumery") && services.enable_perfumes && visiblePerfumes.map((perfume) => (
@@ -672,10 +710,14 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
       </aside>
 
       {customDraft && <div className="modal-backdrop"><section className="panel form-panel form-modal"><div className="section-title"><h2>{customDraft.product.name}</h2><span /><button className="plain-icon" onClick={() => setCustomDraft(null)}><X size={18} /></button></div>
-        {customDraft.product.custom_type === "flexy" && <><TextField label="مبلغ التعبئة (دج)" autoFocus type="number" min="1" value={customDraft.amount} onValueChange={(amount) => setCustomDraft({ ...customDraft, amount })} /><p>الرسوم: {money((customDraft.product.custom_config?.surcharge_tiers ?? []).sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity)).find((tier) => tier.up_to === null || Number(customDraft.amount) <= tier.up_to)?.surcharge ?? 0)} · الإجمالي: {money(Number(customDraft.amount || 0) + ((customDraft.product.custom_config?.surcharge_tiers ?? []).sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity)).find((tier) => tier.up_to === null || Number(customDraft.amount) <= tier.up_to)?.surcharge ?? 0))}</p></>}
+        {customDraft.product.custom_type === "flexy" && <>
+          <div className="flexy-pos-shortcuts" aria-label="مبالغ Flexy السريعة">{(customDraft.product.custom_config?.quick_amounts ?? []).map((amount, index) => <button type="button" key={`${amount}-${index}`} className={Number(customDraft.amount) === amount ? "active" : ""} onClick={() => setCustomDraft({ ...customDraft, amount: String(amount) })}>{money(amount)}</button>)}</div>
+          <TextField label="مبلغ التعبئة (دج)" autoFocus type="number" min="1" value={customDraft.amount} onValueChange={(amount) => setCustomDraft({ ...customDraft, amount })} />
+          <p>الرسم: {money(flexyFee(customDraft.product, Number(customDraft.amount || 0)))} · الإجمالي: {money(Number(customDraft.amount || 0) + flexyFee(customDraft.product, Number(customDraft.amount || 0)))}</p>
+        </>}
         {customDraft.product.custom_type === "tobacco" && <><SelectField label="نوع البيع" value={customDraft.option} onValueChange={(option) => setCustomDraft({ ...customDraft, option })} options={[{ value: "piece", label: `قطعة · ${money(customDraft.product.custom_config?.piece_sale_price ?? 0)}` }, { value: "box", label: `علبة · ${money(customDraft.product.custom_config?.box_sale_price ?? 0)}` }]} /><TextField label="الكمية" type="number" min="1" value={customDraft.quantity} onValueChange={(quantity) => setCustomDraft({ ...customDraft, quantity })} /><p>خصم المخزون: {Number(customDraft.quantity || 0) * (customDraft.option === "box" ? (customDraft.product.custom_config?.pieces_per_box ?? 1) : 1)} قطعة</p></>}
         {customDraft.product.custom_type === "printing" && <><SelectField label="نوع الطباعة" value={customDraft.option} onValueChange={(option) => setCustomDraft({ ...customDraft, option })} options={[{ value: "recto", label: `Recto · ${money(customDraft.product.custom_config?.recto_price ?? 0)}` }, { value: "recto_verso", label: `Recto-verso · ${money(customDraft.product.custom_config?.recto_verso_price ?? 0)}` }]} /><TextField label="عدد الخدمات" type="number" min="1" value={customDraft.quantity} onValueChange={(quantity) => setCustomDraft({ ...customDraft, quantity })} /></>}
-        <div className="button-row"><button type="button" className="ghost-button" onClick={() => setCustomDraft(null)}>{t.close}</button><button type="button" className="gold-button" onClick={confirmCustomProduct}>إضافة · {customDraft.product.custom_type === "flexy" ? money(Number(customDraft.amount || 0) + ((customDraft.product.custom_config?.surcharge_tiers ?? []).sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity)).find((tier) => tier.up_to === null || Number(customDraft.amount) <= tier.up_to)?.surcharge ?? 0)) : money((customDraft.product.custom_type === "tobacco" ? customDraft.option === "box" ? customDraft.product.custom_config?.box_sale_price ?? 0 : customDraft.product.custom_config?.piece_sale_price ?? 0 : customDraft.option === "recto_verso" ? customDraft.product.custom_config?.recto_verso_price ?? 0 : customDraft.product.custom_config?.recto_price ?? 0) * Number(customDraft.quantity || 0))}</button></div>
+        <div className="button-row"><button type="button" className="ghost-button" onClick={() => setCustomDraft(null)}>{t.close}</button><button type="button" className="gold-button" onClick={confirmCustomProduct}>إضافة · {customDraft.product.custom_type === "flexy" ? money(Number(customDraft.amount || 0) + flexyFee(customDraft.product, Number(customDraft.amount || 0))) : money((customDraft.product.custom_type === "tobacco" ? customDraft.option === "box" ? customDraft.product.custom_config?.box_sale_price ?? 0 : customDraft.product.custom_config?.piece_sale_price ?? 0 : customDraft.option === "recto_verso" ? customDraft.product.custom_config?.recto_verso_price ?? 0 : customDraft.product.custom_config?.recto_price ?? 0) * Number(customDraft.quantity || 0))}</button></div>
       </section></div>}
 
       {customAmountOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCustomAmountOpen(false); }}><section className="panel form-panel form-modal custom-amount-modal" role="dialog" aria-modal="true" aria-labelledby="custom-amount-title"><div className="section-title"><h2 id="custom-amount-title">مبلغ مخصص</h2><span /><button className="plain-icon" type="button" aria-label={t.close} onClick={() => setCustomAmountOpen(false)}><X size={18} /></button></div><TextField label="المبلغ (دج)" autoFocus type="number" min="1" step="1" value={customAmount} onValueChange={setCustomAmount} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addCustomAmount(); } }} /><div className="button-row"><Button type="button" onClick={() => setCustomAmountOpen(false)}>{t.close}</Button><Button variant="primary" type="button" onClick={addCustomAmount}>إضافة إلى الطلب · {money(Number(customAmount) || 0)}</Button></div></section></div>}

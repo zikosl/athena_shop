@@ -218,11 +218,25 @@ function readDb(): Db {
 }
 
 function normalizeProduct(product: Product): Product {
+  const customConfig = product.custom_config ?? {};
+  const rawTiers = product.custom_type === "flexy"
+    ? customConfig.surcharge_tiers?.length ? customConfig.surcharge_tiers : [{ up_to: 499, surcharge: 10 }, { up_to: null, surcharge: 20 }]
+    : customConfig.surcharge_tiers;
+  const legacyQuickAmounts = product.custom_type === "flexy"
+    ? (customConfig.surcharge_tiers ?? []).flatMap((tier) => (tier as typeof tier & { quick_amounts?: number[] }).quick_amounts ?? [])
+    : [];
+  const quickAmounts = product.custom_type === "flexy"
+    ? [...new Set(customConfig.quick_amounts ?? (legacyQuickAmounts.length ? legacyQuickAmounts : [40, 50, 100, 1500, 2000]))].sort((a, b) => a - b)
+    : customConfig.quick_amounts;
+  const surchargeTiers = rawTiers?.map((tier) => ({ up_to: tier.up_to, surcharge: tier.surcharge }))
+    .sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity));
   return {
     ...product,
     image_data: product.image_data ?? "",
     custom_type: product.custom_type ?? "standard",
-    custom_config: product.custom_config ?? {}
+    custom_config: product.custom_type === "flexy"
+      ? { ...customConfig, surcharge_tiers: surchargeTiers, quick_amounts: quickAmounts }
+      : customConfig
   };
 }
 
@@ -730,6 +744,10 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     const now = new Date().toISOString();
     if (input.quantity < 0 && !db.settings.allow_negative_stock) throw new Error("المخزون السالب غير مفعل في الإعدادات");
     const currentProduct = input.id ? db.products.find((product) => product.id === input.id) : undefined;
+    if (!input.id && input.custom_type === "flexy") {
+      const existingFlexy = db.products.find((product) => product.custom_type === "flexy");
+      if (existingFlexy) return normalizeProduct(existingFlexy) as T;
+    }
     if (!isDemoEan8(input.barcode) && currentProduct?.barcode !== input.barcode) {
       throw new Error("الباركود يجب أن يكون EAN-8 صالحا من 8 أرقام");
     }
@@ -1721,14 +1739,14 @@ export const api = {
       query: normalized.query ?? "",
       category: normalized.category ?? "",
       stock: normalized.stock ?? "all"
-    });
+    }).then((products) => products.map(normalizeProduct));
   },
   categories: () => call<string[]>("list_categories"),
   saveCategory: (name: string, oldName?: string) => call<string>("save_category", { name, old_name: oldName }),
   deleteCategory: (name: string) => call<void>("delete_category", { name }),
-  saveProduct: (input: ProductInput) => call<Product>("save_product", { input }),
-  regenerateAllBarcodes: () => call<Product[]>("regenerate_all_barcodes"),
-  adjustProductStock: (input: StockMovementInput) => call<Product>("adjust_product_stock", { input }),
+  saveProduct: (input: ProductInput) => call<Product>("save_product", { input }).then(normalizeProduct),
+  regenerateAllBarcodes: () => call<Product[]>("regenerate_all_barcodes").then((products) => products.map(normalizeProduct)),
+  adjustProductStock: (input: StockMovementInput) => call<Product>("adjust_product_stock", { input }).then(normalizeProduct),
   stockMovements: (productId: number) => call<StockMovement[]>("list_stock_movements", { product_id: productId }),
   deleteProduct: (id: number) => call<void>("delete_product", { id }),
   suppliers: () => call<Supplier[]>("list_suppliers"),

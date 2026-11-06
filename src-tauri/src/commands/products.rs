@@ -122,6 +122,15 @@ pub fn delete_category(db: State<Database>, name: String) -> AppResult<()> {
 pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Product> {
     db.with_client(|client| {
         validate_product(client, &input)?;
+        if input.id.is_none() && input.custom_type == "flexy" {
+            if let Some(existing) = client.query_opt(
+                "SELECT id FROM products WHERE custom_type = 'flexy' ORDER BY id LIMIT 1",
+                &[],
+            )? {
+                let id: i64 = existing.get(0);
+                return get_product(client, id);
+            }
+        }
         if !input.category.trim().is_empty() {
             client.execute(
                 "INSERT INTO product_categories (name) VALUES ($1) ON CONFLICT DO NOTHING",

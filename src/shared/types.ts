@@ -77,6 +77,7 @@ export interface Product {
 export type CustomProductType = "standard" | "flexy" | "tobacco" | "printing";
 export type CustomProductConfig = {
   surcharge_tiers?: Array<{ up_to: number | null; surcharge: number }>;
+  quick_amounts?: number[];
   pieces_per_box?: number;
   piece_sale_price?: number;
   box_sale_price?: number;

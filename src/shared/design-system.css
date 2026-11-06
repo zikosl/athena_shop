@@ -27,12 +27,15 @@
 
 .ui-field-control,
 .ui-select-control {
+  box-sizing: border-box;
+  width: 100%;
   min-width: 0;
   min-height: var(--ds-control-height);
+  border: 1px solid var(--ds-border);
   border-radius: var(--ds-radius-control);
-  border-color: var(--ds-border);
   color: var(--ds-text);
   background: var(--ds-surface);
+  font: inherit;
 }
 
 .ui-field-control {

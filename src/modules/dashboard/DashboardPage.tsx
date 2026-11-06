@@ -12,6 +12,7 @@ import {
 import { api } from "../../shared/api";
 import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
+import { localized } from "../../shared/i18n";
 import { showErrorToast } from "../../shared/toast";
 import { DashboardStats, Language, ViewKey } from "../../shared/types";
 
@@ -27,7 +28,7 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
   const [stats, setStats] = useState<DashboardStats | null>(null);
 
   useEffect(() => {
-    api.dashboard().then(setStats).catch((err) => showErrorToast(err, "تعذر تحميل لوحة المتابعة"));
+    api.dashboard().then(setStats).catch((err) => showErrorToast(err, localized(language, "تعذر تحميل لوحة المتابعة", "Impossible de charger le tableau de bord")));
   }, [refreshToken]);
 
   const cards = [
@@ -35,42 +36,42 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
       label: t.dailySales,
       value: money(stats?.sales_today ?? 0),
       icon: ShoppingCart,
-      trend: trendLabel(stats?.sales_today ?? 0, stats?.sales_yesterday ?? 0),
+      trend: trendLabel(stats?.sales_today ?? 0, stats?.sales_yesterday ?? 0, language),
       danger: false
     },
     {
       label: t.salesCount,
       value: String(stats?.sales_count_today ?? 0),
       icon: Box,
-      trend: trendLabel(stats?.sales_count_today ?? 0, stats?.sales_count_yesterday ?? 0),
+      trend: trendLabel(stats?.sales_count_today ?? 0, stats?.sales_count_yesterday ?? 0, language),
       danger: false
     },
     {
       label: t.dailyRevenue,
       value: money(stats?.revenue_today ?? 0),
       icon: Coins,
-      trend: trendLabel(stats?.revenue_today ?? 0, stats?.revenue_yesterday ?? 0),
+      trend: trendLabel(stats?.revenue_today ?? 0, stats?.revenue_yesterday ?? 0, language),
       danger: false
     },
     {
       label: t.dailyExpenses,
       value: money(stats?.expenses_today ?? 0),
       icon: Wallet,
-      trend: trendLabel(stats?.expenses_today ?? 0, stats?.expenses_yesterday ?? 0),
+      trend: trendLabel(stats?.expenses_today ?? 0, stats?.expenses_yesterday ?? 0, language),
       danger: (stats?.expenses_today ?? 0) > (stats?.expenses_yesterday ?? 0)
     },
     {
       label: t.dailyProfit,
       value: money(stats?.profit_today ?? 0),
       icon: ChartColumnIncreasing,
-      trend: trendLabel(stats?.profit_today ?? 0, stats?.profit_yesterday ?? 0),
+      trend: trendLabel(stats?.profit_today ?? 0, stats?.profit_yesterday ?? 0, language),
       danger: (stats?.profit_today ?? 0) < 0 || (stats?.profit_today ?? 0) < (stats?.profit_yesterday ?? 0)
     },
     {
       label: t.paymentsToday,
       value: money(stats?.credit_payments_today ?? 0),
       icon: HandCoins,
-      trend: trendLabel(stats?.credit_payments_today ?? 0, stats?.credit_payments_yesterday ?? 0),
+      trend: trendLabel(stats?.credit_payments_today ?? 0, stats?.credit_payments_yesterday ?? 0, language),
       danger: false
     },
     {
@@ -123,8 +124,8 @@ export function DashboardPage({ language, refreshToken, onNavigate, onOpenAlerts
   );
 }
 
-function trendLabel(current: number, previous: number) {
-  if (previous === 0) return current === 0 ? "0" : "جديد";
+function trendLabel(current: number, previous: number, language: Language) {
+  if (previous === 0) return current === 0 ? "0" : localized(language, "جديد", "Nouveau");
   const diff = current - previous;
   const percent = Math.round((diff / Math.abs(previous)) * 100);
   return `${diff >= 0 ? "+" : ""}${percent}%`;

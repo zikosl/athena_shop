@@ -2,10 +2,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Plus, Save, Search, Trash2, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
-import { useText } from "../../shared/i18n";
+import { localized, useText } from "../../shared/i18n";
 import { showErrorToast, showToast } from "../../shared/toast";
 import { Expense, ExpenseInput, Language } from "../../shared/types";
-import { Button, SectionHeader, TextAreaField, TextField } from "../../shared/ui";
+import { Button, SectionHeader, SelectControl, TextAreaField, TextField } from "../../shared/ui";
 
 function newExpense(): ExpenseInput {
   return {
@@ -28,8 +28,8 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
   const [toDate, setToDate] = useState(todayInputValue);
   const load = () => api.expenses().then(setExpenses);
   useEffect(() => {
-    load().catch((err) => showErrorToast(err, "تعذر تحميل المصاريف"));
-  }, []);
+    load().catch((err) => showErrorToast(err, localized(language, "تعذر تحميل المصاريف", "Impossible de charger les dépenses")));
+  }, [language]);
 
   const categories = useMemo(
     () => Array.from(new Set(expenses.map((expense) => expense.category))).sort(),
@@ -51,7 +51,7 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!form.label.trim() || form.amount <= 0) {
-      showToast("التسمية والمبلغ الصحيحان إجباريان", "warning");
+      showToast(localized(language, "التسمية والمبلغ الصحيحان إجباريان", "Un libellé et un montant valide sont obligatoires"), "warning");
       return;
     }
     try {
@@ -65,21 +65,21 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
       setFormOpen(false);
       await load();
       onChanged();
-      showToast("تم حفظ المصروف", "success");
+      showToast(localized(language, "تم حفظ المصروف", "Dépense enregistrée"), "success");
     } catch (err) {
-      showErrorToast(err, "تعذر حفظ المصروف");
+      showErrorToast(err, localized(language, "تعذر حفظ المصروف", "Impossible d’enregistrer la dépense"));
     }
   }
 
   async function remove(expense: Expense) {
-    if (!window.confirm(`هل تريد حذف المصروف "${expense.label}"؟ سيتم إنقاصه من سجلات المصاريف.`)) return;
+    if (!window.confirm(localized(language, `هل تريد حذف المصروف "${expense.label}"؟ سيتم إنقاصه من سجلات المصاريف.`, `Supprimer la dépense « ${expense.label} » ? Elle sera retirée des registres.`))) return;
     try {
       await api.deleteExpense(expense.id);
       await load();
       onChanged();
-      showToast("تم حذف المصروف", "success");
+      showToast(localized(language, "تم حذف المصروف", "Dépense supprimée"), "success");
     } catch (err) {
-      showErrorToast(err, "تعذر حذف المصروف");
+      showErrorToast(err, localized(language, "تعذر حذف المصروف", "Impossible de supprimer la dépense"));
     }
   }
 
@@ -99,15 +99,12 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
       <section className="panel table-panel full">
         <SectionHeader title={t.expenses}>
           <Button variant="primary" size="compact" type="button" onClick={openNewExpense}>
-            <Plus size={17} /> {t.expenses}
+            <Plus size={17} /> {localized(language, "مصروف جديد", "Nouvelle dépense")}
           </Button>
         </SectionHeader>
         <div className="filter-row">
           <div className="searchbar"><Search size={18} /><input placeholder={t.searchExpenses} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
-          <select aria-label={t.category} value={category} onChange={(event) => setCategory(event.target.value)}>
-            <option value="">{t.allCategories}</option>
-            {categories.map((item) => <option value={item} key={item}>{item}</option>)}
-          </select>
+          <SelectControl aria-label={t.category} value={category} onValueChange={setCategory} options={[{ value: "", label: t.allCategories }, ...categories.map((item) => ({ value: item, label: item }))]} />
           <input className="filter-input" aria-label={t.fromDate} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
           <input className="filter-input" aria-label={t.toDate} type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
           <button className="ghost-button compact-button" type="button" onClick={filterToday}>{t.today}</button>

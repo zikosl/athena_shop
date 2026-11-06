@@ -4,9 +4,10 @@ import { createPortal } from "react-dom";
 import { api } from "../../shared/api";
 import { money, productStockValues } from "../../shared/format";
 import { useText } from "../../shared/i18n";
+import { localized } from "../../shared/i18n";
 import { showErrorToast, showToast } from "../../shared/toast";
 import { Language, Product, ProductInput, ProductStockFilter, StockMovement } from "../../shared/types";
-import { Button, SectionHeader, SelectField, TextAreaField, TextField } from "../../shared/ui";
+import { Button, SectionHeader, SelectControl, SelectField, TextAreaField, TextField } from "../../shared/ui";
 
 const emptyProduct: ProductInput = {
   name: "",
@@ -59,6 +60,7 @@ export function StockPage({
   initialStockFilter?: ProductStockFilter;
 }) {
   const t = useText(language);
+  const tr = (arabic: string, french: string) => localized(language, arabic, french);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [stockFilter, setStockFilter] = useState<ProductStockFilter>(initialStockFilter);
@@ -79,6 +81,10 @@ export function StockPage({
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const [categoryDraft, setCategoryDraft] = useState("");
   const [editingCategory, setEditingCategory] = useState("");
+  const [flexyProduct, setFlexyProduct] = useState<Product | null>(null);
+  const [flexyTiers, setFlexyTiers] = useState<Array<{ up_to: number | null; surcharge: number }>>([]);
+  const [flexyQuickAmounts, setFlexyQuickAmounts] = useState<number[]>([]);
+  const [flexySaving, setFlexySaving] = useState(false);
   const load = () => api.products({ query, category, stock: stockFilter }).then(setProducts);
 
   useEffect(() => {
@@ -130,6 +136,80 @@ export function StockPage({
     const tiers = [...(form.custom_config?.surcharge_tiers ?? [])];
     tiers[index] = { ...tiers[index], [key]: value };
     setForm({ ...form, custom_config: { ...form.custom_config, surcharge_tiers: tiers } });
+  }
+
+  async function openFlexyManager() {
+    try {
+      const existing = (await api.products()).find((product) => product.custom_type === "flexy");
+      const product = existing ?? await api.saveProduct({
+        name: "Flexy",
+        barcode: createBarcode(),
+        category: "",
+        size: "",
+        color: "",
+        quantity: 0,
+        low_stock_threshold: 0,
+        purchase_price: 0,
+        sale_price: 0,
+        image_data: "",
+        custom_type: "flexy",
+        custom_config: { surcharge_tiers: [{ up_to: 499, surcharge: 10 }, { up_to: null, surcharge: 20 }], quick_amounts: [40, 50, 100, 1500, 2000] }
+      });
+      setFlexyProduct(product);
+      const tiers = product.custom_config?.surcharge_tiers?.length ? product.custom_config.surcharge_tiers : [{ up_to: 499, surcharge: 10 }, { up_to: null, surcharge: 20 }];
+      setFlexyTiers(tiers.map((tier) => ({ up_to: tier.up_to, surcharge: tier.surcharge })));
+      setFlexyQuickAmounts(product.custom_config?.quick_amounts ?? [40, 50, 100, 1500, 2000]);
+      if (!existing) await load();
+    } catch (err) {
+      showErrorToast(err, tr("تعذر فتح إعدادات Flexy", "Impossible d’ouvrir les paramètres Flexy"));
+    }
+  }
+
+  async function saveFlexyManager(event: FormEvent) {
+    event.preventDefault();
+    if (!flexyProduct || flexySaving) return;
+    const tiers = [...flexyTiers].sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity));
+    const invalidTiers = tiers.some((tier, index) => {
+      if (!Number.isInteger(tier.surcharge) || tier.surcharge < 0) return true;
+      if (tier.up_to === null) return index !== tiers.length - 1;
+      return !Number.isInteger(tier.up_to) || tier.up_to <= 0 || (index > 0 && tier.up_to <= (tiers[index - 1].up_to ?? 0));
+    });
+    if (!tiers.length || tiers[tiers.length - 1]?.up_to !== null || invalidTiers) {
+      showToast(tr("أضف شرائح رسوم صحيحة مع شريحة أخيرة بدون حد", "Ajoutez des tranches de frais valides et terminez par une tranche sans limite"), "warning");
+      return;
+    }
+    if (!flexyQuickAmounts.some((amount) => Number.isInteger(amount) && amount > 0)) {
+      showToast(tr("أضف مبلغًا سريعًا واحدًا على الأقل", "Ajoutez au moins un montant rapide"), "warning");
+      return;
+    }
+    if (flexyQuickAmounts.some((amount) => !Number.isInteger(amount) || amount <= 0) || new Set(flexyQuickAmounts).size !== flexyQuickAmounts.length) {
+      showToast(tr("يجب أن تكون المبالغ السريعة أعدادًا صحيحة وموجبة وغير مكررة", "Les montants rapides doivent être des nombres entiers positifs et uniques"), "warning");
+      return;
+    }
+    setFlexySaving(true);
+    try {
+      const saved = await api.saveProduct({ ...flexyProduct, custom_config: { ...flexyProduct.custom_config, surcharge_tiers: tiers, quick_amounts: flexyQuickAmounts } });
+      setFlexyProduct(saved);
+      setFlexyTiers(tiers);
+      setFlexyProduct(null);
+      await load();
+      onChanged();
+      showToast(tr("تم حفظ إعدادات Flexy", "Paramètres Flexy enregistrés"), "success");
+    } catch (err) {
+      showErrorToast(err, tr("تعذر حفظ إعدادات Flexy", "Impossible d’enregistrer les paramètres Flexy"));
+    } finally {
+      setFlexySaving(false);
+    }
+  }
+
+  function changeFlexyTier(index: number, key: "up_to" | "surcharge", value: string) {
+    setFlexyTiers((tiers) => tiers.map((tier, current) => current === index
+      ? { ...tier, [key]: value === "" && key === "up_to" ? null : Number(value) }
+      : tier));
+  }
+
+  function changeFlexyQuickAmount(amountIndex: number, value: string) {
+    setFlexyQuickAmounts((amounts) => amounts.map((amount, current) => current === amountIndex ? (value === "" ? 0 : Number(value)) : amount));
   }
 
   async function refreshCategories() {
@@ -367,11 +447,14 @@ export function StockPage({
           <Button variant="primary" size="compact" type="button" onClick={openNewProduct}>
             <Plus size={17} /> {t.newProduct}
           </Button>
-          <Button size="compact" type="button" onClick={() => { setCategoryDraft(""); setEditingCategory(""); setCategoryManagerOpen(true); }}>
-            <Tag size={16} /> إدارة الأصناف
+          <Button size="compact" type="button" onClick={() => void openFlexyManager()}>
+            <Coins size={16} /> {tr("إدارة Flexy", "Gérer Flexy")}
           </Button>
-          <Button size="compact" type="button" disabled={regeneratingBarcodes} onClick={() => void regenerateAllBarcodes()} title="إعادة إنشاء باركود EAN-8 لكل المخزون">
-            <Barcode size={16} /> {regeneratingBarcodes ? "جاري التوليد..." : "تجديد الباركود"}
+          <Button size="compact" type="button" onClick={() => { setCategoryDraft(""); setEditingCategory(""); setCategoryManagerOpen(true); }}>
+            <Tag size={16} /> {tr("إدارة الأصناف", "Gérer les catégories")}
+          </Button>
+          <Button size="compact" type="button" disabled={regeneratingBarcodes} onClick={() => void regenerateAllBarcodes()} title={tr("إعادة إنشاء باركود EAN-8 لكل المخزون", "Régénérer les codes-barres EAN-8 de tout le stock")}>
+            <Barcode size={16} /> {regeneratingBarcodes ? tr("جاري التوليد...", "Génération en cours...") : tr("تجديد الباركود", "Régénérer les codes-barres")}
           </Button>
           <Button variant={inventoryMode ? "primary" : "secondary"} size="compact" onClick={toggleInventory}>
             <ClipboardList size={17} /> {t.inventory}
@@ -394,16 +477,8 @@ export function StockPage({
         )}
         <div className="filter-row">
           <div className="searchbar"><Search size={18} /><input placeholder={t.search} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
-          <select aria-label={t.category} value={category} onChange={(event) => setCategory(event.target.value)}>
-            <option value="">{t.allCategories}</option>
-            {categories.map((item) => <option value={item} key={item}>{item}</option>)}
-          </select>
-          <select aria-label={t.stockFilter} value={stockFilter} onChange={(event) => setStockFilter(event.target.value as ProductStockFilter)}>
-            <option value="all">{t.stockAll}</option>
-            <option value="available">{t.inStock}</option>
-            <option value="low">{t.lowOnly}</option>
-            <option value="out">{t.outOfStock}</option>
-          </select>
+          <SelectControl aria-label={t.category} value={category} onValueChange={setCategory} options={[{ value: "", label: t.allCategories }, ...categories.map((item) => ({ value: item, label: item }))]} />
+          <SelectControl aria-label={t.stockFilter} value={stockFilter} onValueChange={(value) => setStockFilter(value as ProductStockFilter)} options={[{ value: "all", label: t.stockAll }, { value: "available", label: t.inStock }, { value: "low", label: t.lowOnly }, { value: "out", label: t.outOfStock }]} />
         </div>
         <div className="data-table stock-table">
           <table>
@@ -423,10 +498,10 @@ export function StockPage({
             </thead>
             <tbody>
               {products.map((product) => (
-                <tr
+                  <tr
                   key={product.id}
                   className={product.custom_type === "standard" && product.quantity <= product.low_stock_threshold ? "low-row" : ""}
-                  onContextMenu={(event) => openContextMenu(event, product)}
+                    onContextMenu={(event) => { if (product.custom_type !== "flexy") openContextMenu(event, product); }}
                 >
                   <td>
                     <div className="product-cell">
@@ -458,8 +533,10 @@ export function StockPage({
                       <button type="button" aria-label="إخراج مخزون" title="إخراج مخزون" onClick={() => openMovement(product, "destock")}><PackageMinus size={16} /></button>
                       <button type="button" aria-label="حركات المخزون" title="حركات المخزون" onClick={() => void openHistory(product)}><History size={16} /></button>
                     </>}
-                    <button type="button" aria-label="تعديل المنتج" title="تعديل المنتج" onClick={() => openEditProduct(product)} onContextMenu={(event) => openContextMenu(event, product)}><Edit3 size={16} /></button>
-                    <button type="button" className="danger-action" aria-label="حذف المنتج" title="حذف المنتج" onClick={() => void remove(product)}><Trash2 size={16} /></button>
+                    {product.custom_type === "flexy"
+                      ? <button type="button" aria-label="إدارة Flexy" title="إدارة Flexy" onClick={() => void openFlexyManager()}><Coins size={16} /></button>
+                      : <button type="button" aria-label="تعديل المنتج" title="تعديل المنتج" onClick={() => openEditProduct(product)} onContextMenu={(event) => openContextMenu(event, product)}><Edit3 size={16} /></button>}
+                    {product.custom_type !== "flexy" && <button type="button" className="danger-action" aria-label="حذف المنتج" title="حذف المنتج" onClick={() => void remove(product)}><Trash2 size={16} /></button>}
                   </div></td>
                 </tr>
               ))}
@@ -483,9 +560,9 @@ export function StockPage({
               <span />
               <button className="ghost-button compact-button" type="button" onClick={() => setFormOpen(false)}><X size={16} /> {t.close}</button>
             </div>
-            <label className="product-type-field"><span>نوع المنتج</span><select value={form.custom_type ?? "standard"} onChange={(event) => {
-              const type = event.target.value as NonNullable<ProductInput["custom_type"]>;
-              const custom_config = type === "flexy" ? { surcharge_tiers: [{ up_to: 499, surcharge: 10 }, { up_to: null, surcharge: 20 }] }
+            <SelectField className="product-type-field" label="نوع المنتج" value={form.custom_type ?? "standard"} disabled={!!form.id} onValueChange={(value) => {
+              const type = value as NonNullable<ProductInput["custom_type"]>;
+              const custom_config = type === "flexy" ? { surcharge_tiers: [{ up_to: 499, surcharge: 10 }, { up_to: null, surcharge: 20 }], quick_amounts: [40, 50, 100, 1500, 2000] }
                 : type === "tobacco" ? { pieces_per_box: 10, piece_sale_price: 0, box_sale_price: 0 }
                   : type === "printing" ? { recto_price: 0, recto_verso_price: 0 }
                     : {};
@@ -498,7 +575,7 @@ export function StockPage({
                 image_data: type === "standard" ? form.image_data : "",
                 purchase_price: type === "printing" ? 0 : form.purchase_price
               });
-            }} disabled={!!form.id}><option value="standard">عادي</option><option value="flexy">Flexy</option><option value="tobacco">تبغ</option><option value="printing">طباعة</option></select></label>
+            }} options={[{ value: "standard", label: "عادي" }, { value: "tobacco", label: "تبغ" }, { value: "printing", label: "طباعة" }]} />
             <div className="form-section-heading"><strong>البيانات الأساسية</strong></div>
             <div className="form-grid product-core-grid">
               <TextField label={t.product} value={form.name} onValueChange={(name) => setForm({ ...form, name })} />
@@ -509,7 +586,7 @@ export function StockPage({
             </div>
             <div className="form-section-heading"><strong>تفاصيل المنتج</strong></div>
             <div className="form-grid product-details-grid">
-              <SelectField label={t.category} required value={form.category} placeholder={categories.length ? "اختر الصنف" : "لا توجد أصناف؛ أضف صنفًا من إدارة الأصناف"} onValueChange={(category) => setForm({ ...form, category })} options={[...(form.category && !categories.includes(form.category) ? [{ value: form.category, label: form.category }] : []), ...categories.map((item) => ({ value: item, label: item }))]} />
+              {form.custom_type === "standard" && <SelectField label={t.category} required value={form.category} placeholder={categories.length ? "اختر الصنف" : "لا توجد أصناف؛ أضف صنفًا من إدارة الأصناف"} onValueChange={(category) => setForm({ ...form, category })} options={[...(form.category && !categories.includes(form.category) ? [{ value: form.category, label: form.category }] : []), ...categories.map((item) => ({ value: item, label: item }))]} />}
               {form.custom_type === "standard" && <TextField label={t.barcode} value={form.barcode} icon={<Barcode size={16} />} onValueChange={(barcode) => setForm({ ...form, barcode: barcode.replace(/\D/g, "").slice(0, 8) })} />}
             </div>
             <div className={`custom-settings-section ${form.custom_type === "standard" ? "is-standard" : ""} ${form.custom_type === "flexy" ? "is-flexy" : ""}`}>
@@ -642,6 +719,26 @@ export function StockPage({
           </form>
         </div>
       , document.body)}
+
+      {flexyProduct && createPortal(
+        <div className="modal-backdrop stock-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setFlexyProduct(null); }}>
+          <form className="panel form-panel form-modal stock-modal-dialog flexy-manager-modal" role="dialog" aria-modal="true" aria-labelledby="flexy-manager-title" onSubmit={saveFlexyManager}>
+            <div className="section-title"><h2 id="flexy-manager-title"><Coins size={18} /> {tr("إدارة Flexy", "Gestion de Flexy")}</h2><span /><button className="ghost-button compact-button" type="button" onClick={() => setFlexyProduct(null)}><X size={16} /> {t.close}</button></div>
+            <div className="flexy-manager-balance"><span>{tr("الرصيد المتاح", "Solde disponible")}</span><strong>{money(flexyProduct.quantity)}</strong></div>
+            <section className="flexy-manager-section">
+              <div className="flexy-manager-heading"><div><strong>{tr("شرائح الرسوم", "Tranches de frais")}</strong><small>{tr("تحدد الرسوم حسب مبلغ التعبئة", "Les frais sont déterminés selon le montant de recharge")}</small></div><button className="ghost-button compact-button" type="button" onClick={() => setFlexyTiers((tiers) => { const last = tiers[tiers.length - 1]; return last ? [...tiers.slice(0, -1), { ...last, up_to: last.up_to ?? 0 }, { up_to: null, surcharge: last.surcharge }] : [{ up_to: null, surcharge: 0 }]; })}><Plus size={15} /> {tr("شريحة", "Tranche")}</button></div>
+              <div className="flexy-manager-tiers">{flexyTiers.map((tier, index) => <div className="flexy-manager-tier" key={index}>
+                <div className="flexy-manager-tier-fields"><TextField label={tr("حتى (دج)", "Jusqu’à (DA)")} type="number" min="1" value={tier.up_to ?? ""} placeholder={tier.up_to === null ? tr("بدون حد", "Sans limite") : ""} onValueChange={(value) => changeFlexyTier(index, "up_to", value)} /><TextField label={tr("الرسم (دج)", "Frais (DA)")} type="number" min="0" value={tier.surcharge} onValueChange={(value) => changeFlexyTier(index, "surcharge", value)} />{index < flexyTiers.length - 1 && <button className="plain-icon danger-action" type="button" title={tr("حذف الشريحة", "Supprimer la tranche")} aria-label={tr("حذف الشريحة", "Supprimer la tranche")} onClick={() => setFlexyTiers((tiers) => tiers.filter((_, current) => current !== index))}><Trash2 size={16} /></button>}</div>
+              </div>)}</div>
+            </section>
+            <section className="flexy-manager-section">
+              <div className="flexy-manager-heading"><div><strong>{tr("المبالغ السريعة", "Montants rapides")}</strong><small>{tr("اختصارات مستقلة؛ تُحسب الرسوم تلقائيًا حسب الشريحة", "Raccourcis indépendants ; les frais sont calculés selon la tranche")}</small></div></div>
+              <div className="flexy-tier-shortcuts"><div>{flexyQuickAmounts.map((amount, amountIndex) => <div className="flexy-tier-shortcut" key={amountIndex}><TextField label={tr("مبلغ (دج)", "Montant (DA)")} type="number" min="1" value={amount || ""} onValueChange={(value) => changeFlexyQuickAmount(amountIndex, value)} /><button className="plain-icon danger-action" type="button" title={tr("حذف المبلغ", "Supprimer le montant")} aria-label={tr("حذف المبلغ", "Supprimer le montant")} onClick={() => setFlexyQuickAmounts((amounts) => amounts.filter((_, index) => index !== amountIndex))}><Trash2 size={15} /></button></div>)}<button className="ghost-button compact-button" type="button" onClick={() => setFlexyQuickAmounts((amounts) => [...amounts, 0])}><Plus size={14} /> {tr("إضافة مبلغ", "Ajouter un montant")}</button></div></div>
+            </section>
+            <div className="button-row"><Button type="button" onClick={() => setFlexyProduct(null)}>{t.close}</Button><Button variant="primary" type="submit" disabled={flexySaving}><Save size={16} /> {flexySaving ? tr("جار الحفظ...", "Enregistrement...") : t.save}</Button></div>
+          </form>
+        </div>, document.body
+      )}
 
       {historyProduct && createPortal(
         <div className="modal-backdrop stock-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setHistoryProduct(null); }}>

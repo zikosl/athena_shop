@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { LockKeyhole, User } from "lucide-react";
 import { api } from "../../shared/api";
-import { useText } from "../../shared/i18n";
+import { localized, useText } from "../../shared/i18n";
 import { showErrorToast } from "../../shared/toast";
 import { Language, UserSession } from "../../shared/types";
 import { Button, TextField } from "../../shared/ui";
@@ -21,7 +21,7 @@ export function LoginPage({ language, onLogin }: Props) {
     try {
       onLogin(await api.login(username, password));
     } catch (err) {
-      showErrorToast(err, "تعذر تسجيل الدخول");
+      showErrorToast(err, localized(language, "تعذر تسجيل الدخول", "Connexion impossible"));
     }
   }
 
@@ -33,7 +33,7 @@ export function LoginPage({ language, onLogin }: Props) {
           <img src={openzeyLogo} alt="OpenZey" className="brand-logo" />
           <div>
             <h1>OpenSoft</h1>
-            <p>منصة إدارة الأعمال من OpenZey</p>
+            <p>{localized(language, "منصة إدارة الأعمال من OpenZey", "Gestion d’entreprise par OpenZey")}</p>
           </div>
         </div>
         <h2>{t.login}</h2>

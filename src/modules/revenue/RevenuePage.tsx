@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Edit3, ReceiptText, RotateCcw, Save, Search, Trash2, X } from "lucide-react";
 import { api } from "../../shared/api";
 import { money, todayInputValue } from "../../shared/format";
-import { useText } from "../../shared/i18n";
+import { localized, useText } from "../../shared/i18n";
 import { showErrorToast, showToast } from "../../shared/toast";
 import { CreditAccount, Expense, Language, Sale } from "../../shared/types";
+import { SelectControl } from "../../shared/ui";
 
 export function RevenuePage({ language, onChanged }: { language: Language; onChanged?: () => void }) {
   const t = useText(language);
@@ -23,8 +24,8 @@ export function RevenuePage({ language, onChanged }: { language: Language; onCha
         setExpenses(expenses);
         setCredits(credits);
       })
-      .catch((err) => showErrorToast(err, "تعذر تحميل الطلبات"));
-  }, []);
+      .catch((err) => showErrorToast(err, localized(language, "تعذر تحميل الطلبات", "Impossible de charger les ventes")));
+  }, [language]);
 
   useEffect(() => {
     void load();
@@ -133,12 +134,7 @@ export function RevenuePage({ language, onChanged }: { language: Language; onCha
         </div>
         <div className="filter-row">
           <div className="searchbar"><Search size={18} /><input placeholder={t.search} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
-          <select aria-label={t.type} value={saleType} onChange={(event) => setSaleType(event.target.value as "all" | "cash" | "credit" | "delivery")}>
-            <option value="all">{t.allTypes}</option>
-            <option value="cash">{t.cash}</option>
-            <option value="credit">{t.credit}</option>
-            <option value="delivery">التوصيل</option>
-          </select>
+          <SelectControl aria-label={t.type} value={saleType} onValueChange={(value) => setSaleType(value as "all" | "cash" | "credit" | "delivery")} options={[{ value: "all", label: t.allTypes }, { value: "cash", label: t.cash }, { value: "credit", label: t.credit }, { value: "delivery", label: localized(language, "التوصيل", "Livraison") }]} />
           <input className="filter-input" aria-label={t.fromDate} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
           <input className="filter-input" aria-label={t.toDate} type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
           <button className="ghost-button compact-button" type="button" onClick={filterToday}>{t.today}</button>
@@ -155,7 +151,7 @@ export function RevenuePage({ language, onChanged }: { language: Language; onCha
                     </button>
                   </td>
                   <td>{sale.created_at}</td>
-                  <td><span className={`status-pill ${sale.sale_type === "credit" ? "pending" : sale.sale_type === "delivery" ? "info" : "ok"}`}>{sale.sale_type === "credit" ? t.credit : sale.sale_type === "delivery" ? "التوصيل" : t.cash}</span></td>
+                  <td><span className={`status-pill ${sale.sale_type === "credit" ? "pending" : sale.sale_type === "delivery" ? "info" : "ok"}`}>{sale.sale_type === "credit" ? t.credit : sale.sale_type === "delivery" ? localized(language, "التوصيل", "Livraison") : t.cash}</span></td>
                   <td>{money(sale.paid_amount)}</td>
                   <td>{money(sale.remaining_amount)}</td>
                   <td>{money(sale.total)}</td>
@@ -237,9 +233,9 @@ function TicketDetails({
       });
       setEditing(false);
       await onChanged(updated);
-      showToast("تم تحديث الفاتورة", "success");
+      showToast(localized(language, "تم تحديث الفاتورة", "Vente mise à jour"), "success");
     } catch (err) {
-      showErrorToast(err, "تعذر تحديث الفاتورة");
+      showErrorToast(err, localized(language, "تعذر تحديث الفاتورة", "Impossible de mettre à jour la vente"));
     }
   }
 
@@ -251,20 +247,20 @@ function TicketDetails({
         quantity: 1
       });
       await onChanged(updated);
-      showToast("تم إرجاع المنتج وتحديث الفاتورة", "success");
+      showToast(localized(language, "تم إرجاع المنتج وتحديث الفاتورة", "Produit retourné et vente mise à jour"), "success");
     } catch (err) {
-      showErrorToast(err, "تعذر إرجاع المنتج");
+      showErrorToast(err, localized(language, "تعذر إرجاع المنتج", "Impossible de retourner le produit"));
     }
   }
 
   async function deleteTicket() {
-    if (!window.confirm("هل تريد حذف هذه التذكرة؟ سيتم إرجاع الكمية إلى المخزون وإنقاص المداخيل.")) return;
+    if (!window.confirm(localized(language, "هل تريد حذف هذه التذكرة؟ سيتم إرجاع الكمية إلى المخزون وإنقاص المداخيل.", "Supprimer ce ticket ? Les quantités seront remises en stock et les recettes ajustées."))) return;
     try {
       await api.deleteSale(sale.id);
       await onDeleted();
-      showToast("تم حذف الفاتورة وإرجاع الكميات", "success");
+      showToast(localized(language, "تم حذف الفاتورة وإرجاع الكميات", "Vente supprimée et quantités remises en stock"), "success");
     } catch (err) {
-      showErrorToast(err, "تعذر حذف الفاتورة");
+      showErrorToast(err, localized(language, "تعذر حذف الفاتورة", "Impossible de supprimer la vente"));
     }
   }
 
@@ -281,8 +277,8 @@ function TicketDetails({
               </>
             ) : (
               <>
-                {editableItems.length > 0 && <button className="ghost-button compact-button" type="button" onClick={() => setEditing(true)}><Edit3 size={16} /> تعديل</button>}
-                <button className="ghost-button compact-button danger-action" type="button" onClick={() => void deleteTicket()}><Trash2 size={16} /> حذف</button>
+                {editableItems.length > 0 && <button className="ghost-button compact-button" type="button" onClick={() => setEditing(true)}><Edit3 size={16} /> {t.edit}</button>}
+                <button className="ghost-button compact-button danger-action" type="button" onClick={() => void deleteTicket()}><Trash2 size={16} /> {t.delete}</button>
                 <button className="ghost-button compact-button" type="button" onClick={onClose}>{t.close}</button>
               </>
             )}
@@ -291,7 +287,7 @@ function TicketDetails({
 
         <div className="ticket-meta">
           <span>{t.date}: <strong>{sale.created_at}</strong></span>
-          <span>{t.type}: <strong>{sale.sale_type === "credit" ? t.credit : sale.sale_type === "delivery" ? "التوصيل" : t.cash}</strong></span>
+          <span>{t.type}: <strong>{sale.sale_type === "credit" ? t.credit : sale.sale_type === "delivery" ? localized(language, "التوصيل", "Livraison") : t.cash}</strong></span>
           <span>{t.collected}: <strong>{money(sale.paid_amount)}</strong></span>
           <span>{t.remaining}: <strong>{money(sale.remaining_amount)}</strong></span>
           {sale.customer_name && <span>{t.customer}: <strong>{sale.customer_name}</strong></span>}
@@ -350,7 +346,7 @@ function TicketDetails({
                       : item.line_total
                   )}</td>
                   <td className="row-actions">
-                    <button type="button" title={item.custom_option ? "Pour préserver le stock, supprimez le ticket complet" : "Retour"} onClick={() => void returnOne(item.product_id)} disabled={editing || item.product_id < 0 || !!item.custom_option}>
+                    <button type="button" title={item.custom_option ? localized(language, "لحماية المخزون، احذف الفاتورة كاملة", "Pour préserver le stock, supprimez le ticket complet") : localized(language, "إرجاع", "Retour")} aria-label={localized(language, "إرجاع المنتج", "Retourner le produit")} onClick={() => void returnOne(item.product_id)} disabled={editing || item.product_id < 0 || !!item.custom_option}>
                       <RotateCcw size={16} />
                     </button>
                   </td>
