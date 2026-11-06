@@ -6,6 +6,7 @@ import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";
 import { showErrorToast, showToast } from "../../shared/toast";
 import { AppSettings, CartItem, ClientRecord, Language, Perfume, PerfumeCartItem, Product, Sale, UserSession } from "../../shared/types";
+import { Button, SelectField, TextAreaField, TextField } from "../../shared/ui";
 import openzeyLogo from "../../assets/openzey-logo.png";
 
 const orderQrPrefix = "POS:";
@@ -45,6 +46,15 @@ function isPerfumeCategory(category: string) {
 
 function displayCategory(category: string) {
   return category === "Products" ? "المنتجات" : category;
+}
+
+type PosAssortment = "all" | "products" | "flexy" | "tobacco" | "printing" | "perfumery";
+
+function matchesAssortment(product: Product, assortment: PosAssortment) {
+  if (assortment === "perfumery") return false;
+  if (assortment === "all") return !isPerfumeCategory(product.category);
+  if (assortment === "products") return product.custom_type === "standard" && !isPerfumeCategory(product.category);
+  return product.custom_type === assortment;
 }
 
 function normalizePhone(value: string) {
@@ -90,7 +100,7 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
   const t = useText(language);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
-  const [assortment, setAssortment] = useState<"all" | "products" | "perfumery">("all");
+  const [assortment, setAssortment] = useState<PosAssortment>("all");
   const [products, setProducts] = useState<Product[]>([]);
   const [productCatalog, setProductCatalog] = useState<Product[]>([]);
   const [services, setServices] = useState<PosServices>(defaultPosServices);
@@ -123,7 +133,7 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
     const effectiveCategory = assortment === "perfumery" ? "Perfumerie" : category;
     api.products({ query, category: effectiveCategory, stock: "all" })
       .then((items) => setProducts(items.filter((product) =>
-        serviceProductEnabled(product, services) && assortment !== "perfumery" && (assortment !== "products" || !isPerfumeCategory(product.category)) && (allowNegativeStock || product.quantity > 0 || product.custom_type === "printing")
+        serviceProductEnabled(product, services) && matchesAssortment(product, assortment) && (allowNegativeStock || product.quantity > 0 || product.custom_type === "printing")
       )))
       .catch((err) => showErrorToast(err, "تعذر تحميل المنتجات"));
   }, [query, category, assortment, allowNegativeStock, services]);
@@ -458,7 +468,7 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
       setSaleDate(todayInputValue());
       const nextProducts = await api.products({ query, category: assortment === "perfumery" ? "Perfumerie" : category, stock: "all" });
       setProducts(nextProducts.filter((product) =>
-        serviceProductEnabled(product, services) && assortment !== "perfumery" && (assortment !== "products" || !isPerfumeCategory(product.category)) && (allowNegativeStock || product.quantity > 0 || product.custom_type === "printing")
+        serviceProductEnabled(product, services) && matchesAssortment(product, assortment) && (allowNegativeStock || product.quantity > 0 || product.custom_type === "printing")
       ));
       const nextCatalog = await api.products({ stock: "all" });
       const visibleCatalog = nextCatalog.filter((product) => serviceProductEnabled(product, services) && (services.enable_perfumes || !isPerfumeCategory(product.category)));
@@ -519,11 +529,14 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
     <section className="pos-grid">
       <section className="panel table-panel">
         <div className="segmented pos-mode-tabs">
-          <button className={assortment === "all" ? "active" : ""} type="button" onClick={() => setAssortment("all")}>الكل</button>
-          <button className={assortment === "products" ? "active" : ""} type="button" onClick={() => setAssortment("products")}>المنتجات</button>
-          {services.enable_perfumes && <button className={assortment === "perfumery" ? "active" : ""} type="button" onClick={() => setAssortment("perfumery")}>العطور</button>}
+          <button className={assortment === "all" ? "active" : ""} type="button" onClick={() => { setAssortment("all"); setCategory(""); }}>الكل</button>
+          <button className={assortment === "products" ? "active" : ""} type="button" onClick={() => { setAssortment("products"); setCategory(""); }}>المنتجات</button>
+          {services.enable_flexy && <button className={assortment === "flexy" ? "active" : ""} type="button" onClick={() => { setAssortment("flexy"); setCategory(""); }}>Flexy</button>}
+          {services.enable_tobacco && <button className={assortment === "tobacco" ? "active" : ""} type="button" onClick={() => { setAssortment("tobacco"); setCategory(""); }}>التبغ</button>}
+          {services.enable_printing && <button className={assortment === "printing" ? "active" : ""} type="button" onClick={() => { setAssortment("printing"); setCategory(""); }}>الطباعة</button>}
+          {services.enable_perfumes && <button className={assortment === "perfumery" ? "active" : ""} type="button" onClick={() => { setAssortment("perfumery"); setCategory(""); }}>العطور</button>}
         </div>
-        <div className="filter-row pos-filter-row">
+        <div className={`filter-row pos-filter-row${assortment === "all" || assortment === "products" ? "" : " pos-filter-row-service"}`}>
           <div className="searchbar">
             <Search size={18} />
             <input
@@ -543,13 +556,13 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
           <button className="ghost-button custom-amount-trigger" type="button" aria-keyshortcuts="F6" onClick={() => setCustomAmountOpen(true)}>
             <CircleDollarSign size={18} /> <span>مبلغ مخصص</span><kbd>F6</kbd>
           </button>
-          <select aria-label={t.category} value={category} disabled={assortment === "perfumery"} onChange={(event) => setCategory(event.target.value)}>
+          {(assortment === "all" || assortment === "products") && <select aria-label={t.category} value={category} onChange={(event) => setCategory(event.target.value)}>
             <option value="">{t.allCategories}</option>
             {categories.map((item) => <option value={item} key={item}>{displayCategory(item)}</option>)}
-          </select>
+          </select>}
         </div>
         <div className="product-picker">
-          {assortment !== "products" && services.enable_perfumes && visiblePerfumes.map((perfume) => (
+          {(assortment === "all" || assortment === "perfumery") && services.enable_perfumes && visiblePerfumes.map((perfume) => (
             <article key={`perfume-${perfume.id}`} className="product-tile perfume-tile">
               <span><SprayCan size={22} /></span>
               <strong>{perfume.name}</strong>
@@ -638,15 +651,15 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
         {(saleType === "credit" || saleType === "delivery") && (
           <div className="credit-fields">
             <div className="client-phone-field">
-              <label><span>{t.phone}</span><div className="field"><input type="tel" inputMode="tel" autoComplete="tel" value={customerPhone} onChange={(event) => changeCustomerPhone(event.target.value)} /></div></label>
+              <TextField label={t.phone} type="tel" inputMode="tel" autoComplete="tel" value={customerPhone} onValueChange={changeCustomerPhone} />
               {matchingClients.length > 0 && !exactClient && <div className="client-match-list">{matchingClients.map((client) => <button type="button" key={client.id} onClick={() => selectClient(client)}><strong>{client.name}</strong><span>{client.phone}</span></button>)}</div>}
               {normalizedCustomerPhone.length >= 9 && normalizedCustomerPhone.length <= 12 && !exactClient && <button className="ghost-button compact-button create-client-trigger" type="button" onClick={() => { setNewClientName(customerName); setCreateClientOpen(true); }}><Plus size={15} /> إنشاء عميل بهذا الرقم</button>}
               {exactClient && <small className="client-match-confirmation">عميل محفوظ: {exactClient.name}</small>}
             </div>
-            <label><span>{t.customer}</span><div className="field"><input value={customerName} onChange={(event) => setCustomerName(event.target.value)} /></div></label>
-            {saleType === "credit" && <label><span>{t.paidNow}</span><div className="field"><input type="number" min={0} max={total} value={paidAmount === 0 ? "" : paidAmount} onChange={(event) => setPaidAmount(Number(event.target.value))} /></div></label>}
-            {saleType === "credit" && <label><span>موعد السداد بعد (أيام) · اختياري</span><div className="field"><input type="number" min={1} max={3650} step={1} placeholder="مثال: 15" value={dueDays} onChange={(event) => setDueDays(event.target.value)} /></div>{dueDays && dueDateAfterDays(dueDays) && <small>التاريخ المتوقع: {dueDateAfterDays(dueDays)}</small>}</label>}
-            <label className="full-field"><span>{saleType === "delivery" ? "العنوان / ملاحظة التوصيل" : t.note}</span><textarea value={creditNote} onChange={(event) => setCreditNote(event.target.value)} /></label>
+            <TextField label={t.customer} value={customerName} onValueChange={setCustomerName} />
+            {saleType === "credit" && <TextField label={t.paidNow} type="number" min={0} max={total} value={paidAmount} onValueChange={(value) => setPaidAmount(Number(value))} />}
+            {saleType === "credit" && <div><TextField label="موعد السداد بعد (أيام) · اختياري" type="number" min={1} max={3650} step={1} placeholder="مثال: 15" value={dueDays} onValueChange={setDueDays} />{dueDays && dueDateAfterDays(dueDays) && <small>التاريخ المتوقع: {dueDateAfterDays(dueDays)}</small>}</div>}
+            <TextAreaField className="full-field" label={saleType === "delivery" ? "العنوان / ملاحظة التوصيل" : t.note} value={creditNote} onValueChange={setCreditNote} />
           </div>
         )}
         <div className="totals">
@@ -659,15 +672,22 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
       </aside>
 
       {customDraft && <div className="modal-backdrop"><section className="panel form-panel form-modal"><div className="section-title"><h2>{customDraft.product.name}</h2><span /><button className="plain-icon" onClick={() => setCustomDraft(null)}><X size={18} /></button></div>
-        {customDraft.product.custom_type === "flexy" && <><label className="field"><span>مبلغ التعبئة (دج)</span><input autoFocus type="number" min="1" value={customDraft.amount} onChange={(event) => setCustomDraft({ ...customDraft, amount: event.target.value })} /></label><p>الرسوم: {money((customDraft.product.custom_config?.surcharge_tiers ?? []).sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity)).find((tier) => tier.up_to === null || Number(customDraft.amount) <= tier.up_to)?.surcharge ?? 0)} · الإجمالي: {money(Number(customDraft.amount || 0) + ((customDraft.product.custom_config?.surcharge_tiers ?? []).sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity)).find((tier) => tier.up_to === null || Number(customDraft.amount) <= tier.up_to)?.surcharge ?? 0))}</p></>}
-        {customDraft.product.custom_type === "tobacco" && <><label className="field"><span>نوع البيع</span><select value={customDraft.option} onChange={(event) => setCustomDraft({ ...customDraft, option: event.target.value })}><option value="piece">قطعة · {money(customDraft.product.custom_config?.piece_sale_price ?? 0)}</option><option value="box">علبة · {money(customDraft.product.custom_config?.box_sale_price ?? 0)}</option></select></label><label className="field"><span>الكمية</span><input type="number" min="1" value={customDraft.quantity} onChange={(event) => setCustomDraft({ ...customDraft, quantity: event.target.value })} /></label><p>خصم المخزون: {Number(customDraft.quantity || 0) * (customDraft.option === "box" ? (customDraft.product.custom_config?.pieces_per_box ?? 1) : 1)} قطعة</p></>}
-        {customDraft.product.custom_type === "printing" && <><label className="field"><span>نوع الطباعة</span><select value={customDraft.option} onChange={(event) => setCustomDraft({ ...customDraft, option: event.target.value })}><option value="recto">Recto · {money(customDraft.product.custom_config?.recto_price ?? 0)}</option><option value="recto_verso">Recto-verso · {money(customDraft.product.custom_config?.recto_verso_price ?? 0)}</option></select></label><label className="field"><span>عدد الخدمات</span><input type="number" min="1" value={customDraft.quantity} onChange={(event) => setCustomDraft({ ...customDraft, quantity: event.target.value })} /></label></>}
+        {customDraft.product.custom_type === "flexy" && <><TextField label="مبلغ التعبئة (دج)" autoFocus type="number" min="1" value={customDraft.amount} onValueChange={(amount) => setCustomDraft({ ...customDraft, amount })} /><p>الرسوم: {money((customDraft.product.custom_config?.surcharge_tiers ?? []).sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity)).find((tier) => tier.up_to === null || Number(customDraft.amount) <= tier.up_to)?.surcharge ?? 0)} · الإجمالي: {money(Number(customDraft.amount || 0) + ((customDraft.product.custom_config?.surcharge_tiers ?? []).sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity)).find((tier) => tier.up_to === null || Number(customDraft.amount) <= tier.up_to)?.surcharge ?? 0))}</p></>}
+        {customDraft.product.custom_type === "tobacco" && <><SelectField label="نوع البيع" value={customDraft.option} onValueChange={(option) => setCustomDraft({ ...customDraft, option })} options={[{ value: "piece", label: `قطعة · ${money(customDraft.product.custom_config?.piece_sale_price ?? 0)}` }, { value: "box", label: `علبة · ${money(customDraft.product.custom_config?.box_sale_price ?? 0)}` }]} /><TextField label="الكمية" type="number" min="1" value={customDraft.quantity} onValueChange={(quantity) => setCustomDraft({ ...customDraft, quantity })} /><p>خصم المخزون: {Number(customDraft.quantity || 0) * (customDraft.option === "box" ? (customDraft.product.custom_config?.pieces_per_box ?? 1) : 1)} قطعة</p></>}
+        {customDraft.product.custom_type === "printing" && <><SelectField label="نوع الطباعة" value={customDraft.option} onValueChange={(option) => setCustomDraft({ ...customDraft, option })} options={[{ value: "recto", label: `Recto · ${money(customDraft.product.custom_config?.recto_price ?? 0)}` }, { value: "recto_verso", label: `Recto-verso · ${money(customDraft.product.custom_config?.recto_verso_price ?? 0)}` }]} /><TextField label="عدد الخدمات" type="number" min="1" value={customDraft.quantity} onValueChange={(quantity) => setCustomDraft({ ...customDraft, quantity })} /></>}
         <div className="button-row"><button type="button" className="ghost-button" onClick={() => setCustomDraft(null)}>{t.close}</button><button type="button" className="gold-button" onClick={confirmCustomProduct}>إضافة · {customDraft.product.custom_type === "flexy" ? money(Number(customDraft.amount || 0) + ((customDraft.product.custom_config?.surcharge_tiers ?? []).sort((a, b) => (a.up_to ?? Infinity) - (b.up_to ?? Infinity)).find((tier) => tier.up_to === null || Number(customDraft.amount) <= tier.up_to)?.surcharge ?? 0)) : money((customDraft.product.custom_type === "tobacco" ? customDraft.option === "box" ? customDraft.product.custom_config?.box_sale_price ?? 0 : customDraft.product.custom_config?.piece_sale_price ?? 0 : customDraft.option === "recto_verso" ? customDraft.product.custom_config?.recto_verso_price ?? 0 : customDraft.product.custom_config?.recto_price ?? 0) * Number(customDraft.quantity || 0))}</button></div>
       </section></div>}
 
-      {customAmountOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCustomAmountOpen(false); }}><section className="panel form-panel form-modal custom-amount-modal" role="dialog" aria-modal="true" aria-labelledby="custom-amount-title"><div className="section-title"><h2 id="custom-amount-title">مبلغ مخصص</h2><span /><button className="plain-icon" type="button" aria-label={t.close} onClick={() => setCustomAmountOpen(false)}><X size={18} /></button></div><label className="field"><span>المبلغ (دج)</span><input autoFocus type="number" min="1" step="1" value={customAmount} onChange={(event) => setCustomAmount(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addCustomAmount(); } }} /></label><div className="button-row"><button type="button" className="ghost-button" onClick={() => setCustomAmountOpen(false)}>{t.close}</button><button type="button" className="gold-button" onClick={addCustomAmount}>إضافة إلى الطلب · {money(Number(customAmount) || 0)}</button></div></section></div>}
+      {customAmountOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCustomAmountOpen(false); }}><section className="panel form-panel form-modal custom-amount-modal" role="dialog" aria-modal="true" aria-labelledby="custom-amount-title"><div className="section-title"><h2 id="custom-amount-title">مبلغ مخصص</h2><span /><button className="plain-icon" type="button" aria-label={t.close} onClick={() => setCustomAmountOpen(false)}><X size={18} /></button></div><TextField label="المبلغ (دج)" autoFocus type="number" min="1" step="1" value={customAmount} onValueChange={setCustomAmount} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addCustomAmount(); } }} /><div className="button-row"><Button type="button" onClick={() => setCustomAmountOpen(false)}>{t.close}</Button><Button variant="primary" type="button" onClick={addCustomAmount}>إضافة إلى الطلب · {money(Number(customAmount) || 0)}</Button></div></section></div>}
 
-      {createClientOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateClientOpen(false); }}><form className="panel form-panel form-modal client-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-client-title" onSubmit={(event) => { event.preventDefault(); void createClient(); }}><div className="section-title"><h2 id="create-client-title">إنشاء عميل</h2><span /><button className="plain-icon" type="button" aria-label={t.close} onClick={() => setCreateClientOpen(false)}><X size={18} /></button></div><label><span>رقم الهاتف</span><div className="field"><input value={customerPhone} readOnly /></div></label><label><span>اسم العميل</span><div className="field"><input autoFocus value={newClientName} onChange={(event) => setNewClientName(event.target.value)} /></div></label><div className="button-row"><button className="ghost-button" type="button" onClick={() => setCreateClientOpen(false)}>{t.close}</button><button className="gold-button" type="submit" disabled={!newClientName.trim()}><Save size={17} /> إنشاء العميل</button></div></form></div>}
+      {createClientOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateClientOpen(false); }}>
+        <form className="panel form-panel form-modal client-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-client-title" onSubmit={(event) => { event.preventDefault(); void createClient(); }}>
+          <div className="section-title"><h2 id="create-client-title">إنشاء عميل</h2><span /><button className="plain-icon" type="button" aria-label={t.close} onClick={() => setCreateClientOpen(false)}><X size={18} /></button></div>
+          <TextField label="رقم الهاتف" value={customerPhone} readOnly />
+          <TextField label="اسم العميل" autoFocus value={newClientName} onValueChange={setNewClientName} />
+          <div className="button-row"><Button type="button" onClick={() => setCreateClientOpen(false)}>{t.close}</Button><Button variant="primary" type="submit" disabled={!newClientName.trim()}><Save size={17} /> إنشاء العميل</Button></div>
+        </form>
+      </div>}
 
       {receipt && <ReceiptModal sale={receipt} language={language} onClose={() => setReceipt(null)} />}
     </section>

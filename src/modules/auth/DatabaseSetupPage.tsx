@@ -3,6 +3,7 @@ import { Database, Server, User } from "lucide-react";
 import { api } from "../../shared/api";
 import { showErrorToast, showToast } from "../../shared/toast";
 import { PostgresConfig } from "../../shared/types";
+import { Button, TextField } from "../../shared/ui";
 import openzeyLogo from "../../assets/openzey-logo.png";
 
 export function DatabaseSetupPage({ onConfigured }: { onConfigured: () => void }) {
@@ -42,29 +43,14 @@ export function DatabaseSetupPage({ onConfigured }: { onConfigured: () => void }
         </div>
         <h2>إعداد قاعدة البيانات</h2>
         <p className="helper-text">أدخل معلومات خادم PostgreSQL. سيتم إنشاء قاعدة البيانات إذا كان المستخدم يملك الصلاحية.</p>
-        <label>
-          <span>الخادم</span>
-          <div className="field"><Server size={18} /><input value={form.host} onChange={(event) => setForm({ ...form, host: event.target.value })} /></div>
-        </label>
-        <label>
-          <span>المنفذ</span>
-          <div className="field"><input type="number" value={form.port} onChange={(event) => setForm({ ...form, port: Number(event.target.value) })} /></div>
-        </label>
-        <label>
-          <span>قاعدة البيانات</span>
-          <div className="field"><Database size={18} /><input value={form.database} onChange={(event) => setForm({ ...form, database: event.target.value })} /></div>
-        </label>
-        <label>
-          <span>المستخدم</span>
-          <div className="field"><User size={18} /><input value={form.user} onChange={(event) => setForm({ ...form, user: event.target.value })} /></div>
-        </label>
-        <label>
-          <span>كلمة المرور</span>
-          <div className="field"><input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></div>
-        </label>
-        <button className="gold-button" type="submit" disabled={saving}>
+        <TextField label="الخادم" icon={<Server size={18} />} value={form.host} onValueChange={(host) => setForm({ ...form, host })} />
+        <TextField label="المنفذ" type="number" value={form.port} onValueChange={(port) => setForm({ ...form, port: Number(port) })} />
+        <TextField label="قاعدة البيانات" icon={<Database size={18} />} value={form.database} onValueChange={(database) => setForm({ ...form, database })} />
+        <TextField label="المستخدم" icon={<User size={18} />} value={form.user} onValueChange={(user) => setForm({ ...form, user })} />
+        <TextField label="كلمة المرور" type="password" value={form.password} onValueChange={(password) => setForm({ ...form, password })} />
+        <Button variant="primary" type="submit" disabled={saving}>
           {saving ? "جاري الاتصال..." : "حفظ الإعداد"}
-        </button>
+        </Button>
       </form>
     </main>
   );

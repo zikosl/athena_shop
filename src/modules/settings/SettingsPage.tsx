@@ -4,6 +4,7 @@ import { api } from "../../shared/api";
 import { useText } from "../../shared/i18n";
 import { showErrorToast, showToast } from "../../shared/toast";
 import { AppSettings, Language, UserSession } from "../../shared/types";
+import { Button, SectionHeader, SelectField, TextField } from "../../shared/ui";
 
 const zoomStep = 5;
 type SettingsTab = "profile" | "interface" | "printing" | "system";
@@ -163,7 +164,7 @@ export function SettingsPage({
 
   return (
     <section className="panel settings-panel">
-      <div className="section-title"><h2>{t.settings}</h2><span /></div>
+      <SectionHeader title={t.settings} />
       <div className="segmented wide settings-tabs">
         <button type="button" className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>الحساب</button>
         <button type="button" className={tab === "interface" ? "active" : ""} onClick={() => setTab("interface")}>الواجهة</button>
@@ -174,10 +175,10 @@ export function SettingsPage({
       <form className="setting-row profile-editor" onSubmit={submit} style={{ display: tab === "profile" ? undefined : "none" }}>
         <div><UserRound size={22} /><strong>{t.adminAccount}</strong><span>{user.role}</span></div>
         <div className="profile-fields">
-          <label><span>{t.username}</span><div className="field"><input value={profile.username} onChange={(event) => setProfile({ ...profile, username: event.target.value })} /></div></label>
-          <label><span>الاسم المعروض</span><div className="field"><input value={profile.display_name} onChange={(event) => setProfile({ ...profile, display_name: event.target.value })} /></div></label>
-          <label><span>كلمة مرور جديدة</span><div className="field"><input type="password" value={profile.password} onChange={(event) => setProfile({ ...profile, password: event.target.value })} /></div></label>
-          <button className="gold-button" disabled={!profile.username.trim() || !profile.display_name.trim()}><Save size={18} /> {t.save}</button>
+          <TextField label={t.username} value={profile.username} onValueChange={(username) => setProfile({ ...profile, username })} />
+          <TextField label="الاسم المعروض" value={profile.display_name} onValueChange={(display_name) => setProfile({ ...profile, display_name })} />
+          <TextField label="كلمة مرور جديدة" type="password" value={profile.password} onValueChange={(password) => setProfile({ ...profile, password })} />
+          <Button variant="primary" disabled={!profile.username.trim() || !profile.display_name.trim()}><Save size={18} /> {t.save}</Button>
         </div>
       </form>
 
@@ -225,9 +226,9 @@ export function SettingsPage({
             </div>
           </label>
           <p className="helper-text">يمكن التبديل بين الوضع الفاتح والداكن من الشريط العلوي. اللون المختار يعمل في الوضعين تلقائيًا.</p>
-          <button className="gold-button" type="button" disabled={savingSettings} onClick={() => void saveSettings()}>
+          <Button variant="primary" type="button" disabled={savingSettings} onClick={() => void saveSettings()}>
             <Save size={18} /> {savingSettings ? "جار الحفظ..." : t.save}
-          </button>
+          </Button>
         </div>
       </article>
 
@@ -242,7 +243,7 @@ export function SettingsPage({
           <label className="toggle-row"><input type="checkbox" checked={settings.enable_tobacco} onChange={(event) => setSettings({ ...settings, enable_tobacco: event.target.checked })} /><span>التبغ</span></label>
           <label className="toggle-row"><input type="checkbox" checked={settings.enable_flexy} onChange={(event) => setSettings({ ...settings, enable_flexy: event.target.checked })} /><span>Flexy</span></label>
           <label className="toggle-row"><input type="checkbox" checked={settings.enable_printing} onChange={(event) => setSettings({ ...settings, enable_printing: event.target.checked })} /><span>خدمات الطباعة</span></label>
-          <button className="gold-button" type="button" disabled={savingSettings} onClick={() => void saveSettings()}><Save size={18} /> {t.save}</button>
+          <Button variant="primary" type="button" disabled={savingSettings} onClick={() => void saveSettings()}><Save size={18} /> {t.save}</Button>
         </div>
       </article>
 
@@ -278,7 +279,7 @@ export function SettingsPage({
             </div>
           </label>
           <p className="helper-text">الوضع المضغوط مناسب لشاشات 1024px لأنه يقلل المسافات ويحافظ على البيانات ظاهرة.</p>
-          <button className="gold-button" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</button>
+          <Button variant="primary" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</Button>
         </div>
       </article>
 
@@ -311,7 +312,7 @@ export function SettingsPage({
             </div>
           </label>
           <p className="helper-text">على الشاشات الضيقة اختر العرض التلقائي لتوفير مساحة المنتجات.</p>
-          <button className="gold-button" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</button>
+          <Button variant="primary" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</Button>
         </div>
       </article>
 
@@ -330,16 +331,10 @@ export function SettingsPage({
             />
             <span>السماح بالمخزون السالب</span>
           </label>
-          <label>
-            <span>وقت غلق الصندوق تلقائيا</span>
-            <div className="field"><input type="time" value={settings.cash_register_auto_close_time} onChange={(event) => setSettings({ ...settings, cash_register_auto_close_time: event.target.value })} /></div>
-          </label>
-          <label>
-            <span>أقصى مبلغ للتخفيض</span>
-            <div className="field"><input type="number" min={0} value={settings.max_discount_amount === 0 ? "" : settings.max_discount_amount} onChange={(event) => setSettings({ ...settings, max_discount_amount: Math.max(0, Number(event.target.value)) })} /></div>
-          </label>
+          <TextField label="وقت غلق الصندوق تلقائيا" type="time" value={settings.cash_register_auto_close_time} onValueChange={(cash_register_auto_close_time) => setSettings({ ...settings, cash_register_auto_close_time })} />
+          <TextField label="أقصى مبلغ للتخفيض" type="number" min={0} value={settings.max_discount_amount} onValueChange={(value) => setSettings({ ...settings, max_discount_amount: Math.max(0, Number(value)) })} />
           <p className="helper-text">عند التفعيل يمكن أن تصبح كمية المنتج سالبة في البيع أو الإخراج. عند الإيقاف يمنع النظام أي عملية تتجاوز الكمية المتوفرة.</p>
-          <button className="gold-button" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</button>
+          <Button variant="primary" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</Button>
         </div>
       </article>
 
@@ -350,26 +345,10 @@ export function SettingsPage({
           <span>اختر طابعة مخصصة للفواتير وطابعة أخرى لملصقات الباركود.</span>
         </div>
         <div className="profile-fields">
-          <label>
-            <span>طابعة فاتورة نقطة البيع</span>
-            <div className="field">
-              <select value={settings.invoice_printer} onChange={(event) => setSettings({ ...settings, invoice_printer: event.target.value })}>
-                <option value="">الطابعة الافتراضية</option>
-                {printers.map((printer) => <option key={printer} value={printer}>{printer}</option>)}
-              </select>
-            </div>
-          </label>
-          <label>
-            <span>طابعة ملصقات الباركود</span>
-            <div className="field">
-              <select value={settings.barcode_printer} onChange={(event) => setSettings({ ...settings, barcode_printer: event.target.value })}>
-                <option value="">الطابعة الافتراضية</option>
-                {printers.map((printer) => <option key={printer} value={printer}>{printer}</option>)}
-              </select>
-            </div>
-          </label>
+          <SelectField label="طابعة فاتورة نقطة البيع" value={settings.invoice_printer} onValueChange={(invoice_printer) => setSettings({ ...settings, invoice_printer })} options={[{ value: "", label: "الطابعة الافتراضية" }, ...printers.map((printer) => ({ value: printer, label: printer }))]} />
+          <SelectField label="طابعة ملصقات الباركود" value={settings.barcode_printer} onValueChange={(barcode_printer) => setSettings({ ...settings, barcode_printer })} options={[{ value: "", label: "الطابعة الافتراضية" }, ...printers.map((printer) => ({ value: printer, label: printer }))]} />
           {!printers.length && <p className="helper-text">لم يتم العثور على طابعات. تأكد من إعدادات Windows ثم أعد فتح الصفحة.</p>}
-          <button className="gold-button" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</button>
+          <Button variant="primary" type="button" onClick={() => void saveSettings()}><Save size={18} /> {t.save}</Button>
         </div>
       </article>
 
@@ -380,14 +359,8 @@ export function SettingsPage({
           <span>إعدادات منفصلة لتذكرة البيع وملصق الباركود، مناسبة لمقاسات 20x40 مم.</span>
         </div>
         <div className="profile-fields">
-          <label>
-            <span>عنوان الفاتورة</span>
-            <div className="field"><input value={settings.receipt_title} onChange={(event) => setSettings({ ...settings, receipt_title: event.target.value })} /></div>
-          </label>
-          <label>
-            <span>العنوان الفرعي</span>
-            <div className="field"><input value={settings.receipt_subtitle} onChange={(event) => setSettings({ ...settings, receipt_subtitle: event.target.value })} /></div>
-          </label>
+          <TextField label="عنوان الفاتورة" value={settings.receipt_title} onValueChange={(receipt_title) => setSettings({ ...settings, receipt_title })} />
+          <TextField label="العنوان الفرعي" value={settings.receipt_subtitle} onValueChange={(receipt_subtitle) => setSettings({ ...settings, receipt_subtitle })} />
           <label className="toggle-row">
             <input
               type="checkbox"
@@ -396,18 +369,9 @@ export function SettingsPage({
             />
             <span>إظهار الشعار في الفاتورة</span>
           </label>
-          <label>
-            <span>عرض نص الفاتورة بالحروف</span>
-            <div className="field"><input type="number" min={24} max={48} value={settings.ticket_width_chars} onChange={(event) => setSettings({ ...settings, ticket_width_chars: Number(event.target.value) })} /></div>
-          </label>
-          <label>
-            <span>عرض ملصق الباركود بالملم</span>
-            <div className="field"><input type="number" min={20} max={100} value={settings.barcode_label_width_mm} onChange={(event) => setSettings({ ...settings, barcode_label_width_mm: Number(event.target.value) })} /></div>
-          </label>
-          <label>
-            <span>ارتفاع ملصق الباركود بالملم</span>
-            <div className="field"><input type="number" min={10} max={80} value={settings.barcode_label_height_mm} onChange={(event) => setSettings({ ...settings, barcode_label_height_mm: Number(event.target.value) })} /></div>
-          </label>
+          <TextField label="عرض نص الفاتورة بالحروف" type="number" min={24} max={48} value={settings.ticket_width_chars} onValueChange={(value) => setSettings({ ...settings, ticket_width_chars: Number(value) })} />
+          <TextField label="عرض ملصق الباركود بالملم" type="number" min={20} max={100} value={settings.barcode_label_width_mm} onValueChange={(value) => setSettings({ ...settings, barcode_label_width_mm: Number(value) })} />
+          <TextField label="ارتفاع ملصق الباركود بالملم" type="number" min={10} max={80} value={settings.barcode_label_height_mm} onValueChange={(value) => setSettings({ ...settings, barcode_label_height_mm: Number(value) })} />
           <label className="barcode-range-field">
             <span>كثافة طباعة الباركود: {settings.barcode_darkness}/5</span>
             <input
@@ -428,7 +392,7 @@ export function SettingsPage({
             </div>
           </label>
           <p className="helper-text">لملصقات 20x40 مم اجعل العرض 40 والارتفاع 20. إذا كان الباركود لا يقرأ، جرّب تقليل طول اسم المنتج أو زيادة الارتفاع قليلا.</p>
-          <button className="gold-button" type="button" disabled={savingSettings} onClick={() => void saveSettings()}><Save size={18} /> {savingSettings ? "جار الحفظ..." : t.save}</button>
+          <Button variant="primary" type="button" disabled={savingSettings} onClick={() => void saveSettings()}><Save size={18} /> {savingSettings ? "جار الحفظ..." : t.save}</Button>
         </div>
       </article>
 

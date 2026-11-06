@@ -12,6 +12,7 @@ import {
   SupplierPayment,
   UserSession
 } from "../../shared/types";
+import { Button, SelectField, TextAreaField, TextField } from "../../shared/ui";
 
 type Tab = "suppliers" | "orders" | "payments";
 type DraftLine = { product_id: number; quantity: number; purchase_price: number; price_mode: "unit" | "total" };
@@ -203,12 +204,12 @@ export function SuppliersPage({
         <div className="modal-backdrop">
           <form className="panel compact-form-modal supplier-form-modal" onSubmit={saveSupplier}>
             <div className="section-title"><h2>مورد</h2><span /><button className="ghost-button compact-button" type="button" onClick={() => setSupplierForm(null)}><X size={16} /> إغلاق</button></div>
-            <label><span>الاسم</span><div className="field"><input value={supplierForm.name} onChange={(event) => setSupplierForm({ ...supplierForm, name: event.target.value })} /></div></label>
-            <label><span>الهاتف</span><div className="field"><input value={supplierForm.phone} onChange={(event) => setSupplierForm({ ...supplierForm, phone: event.target.value })} /></div></label>
-            <label><span>العنوان</span><div className="field"><input value={supplierForm.address} onChange={(event) => setSupplierForm({ ...supplierForm, address: event.target.value })} /></div></label>
-            <label><span>ملاحظة</span><textarea value={supplierForm.note} onChange={(event) => setSupplierForm({ ...supplierForm, note: event.target.value })} /></label>
+            <TextField label="الاسم" value={supplierForm.name} onValueChange={(name) => setSupplierForm({ ...supplierForm, name })} />
+            <TextField label="الهاتف" value={supplierForm.phone} onValueChange={(phone) => setSupplierForm({ ...supplierForm, phone })} />
+            <TextField label="العنوان" value={supplierForm.address} onValueChange={(address) => setSupplierForm({ ...supplierForm, address })} />
+            <TextAreaField label="ملاحظة" value={supplierForm.note} onValueChange={(note) => setSupplierForm({ ...supplierForm, note })} />
             <label className="toggle-row"><input type="checkbox" checked={supplierForm.active} onChange={(event) => setSupplierForm({ ...supplierForm, active: event.target.checked })} /><span>نشط</span></label>
-            <button className="gold-button" disabled={!supplierForm.name.trim()}><Save size={18} /> حفظ</button>
+            <Button variant="primary" disabled={!supplierForm.name.trim()}><Save size={18} /> حفظ</Button>
           </form>
         </div>
       )}
@@ -411,9 +412,9 @@ function PurchaseOrderForm({
               <div className="quick-supplier-panel">
                 <div className="quick-supplier-title"><span><Plus size={16} /> مورد جديد</span><button type="button" className="plain-icon" onClick={() => setQuickSupplier(null)}><X size={15} /></button></div>
                 <div className="quick-supplier-grid">
-                  <label><span>الاسم *</span><div className="field"><input autoFocus value={quickSupplier.name} onChange={(event) => setQuickSupplier({ ...quickSupplier, name: event.target.value })} /></div></label>
-                  <label><span>الهاتف</span><div className="field"><input value={quickSupplier.phone} onChange={(event) => setQuickSupplier({ ...quickSupplier, phone: event.target.value })} /></div></label>
-                  <label><span>العنوان</span><div className="field"><input value={quickSupplier.address} onChange={(event) => setQuickSupplier({ ...quickSupplier, address: event.target.value })} /></div></label>
+                  <TextField label="الاسم *" autoFocus value={quickSupplier.name} onValueChange={(name) => setQuickSupplier({ ...quickSupplier, name })} />
+                  <TextField label="الهاتف" value={quickSupplier.phone} onValueChange={(phone) => setQuickSupplier({ ...quickSupplier, phone })} />
+                  <TextField label="العنوان" value={quickSupplier.address} onValueChange={(address) => setQuickSupplier({ ...quickSupplier, address })} />
                 </div>
                 <div className="button-row">
                   <button className="gold-button compact-button" type="button" disabled={!quickSupplier.name.trim() || savingSupplier} onClick={() => void createQuickSupplier()}><Save size={16} /> {savingSupplier ? "جار الحفظ..." : "إنشاء واختيار"}</button>
@@ -422,15 +423,15 @@ function PurchaseOrderForm({
               </div>
             )}
           </div>
-          <label><span>ملاحظة</span><div className="field"><input value={note} onChange={(event) => setNote(event.target.value)} /></div></label>
+          <TextField label="ملاحظة" value={note} onValueChange={setNote} />
         </div>
         <div className="purchase-lines">
           {lines.map((line, index) => (
             <article className="purchase-line" key={index}>
-              <label><span>المنتج</span><div className="field"><select value={line.product_id} onChange={(event) => updateLine(index, { ...line, product_id: Number(event.target.value) })}>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></div></label>
-              <label><span>الكمية</span><div className="field"><input type="number" min={1} value={line.quantity} onChange={(event) => updateLine(index, { ...line, quantity: Math.max(1, Number(event.target.value)) })} /></div></label>
+              <SelectField label="المنتج" value={String(line.product_id)} onValueChange={(value) => updateLine(index, { ...line, product_id: Number(value) })} options={products.map((product) => ({ value: String(product.id), label: product.name }))} />
+              <TextField label="الكمية" type="number" min={1} value={line.quantity} onValueChange={(value) => updateLine(index, { ...line, quantity: Math.max(1, Number(value)) })} />
               <label><span>طريقة السعر</span><div className="segmented wide"><button className={line.price_mode === "unit" ? "active" : ""} type="button" onClick={() => updateLine(index, { ...line, price_mode: "unit" })}>سعر القطعة</button><button className={line.price_mode === "total" ? "active" : ""} type="button" onClick={() => updateLine(index, { ...line, price_mode: "total" })}>سعر الكمية</button></div></label>
-              <label><span>{line.price_mode === "unit" ? "سعر القطعة" : "سعر الكمية كاملة"}</span><div className="field"><input type="number" min={0} value={line.purchase_price === 0 ? "" : line.purchase_price} onChange={(event) => updateLine(index, { ...line, purchase_price: Math.max(0, Number(event.target.value)) })} /></div></label>
+              <TextField label={line.price_mode === "unit" ? "سعر القطعة" : "سعر الكمية كاملة"} type="number" min={0} value={line.purchase_price} onValueChange={(value) => updateLine(index, { ...line, purchase_price: Math.max(0, Number(value)) })} />
               <strong>{money(line.quantity * unitPrice(line))}</strong>
               <button className="plain-icon danger-action" type="button" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, lineIndex) => lineIndex !== index))}><X size={16} /></button>
             </article>
@@ -504,14 +505,14 @@ function PurchaseOrderDetail({
         </div>
         {order.status === "draft" ? (
           <div className="form-grid">
-            <label><span>المدفوع الآن</span><div className="field"><input type="number" min={0} max={order.subtotal} value={paidAmount === 0 ? "" : paidAmount} onChange={(event) => setPaidAmount(Number(event.target.value))} /></div></label>
+            <TextField label="المدفوع الآن" type="number" min={0} max={order.subtotal} value={paidAmount} onValueChange={(value) => setPaidAmount(Number(value))} />
             <button className="ghost-button" type="button" onClick={() => onEdit(order)}>تعديل المسودة</button>
             <button className="gold-button" type="button" onClick={() => void confirmOrder()}><CheckCircle2 size={18} /> تأكيد القسيمة</button>
           </div>
         ) : order.remaining_amount > 0 ? (
           <div className="form-grid">
-            <label><span>دفعة جديدة</span><div className="field"><input type="number" min={0} max={order.remaining_amount} value={paymentAmount === 0 ? "" : paymentAmount} onChange={(event) => setPaymentAmount(Number(event.target.value))} /></div></label>
-            <label><span>ملاحظة</span><div className="field"><input value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} /></div></label>
+            <TextField label="دفعة جديدة" type="number" min={0} max={order.remaining_amount} value={paymentAmount} onValueChange={(value) => setPaymentAmount(Number(value))} />
+            <TextField label="ملاحظة" value={paymentNote} onValueChange={setPaymentNote} />
             <button className="gold-button" type="button" onClick={() => void addPayment()}><HandCoins size={18} /> إضافة دفعة</button>
           </div>
         ) : <p className="helper-text">تم دفع هذه القسيمة بالكامل.</p>}

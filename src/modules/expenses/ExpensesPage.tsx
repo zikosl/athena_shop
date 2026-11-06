@@ -5,6 +5,7 @@ import { money, todayInputValue } from "../../shared/format";
 import { useText } from "../../shared/i18n";
 import { showErrorToast, showToast } from "../../shared/toast";
 import { Expense, ExpenseInput, Language } from "../../shared/types";
+import { Button, SectionHeader, TextAreaField, TextField } from "../../shared/ui";
 
 function newExpense(): ExpenseInput {
   return {
@@ -96,13 +97,11 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
   return (
     <>
       <section className="panel table-panel full">
-        <div className="section-title">
-          <h2>{t.expenses}</h2>
-          <span />
-          <button className="gold-button compact-button" type="button" onClick={openNewExpense}>
+        <SectionHeader title={t.expenses}>
+          <Button variant="primary" size="compact" type="button" onClick={openNewExpense}>
             <Plus size={17} /> {t.expenses}
-          </button>
-        </div>
+          </Button>
+        </SectionHeader>
         <div className="filter-row">
           <div className="searchbar"><Search size={18} /><input placeholder={t.searchExpenses} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
           <select aria-label={t.category} value={category} onChange={(event) => setCategory(event.target.value)}>
@@ -139,11 +138,11 @@ export function ExpensesPage({ language, onChanged }: { language: Language; onCh
               <span />
               <button className="ghost-button compact-button" type="button" onClick={() => setFormOpen(false)}><X size={16} /> {t.close}</button>
             </div>
-            <label><span>{t.label}</span><div className="field"><input value={form.label} onChange={(event) => setForm({ ...form, label: event.target.value })} /></div></label>
-            <label><span>{t.category}</span><div className="field"><input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} /></div></label>
-            <label><span>{t.amount}</span><div className="field"><input type="number" min={0} step="0.01" value={form.amount === 0 ? "" : form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} /></div></label>
-            <label><span>{t.date}</span><div className="field"><input type="date" value={form.expense_date} onChange={(event) => setForm({ ...form, expense_date: event.target.value })} /></div></label>
-            <label><span>{t.note}</span><textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>
+            <TextField label={t.label} value={form.label} onValueChange={(label) => setForm({ ...form, label })} />
+            <TextField label={t.category} value={form.category} onValueChange={(category) => setForm({ ...form, category })} />
+            <TextField label={t.amount} type="number" min={0} step="0.01" value={form.amount} onValueChange={(value) => setForm({ ...form, amount: Number(value) })} />
+            <TextField label={t.date} type="date" value={form.expense_date} onValueChange={(expense_date) => setForm({ ...form, expense_date })} />
+            <TextAreaField label={t.note} value={form.note} onValueChange={(note) => setForm({ ...form, note })} />
             <button className="gold-button" disabled={!form.label.trim() || form.amount <= 0}><Save size={18} /> {t.save}</button>
           </form>
         </div>

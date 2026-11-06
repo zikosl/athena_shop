@@ -37,6 +37,7 @@ import { appDateLabel, hijriDateLabel, money } from "../shared/format";
 import { useText } from "../shared/i18n";
 import { AppToast, showErrorToast, showToast } from "../shared/toast";
 import { AppSettings, CashShift, Language, ProductStockFilter, UserSession, ViewKey } from "../shared/types";
+import { Button, SectionHeader, TextField } from "../shared/ui";
 import openzeyLogo from "../assets/openzey-logo.png";
 import openzeyLogoWhite from "../assets/openzey-logo-white.png";
 
@@ -519,7 +520,7 @@ function CashShiftModal({
   return (
     <div className="modal-backdrop">
       <section className="panel compact-form-modal cash-shift-modal">
-        <div className="section-title"><h2><CircleDollarSign size={18} /> الصندوق</h2><span /></div>
+        <SectionHeader title={<><CircleDollarSign size={18} /> الصندوق</>} />
         {shift ? (
           <div className="cash-shift-body">
             <div className="summary-strip compact">
@@ -532,17 +533,17 @@ function CashShiftModal({
             </div>
             <p className="helper-text">{"عند الغلق سيسجل النظام المبلغ المتوقع تلقائيا بدون إدخال مبلغ."}</p>
             <div className="modal-actions">
-              <button className="gold-button" type="button" disabled={busy} onClick={() => void closeCaisse()}>{busy ? "جار الغلق..." : "غلق الصندوق"}</button>
-              <button className="ghost-button" type="button" disabled={busy} onClick={onClose}>إغلاق</button>
+              <Button variant="primary" type="button" disabled={busy} onClick={() => void closeCaisse()}>{busy ? "جار الغلق..." : "غلق الصندوق"}</Button>
+              <Button type="button" disabled={busy} onClick={onClose}>إغلاق</Button>
             </div>
           </div>
         ) : (
           <div className="cash-shift-body">
-            <label><span>مبلغ الفتح</span><div className="field"><input type="number" min={0} value={openingAmount === 0 ? "" : openingAmount} onChange={(event) => setOpeningAmount(Number(event.target.value))} /></div></label>
+            <TextField label="مبلغ الفتح" type="number" min={0} value={openingAmount} onValueChange={(value) => setOpeningAmount(Number(value))} />
             <p className="helper-text">{"وقت الغلق التلقائي يحدده المدير من الإعدادات."}</p>
             <div className="modal-actions">
-              <button className="gold-button" type="button" disabled={busy} onClick={() => void openCaisse()}>{busy ? "جار الفتح..." : "فتح الصندوق"}</button>
-              <button className="ghost-button" type="button" disabled={busy} onClick={onClose}>إغلاق</button>
+              <Button variant="primary" type="button" disabled={busy} onClick={() => void openCaisse()}>{busy ? "جار الفتح..." : "فتح الصندوق"}</Button>
+              <Button type="button" disabled={busy} onClick={onClose}>إغلاق</Button>
             </div>
           </div>
         )}

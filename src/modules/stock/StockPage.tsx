@@ -1,4 +1,4 @@
-﻿import { FormEvent, MouseEvent, ReactNode, useEffect, useMemo, useState } from "react";
+﻿import { FormEvent, MouseEvent, useEffect, useMemo, useState } from "react";
 import { Barcode, ClipboardList, Coins, Edit3, History, ImagePlus, PackageMinus, PackagePlus, Plus, RefreshCcw, Save, Search, Tag, Trash2, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { api } from "../../shared/api";
@@ -6,6 +6,7 @@ import { money, productStockValues } from "../../shared/format";
 import { useText } from "../../shared/i18n";
 import { showErrorToast, showToast } from "../../shared/toast";
 import { Language, Product, ProductInput, ProductStockFilter, StockMovement } from "../../shared/types";
+import { Button, SectionHeader, SelectField, TextAreaField, TextField } from "../../shared/ui";
 
 const emptyProduct: ProductInput = {
   name: "",
@@ -179,7 +180,7 @@ export function StockPage({
   }
 
   function openNewProduct() {
-    setForm(newProduct());
+    setForm({ ...newProduct(), category: categories.includes("Products") ? "Products" : categories[0] ?? "" });
     setFormOpen(true);
   }
 
@@ -362,21 +363,20 @@ export function StockPage({
   return (
     <>
       <section className="panel table-panel full">
-        <div className="section-title">
-          <h2><ClipboardList size={18} /> {t.stock}</h2>
-          <button className="gold-button compact-button" type="button" onClick={openNewProduct}>
+        <SectionHeader title={<><ClipboardList size={18} /> {t.stock}</>}>
+          <Button variant="primary" size="compact" type="button" onClick={openNewProduct}>
             <Plus size={17} /> {t.newProduct}
-          </button>
-          <button className="ghost-button compact-button" type="button" onClick={() => { setCategoryDraft(""); setEditingCategory(""); setCategoryManagerOpen(true); }}>
+          </Button>
+          <Button size="compact" type="button" onClick={() => { setCategoryDraft(""); setEditingCategory(""); setCategoryManagerOpen(true); }}>
             <Tag size={16} /> إدارة الأصناف
-          </button>
-          <button className="ghost-button compact-button" type="button" disabled={regeneratingBarcodes} onClick={() => void regenerateAllBarcodes()} title="إعادة إنشاء باركود EAN-8 لكل المخزون">
+          </Button>
+          <Button size="compact" type="button" disabled={regeneratingBarcodes} onClick={() => void regenerateAllBarcodes()} title="إعادة إنشاء باركود EAN-8 لكل المخزون">
             <Barcode size={16} /> {regeneratingBarcodes ? "جاري التوليد..." : "تجديد الباركود"}
-          </button>
-          <button className={inventoryMode ? "gold-button compact-button" : "ghost-button compact-button"} onClick={toggleInventory}>
+          </Button>
+          <Button variant={inventoryMode ? "primary" : "secondary"} size="compact" onClick={toggleInventory}>
             <ClipboardList size={17} /> {t.inventory}
-          </button>
-        </div>
+          </Button>
+        </SectionHeader>
         <div className="summary-strip stock-summary">
           <article><span>{t.stockPurchaseValue}</span><strong>{money(stockTotals.purchaseValue)}</strong></article>
           <article><span>{t.stockRevenueValue}</span><strong>{money(stockTotals.revenueValue)}</strong></article>
@@ -501,16 +501,16 @@ export function StockPage({
             }} disabled={!!form.id}><option value="standard">عادي</option><option value="flexy">Flexy</option><option value="tobacco">تبغ</option><option value="printing">طباعة</option></select></label>
             <div className="form-section-heading"><strong>البيانات الأساسية</strong></div>
             <div className="form-grid product-core-grid">
-              <Input label={t.product} value={form.name} onChange={(name) => setForm({ ...form, name })} />
-              {form.custom_type === "standard" && <Input label={t.salePrice} type="number" value={form.sale_price} onChange={(value) => setForm({ ...form, sale_price: Number(value) })} />}
-              {!form.id && form.custom_type === "standard" && <Input label="الكمية الأولية" type="number" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity: Number(quantity) })} />}
-              {!form.id && form.custom_type === "flexy" && <Input label="رصيد Flexy المتاح أوليًا (دج)" type="number" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity: Number(quantity) })} />}
-              {form.custom_type === "standard" && <Input label={t.alert} type="number" value={form.low_stock_threshold} onChange={(value) => setForm({ ...form, low_stock_threshold: Number(value) })} />}
+              <TextField label={t.product} value={form.name} onValueChange={(name) => setForm({ ...form, name })} />
+              {form.custom_type === "standard" && <TextField label={t.salePrice} type="number" value={form.sale_price} onValueChange={(value) => setForm({ ...form, sale_price: Number(value) })} />}
+              {!form.id && form.custom_type === "standard" && <TextField label="الكمية الأولية" type="number" value={form.quantity} onValueChange={(quantity) => setForm({ ...form, quantity: Number(quantity) })} />}
+              {!form.id && form.custom_type === "flexy" && <TextField label="رصيد Flexy المتاح أوليًا (دج)" type="number" value={form.quantity} onValueChange={(quantity) => setForm({ ...form, quantity: Number(quantity) })} />}
+              {form.custom_type === "standard" && <TextField label={t.alert} type="number" value={form.low_stock_threshold} onValueChange={(value) => setForm({ ...form, low_stock_threshold: Number(value) })} />}
             </div>
             <div className="form-section-heading"><strong>تفاصيل المنتج</strong></div>
             <div className="form-grid product-details-grid">
-              <Input label={t.category} value={form.category} list="product-categories" onChange={(category) => setForm({ ...form, category })} />
-              {form.custom_type === "standard" && <Input label={t.barcode} value={form.barcode} icon={<Barcode size={16} />} onChange={(barcode) => setForm({ ...form, barcode: barcode.replace(/\D/g, "").slice(0, 8) })} />}
+              <SelectField label={t.category} required value={form.category} placeholder={categories.length ? "اختر الصنف" : "لا توجد أصناف؛ أضف صنفًا من إدارة الأصناف"} onValueChange={(category) => setForm({ ...form, category })} options={[...(form.category && !categories.includes(form.category) ? [{ value: form.category, label: form.category }] : []), ...categories.map((item) => ({ value: item, label: item }))]} />
+              {form.custom_type === "standard" && <TextField label={t.barcode} value={form.barcode} icon={<Barcode size={16} />} onValueChange={(barcode) => setForm({ ...form, barcode: barcode.replace(/\D/g, "").slice(0, 8) })} />}
             </div>
             <div className={`custom-settings-section ${form.custom_type === "standard" ? "is-standard" : ""} ${form.custom_type === "flexy" ? "is-flexy" : ""}`}>
               {form.custom_type === "flexy" && <div className="field form-wide flexy-tier-editor">
@@ -519,20 +519,17 @@ export function StockPage({
                   {(form.custom_config?.surcharge_tiers ?? []).map((tier, index, tiers) => (
                     <div className="flexy-tier-row" key={index}>
                       <span className="tier-index">{index + 1}</span>
-                      <Input label="حتى (دج)" type="number" value={tier.up_to ?? ""} placeholder={tier.up_to === null ? "بدون حد" : ""} onChange={(value) => updateTier(index, "up_to", value === "" ? null : Number(value))} />
-                      <Input label="الرسم (دج)" type="number" value={tier.surcharge} onChange={(value) => updateTier(index, "surcharge", Number(value))} />
+                      <TextField label="حتى (دج)" type="number" value={tier.up_to ?? ""} placeholder={tier.up_to === null ? "بدون حد" : ""} onValueChange={(value) => updateTier(index, "up_to", value === "" ? null : Number(value))} />
+                      <TextField label="الرسم (دج)" type="number" value={tier.surcharge} onValueChange={(value) => updateTier(index, "surcharge", Number(value))} />
                       <button type="button" className="plain-icon flexy-tier-delete" aria-label="حذف الشريحة" title="حذف الشريحة" onClick={() => setForm({ ...form, custom_config: { ...form.custom_config, surcharge_tiers: tiers.filter((_, i) => i !== index) } })}><Trash2 size={17} /></button>
                     </div>
                   ))}
                 </div>
                 <button type="button" className="ghost-button tier-add-button" onClick={() => setForm({ ...form, custom_config: { ...form.custom_config, surcharge_tiers: [...(form.custom_config?.surcharge_tiers ?? []), { up_to: null, surcharge: 0 }] } })}><Plus size={16} /> إضافة شريحة</button>
               </div>}
-              {form.custom_type === "tobacco" && <><Input label="عدد القطع في العلبة" type="number" value={form.custom_config?.pieces_per_box ?? 10} onChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, pieces_per_box: Number(value) } })} /><Input label="سعر بيع القطعة" type="number" value={form.custom_config?.piece_sale_price ?? 0} onChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, piece_sale_price: Number(value) } })} /><Input label="سعر بيع العلبة" type="number" value={form.custom_config?.box_sale_price ?? 0} onChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, box_sale_price: Number(value) } })} /></>}
-              {form.custom_type === "printing" && <><Input label="سعر Recto" type="number" value={form.custom_config?.recto_price ?? 0} onChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, recto_price: Number(value) } })} /><Input label="سعر Recto-verso" type="number" value={form.custom_config?.recto_verso_price ?? 0} onChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, recto_verso_price: Number(value) } })} /></>}
+              {form.custom_type === "tobacco" && <><TextField label="عدد القطع في العلبة" type="number" value={form.custom_config?.pieces_per_box ?? 10} onValueChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, pieces_per_box: Number(value) } })} /><TextField label="سعر بيع القطعة" type="number" value={form.custom_config?.piece_sale_price ?? 0} onValueChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, piece_sale_price: Number(value) } })} /><TextField label="سعر بيع العلبة" type="number" value={form.custom_config?.box_sale_price ?? 0} onValueChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, box_sale_price: Number(value) } })} /></>}
+              {form.custom_type === "printing" && <><TextField label="سعر Recto" type="number" value={form.custom_config?.recto_price ?? 0} onValueChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, recto_price: Number(value) } })} /><TextField label="سعر Recto-verso" type="number" value={form.custom_config?.recto_verso_price ?? 0} onValueChange={(value) => setForm({ ...form, custom_config: { ...form.custom_config, recto_verso_price: Number(value) } })} /></>}
             </div>
-            <datalist id="product-categories">
-              {categories.map((item) => <option value={item} key={item} />)}
-            </datalist>
             {form.custom_type === "standard" && <div className="image-uploader">
               <div className="product-image-preview">
                 {form.image_data ? <img src={form.image_data} alt="" /> : <ImagePlus size={30} />}
@@ -567,7 +564,7 @@ export function StockPage({
           <section className="panel form-panel form-modal stock-modal-dialog category-manager-modal" role="dialog" aria-modal="true" aria-labelledby="category-manager-title">
             <div className="section-title"><h2 id="category-manager-title"><Tag size={18} /> إدارة الأصناف</h2><span /><button className="ghost-button compact-button" type="button" onClick={() => setCategoryManagerOpen(false)}><X size={16} /> {t.close}</button></div>
             <form className="category-create-row" onSubmit={saveCategory}>
-              <Input label={editingCategory ? "تعديل اسم الصنف" : "اسم الصنف الجديد"} value={categoryDraft} onChange={setCategoryDraft} />
+              <TextField label={editingCategory ? "تعديل اسم الصنف" : "اسم الصنف الجديد"} value={categoryDraft} onValueChange={setCategoryDraft} />
               <div className="button-row"><button className="gold-button compact-button" type="submit" disabled={!categoryDraft.trim()}><Save size={16} /> {editingCategory ? t.update : "إضافة"}</button>{editingCategory && <button className="ghost-button compact-button" type="button" onClick={() => { setEditingCategory(""); setCategoryDraft(""); }}>إلغاء</button>}</div>
             </form>
             <div className="category-manager-list">
@@ -595,11 +592,11 @@ export function StockPage({
               <b>المتوفر الآن: {movementForm.product.quantity}</b>
             </div>
             <div className="form-grid one-column">
-              <Input
+              <TextField
                 label={movementForm.product.custom_type === "tobacco" ? `عدد العلب (${movementForm.product.custom_config?.pieces_per_box ?? 1} قطعة/علبة)` : movementForm.product.custom_type === "flexy" ? "مبلغ الرصيد (دج)" : movementForm.product.custom_type === "printing" ? "عدد خدمات الطباعة" : "الكمية"}
                 type="number"
                 value={movementForm.quantity}
-                onChange={(value) => setMovementForm({ ...movementForm, quantity: Math.max(0, Number(value)) })}
+                onValueChange={(value) => setMovementForm({ ...movementForm, quantity: Math.max(0, Number(value)) })}
               />
               {movementForm.type === "entry" && movementForm.product.custom_type !== "printing" && (
                 <>
@@ -619,18 +616,15 @@ export function StockPage({
                       سعر الكمية كاملة
                     </button>
                   </div>
-                  <Input
+                  <TextField
                     label={movementForm.purchase_price_mode === "unit" ? movementForm.product.custom_type === "tobacco" ? "تكلفة شراء العلبة" : movementForm.product.custom_type === "flexy" ? "تكلفة الرصيد" : "تكلفة شراء الوحدة" : "تكلفة الكمية كاملة"}
                     type="number"
                     value={movementForm.purchase_price}
-                    onChange={(value) => setMovementForm({ ...movementForm, purchase_price: Math.max(0, Number(value)) })}
+                    onValueChange={(value) => setMovementForm({ ...movementForm, purchase_price: Math.max(0, Number(value)) })}
                   />
                 </>
               )}
-              <label className="full-field">
-                <span>ملاحظة</span>
-                <textarea value={movementForm.note} onChange={(event) => setMovementForm({ ...movementForm, note: event.target.value })} />
-              </label>
+              <TextAreaField className="full-field" label="ملاحظة" value={movementForm.note} onValueChange={(note) => setMovementForm({ ...movementForm, note })} />
             </div>
             <div className="movement-preview">
               <span>{movementForm.type === "entry" && movementForm.product.custom_type !== "printing" ? `بعد العملية / تكلفة ${movementForm.product.custom_type === "tobacco" ? "القطعة" : movementForm.product.custom_type === "flexy" ? "الدج" : "الوحدة"}` : "بعد العملية"}</span>
@@ -867,26 +861,6 @@ function entryUnitPurchasePrice(form: MovementForm) {
     return form.quantity > 0 ? form.purchase_price / (form.quantity * multiplier) : 0;
   }
   return form.purchase_price / multiplier;
-}
-
-function Input({ label, value, onChange, type = "text", icon, list, placeholder }: {
-  label: string;
-  value: string | number;
-  onChange: (value: string) => void;
-  type?: string;
-  icon?: ReactNode;
-  list?: string;
-  placeholder?: string;
-}) {
-  return (
-    <label>
-      <span>{label}</span>
-      <div className="field">
-        {icon}
-        <input type={type} list={list} placeholder={placeholder} value={type === "number" && value === 0 ? "" : value} onChange={(event) => onChange(event.target.value)} />
-      </div>
-    </label>
-  );
 }
 
 function readImage(file: File) {

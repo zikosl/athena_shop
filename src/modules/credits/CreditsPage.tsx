@@ -5,6 +5,7 @@ import { money } from "../../shared/format";
 import { useText } from "../../shared/i18n";
 import { showErrorToast, showToast } from "../../shared/toast";
 import { ClientRecord, CreditAccount, Language, UserSession } from "../../shared/types";
+import { Button, SectionHeader, TextAreaField, TextField } from "../../shared/ui";
 
 type ClientCreditAccount = {
   key: string;
@@ -197,7 +198,7 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
   return (
     <>
       {!selectedClient ? <section className="panel table-panel full">
-        <div className="section-title"><h2><HandCoins size={18} /> {t.credits} والعملاء</h2><span /><button className="gold-button compact-button" type="button" onClick={() => setCreateClientOpen(true)}><UserRoundPlus size={16} /> عميل جديد</button></div>
+        <SectionHeader title={<><HandCoins size={18} /> {t.credits} والعملاء</>}><Button variant="primary" size="compact" type="button" onClick={() => setCreateClientOpen(true)}><UserRoundPlus size={16} /> عميل جديد</Button></SectionHeader>
         <div className="summary-strip compact">
           <article><span>{t.openCredits}</span><strong>{totals.open}</strong></article>
           <article><span>{t.totalToCollect}</span><strong>{money(totals.remaining)}</strong></article>
@@ -225,7 +226,7 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
         </div>
       </section> : <section className="panel table-panel full client-detail-screen">
         <div className="client-detail-heading">
-          <button className="ghost-button compact-button" type="button" onClick={closeCredit}><ArrowRight size={17} /> رجوع إلى العملاء</button>
+          <Button size="compact" type="button" onClick={closeCredit}><ArrowRight size={17} /> رجوع إلى العملاء</Button>
           <div><h2>{selectedClient.name}</h2><span><Phone size={14} /> {selectedClient.phone || t.noPhone}</span></div>
           <span className={`status-pill ${selectedClient.remaining > 0 ? "pending" : "ok"}`}>{selectedClient.remaining > 0 ? t.inProgress : t.settled}</span>
         </div>
@@ -261,8 +262,8 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
             <h3>تسجيل دفعة</h3>
             {selected && selected.sale.remaining_amount > 0 ? <form className="payment-form" onSubmit={submit}>
               <p>{selected.sale.receipt_no}<small>المتبقي: {money(selected.sale.remaining_amount)}</small></p>
-              <label><span>مبلغ الدفعة</span><div className="field"><input autoFocus type="number" min={1} max={selected.sale.remaining_amount} value={amount === 0 ? "" : amount} onChange={(event) => setAmount(Number(event.target.value))} /></div></label>
-              <label><span>{t.note} · اختياري</span><textarea value={note} onChange={(event) => setNote(event.target.value)} /></label>
+              <TextField label="مبلغ الدفعة" autoFocus type="number" min={1} max={selected.sale.remaining_amount} value={amount} onValueChange={(value) => setAmount(Number(value))} />
+              <TextAreaField label={`${t.note} · اختياري`} value={note} onValueChange={setNote} />
               <button className="gold-button" disabled={amount <= 0 || amount > selected.sale.remaining_amount}><Save size={18} /> تسجيل الدفعة</button>
             </form> : <p className="empty-state">اختر قسيمة غير مسددة لتسجيل دفعة.</p>}
           </aside>}
@@ -274,7 +275,17 @@ export function CreditsPage({ language, user, onChanged }: { language: Language;
         </section>}
       </section>}
 
-      {createClientOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateClientOpen(false); }}><form className="panel form-panel form-modal credit-create-client-modal" role="dialog" aria-modal="true" aria-labelledby="credit-create-client-title" onSubmit={createClient}><div className="section-title"><h2 id="credit-create-client-title"><UserRoundPlus size={18} /> عميل جديد</h2><span /><button className="plain-icon" type="button" aria-label={t.close} onClick={() => setCreateClientOpen(false)}><X size={18} /></button></div><label><span>اسم العميل</span><div className="field"><input autoFocus required maxLength={100} value={newClientName} onChange={(event) => setNewClientName(event.target.value)} /></div></label><label><span>{t.phone}</span><div className="field"><input type="tel" inputMode="tel" autoComplete="tel" required value={newClientPhone} onChange={(event) => setNewClientPhone(event.target.value)} /></div></label><div className="button-row"><button className="ghost-button" type="button" onClick={() => setCreateClientOpen(false)}>{t.close}</button><button className="gold-button" type="submit" disabled={!newClientName.trim() || !newClientPhone.trim()}><Plus size={17} /> إنشاء العميل</button></div></form></div>}
+      {createClientOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateClientOpen(false); }}>
+        <form className="panel form-panel form-modal credit-create-client-modal" role="dialog" aria-modal="true" aria-labelledby="credit-create-client-title" onSubmit={createClient}>
+          <div className="section-title"><h2 id="credit-create-client-title"><UserRoundPlus size={18} /> عميل جديد</h2><span /><button className="plain-icon" type="button" aria-label={t.close} onClick={() => setCreateClientOpen(false)}><X size={18} /></button></div>
+          <TextField label="اسم العميل" autoFocus required maxLength={100} value={newClientName} onValueChange={setNewClientName} />
+          <TextField label={t.phone} type="tel" inputMode="tel" autoComplete="tel" required value={newClientPhone} onValueChange={setNewClientPhone} />
+          <div className="button-row">
+            <Button type="button" onClick={() => setCreateClientOpen(false)}>{t.close}</Button>
+            <Button variant="primary" type="submit" disabled={!newClientName.trim() || !newClientPhone.trim()}><Plus size={17} /> إنشاء العميل</Button>
+          </div>
+        </form>
+      </div>}
     </>
   );
 }

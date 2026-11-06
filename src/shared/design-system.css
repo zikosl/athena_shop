@@ -1,0 +1,48 @@
+:root {
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 20px;
+  --ds-radius-control: 10px;
+  --ds-radius-panel: 10px;
+  --ds-control-height: var(--ui-control-height);
+  --ds-panel-padding: var(--ui-panel-padding);
+  --ds-border: var(--line);
+  --ds-surface: var(--surface-soft);
+  --ds-text: var(--text-strong);
+  --ds-text-muted: var(--text-soft);
+}
+
+.ui-field-label {
+  display: grid;
+  min-width: 0;
+  gap: var(--ds-space-2);
+  color: var(--ds-text-muted);
+}
+
+.ui-field-label > span {
+  line-height: 1.4;
+}
+
+.ui-field-control,
+.ui-select-control {
+  min-width: 0;
+  min-height: var(--ds-control-height);
+  border-radius: var(--ds-radius-control);
+  border-color: var(--ds-border);
+  color: var(--ds-text);
+  background: var(--ds-surface);
+}
+
+.ui-field-control {
+  padding-inline: var(--ds-space-3);
+}
+
+.ui-select-control {
+  padding-inline: var(--ds-space-3);
+}
+
+.app-shell :is(.gold-button, .ghost-button) {
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}

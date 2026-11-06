@@ -827,8 +827,11 @@ textarea { min-height: 92px; padding: 12px; resize: vertical; }
 .filter-row .searchbar { margin-bottom: 0; }
 .filter-row select, .filter-input { min-height: 42px; }
 .pos-filter-row {
-  grid-template-columns: minmax(0, 1fr) 126px minmax(140px, 190px);
+  grid-template-columns: minmax(0, 1fr) 126px minmax(150px, 190px);
   align-items: center;
+}
+.pos-filter-row.pos-filter-row-service {
+  grid-template-columns: minmax(0, 1fr) minmax(190px, auto);
 }
 .pos-filter-row .searchbar {
   min-width: 0;
@@ -847,13 +850,18 @@ textarea { min-height: 92px; padding: 12px; resize: vertical; }
   outline: 2px solid var(--accent-soft);
   outline-offset: 2px;
 }
-.pos-filter-row select { min-width: 0; }
+.pos-filter-row > select,
+.pos-filter-row > .custom-amount-trigger {
+  box-sizing: border-box;
+  height: var(--ui-control-height);
+  min-height: var(--ui-control-height);
+}
 .custom-amount-trigger {
   min-height: 42px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 12px;
   white-space: nowrap;
 }
 .pos-filter-row .custom-amount-trigger {
@@ -892,6 +900,7 @@ textarea { min-height: 92px; padding: 12px; resize: vertical; }
 
 @media (max-width: 760px) {
   .filter-row { grid-template-columns: 1fr; }
+  .filter-row.pos-filter-row-service { grid-template-columns: 1fr; }
   .category-create-row { grid-template-columns: 1fr; }
 }
 .data-table { max-height: calc(100vh - 292px); overflow-x: auto; overflow-y: auto; }
@@ -2876,9 +2885,13 @@ textarea:focus {
   max-width: 100%;
   margin-bottom: 14px;
   border-radius: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.pos-mode-tabs::-webkit-scrollbar { display: none; }
 .pos-mode-tabs button {
   min-width: 96px;
+  flex: none;
 }
 .price-mode-tabs {
   margin-bottom: 2px;

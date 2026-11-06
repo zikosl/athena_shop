@@ -4,6 +4,7 @@ import { api } from "../../shared/api";
 import { useText } from "../../shared/i18n";
 import { showErrorToast } from "../../shared/toast";
 import { Language, UserSession } from "../../shared/types";
+import { Button, TextField } from "../../shared/ui";
 import openzeyLogo from "../../assets/openzey-logo.png";
 
 interface Props {
@@ -36,15 +37,9 @@ export function LoginPage({ language, onLogin }: Props) {
           </div>
         </div>
         <h2>{t.login}</h2>
-        <label>
-          <span>{t.username}</span>
-          <div className="field"><User size={18} /><input value={username} autoComplete="username" onChange={(event) => setUsername(event.target.value)} /></div>
-        </label>
-        <label>
-          <span>{t.password}</span>
-          <div className="field"><LockKeyhole size={18} /><input type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} /></div>
-        </label>
-        <button className="gold-button" type="submit">{t.signIn}</button>
+        <TextField label={t.username} icon={<User size={18} />} value={username} autoComplete="username" onValueChange={setUsername} />
+        <TextField label={t.password} icon={<LockKeyhole size={18} />} type="password" value={password} autoComplete="current-password" onValueChange={setPassword} />
+        <Button variant="primary" type="submit">{t.signIn}</Button>
       </form>
     </main>
   );

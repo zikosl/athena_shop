@@ -1,20 +1,12 @@
-import { type ChangeEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Calculator, CalendarDays, HandCoins, Landmark, PackageCheck, Scale, WalletCards } from "lucide-react";
 import { api } from "../../shared/api";
 import { addHijriYear, hijriDateLabel, money, todayInputValue } from "../../shared/format";
 import { showErrorToast } from "../../shared/toast";
 import { CashShift, CreditAccount, Language, Product } from "../../shared/types";
+import { TextField } from "../../shared/ui";
 
 type StockValuationMode = "purchase" | "sale" | "custom";
-
-function numericInput(value: number, onChange: (value: number) => void) {
-  return {
-    type: "number",
-    min: 0,
-    value: value === 0 ? "" : value,
-    onChange: (event: ChangeEvent<HTMLInputElement>) => onChange(Number(event.target.value))
-  };
-}
 
 function creditRemaining(credit: CreditAccount) {
   const paid = credit.payments.reduce((sum, payment) => sum + payment.amount, 0);
@@ -126,34 +118,21 @@ export function ZakatPage({ language }: { language: Language }) {
           </div>
 
           {stockMode === "custom" && (
-            <label>
-              <span>قيمة المخزون اليدوية</span>
-              <div className="field"><input {...numericInput(customStockValue, setCustomStockValue)} /></div>
-            </label>
+            <TextField label="قيمة المخزون اليدوية" type="number" min={0} value={customStockValue} onValueChange={(value) => setCustomStockValue(Number(value))} />
           )}
 
           <div className="zakat-input-grid">
-            <label>
-              <span>آخر تاريخ أخرجت فيه الزكاة</span>
-              <div className="field"><input type="date" value={lastZakatDate} onChange={(event) => setLastZakatDate(event.target.value)} /></div>
+            <div>
+              <TextField label="آخر تاريخ أخرجت فيه الزكاة" type="date" value={lastZakatDate} onValueChange={setLastZakatDate} />
               <small className="helper-text">
                 {nextZakatDate
                   ? `موعد الزكاة القادم تقريبا: ${hijriDateLabel(nextZakatDate, language)}`
                   : "اتركه فارغا إذا كانت هذه أول مرة تحسب فيها الزكاة."}
               </small>
-            </label>
-            <label>
-              <span>أموال إضافية في البنك أو الخزنة</span>
-              <div className="field"><input {...numericInput(extraAssets, setExtraAssets)} /></div>
-            </label>
-            <label>
-              <span>ديون وفواتير يجب دفعها</span>
-              <div className="field"><input {...numericInput(debtsToPay, setDebtsToPay)} /></div>
-            </label>
-            <label>
-              <span>النصاب المعتمد</span>
-              <div className="field"><input {...numericInput(nisab, setNisab)} /></div>
-            </label>
+            </div>
+            <TextField label="أموال إضافية في البنك أو الخزنة" type="number" min={0} value={extraAssets} onValueChange={(value) => setExtraAssets(Number(value))} />
+            <TextField label="ديون وفواتير يجب دفعها" type="number" min={0} value={debtsToPay} onValueChange={(value) => setDebtsToPay(Number(value))} />
+            <TextField label="النصاب المعتمد" type="number" min={0} value={nisab} onValueChange={(value) => setNisab(Number(value))} />
           </div>
         </div>
 
