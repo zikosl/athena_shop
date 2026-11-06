@@ -1,5 +1,5 @@
 ﻿import { FormEvent, MouseEvent, useEffect, useMemo, useState } from "react";
-import { Barcode, ClipboardList, Coins, Edit3, History, ImagePlus, PackageMinus, PackagePlus, Plus, RefreshCcw, Save, Search, Tag, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Barcode, Check, ChevronLeft, ChevronRight, ClipboardList, Coins, Edit3, FileUp, History, ImagePlus, PackageMinus, PackagePlus, Plus, RefreshCcw, Save, Search, Tag, Trash2, Upload, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { api } from "../../shared/api";
 import { money, productStockValues } from "../../shared/format";
@@ -50,6 +50,65 @@ type MovementForm = {
   note: string;
 };
 
+type BatchCandidate = {
+  id: number;
+  name: string;
+  barcode: string;
+  blockedReason?: "missing" | "existing" | "duplicate" | "invalid";
+};
+
+type BatchEntry = BatchCandidate & {
+  salePrice: number;
+  quantity: number;
+  alertQuantity: number;
+  category: string;
+};
+
+type BatchStep = "select" | "details";
+
+function parseCsvRows(source: string, delimiter: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '"') {
+      if (quoted && source[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else quoted = !quoted;
+    } else if (char === delimiter && !quoted) {
+      row.push(field);
+      field = "";
+    } else if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && source[index + 1] === "\n") index += 1;
+      row.push(field);
+      if (row.some((cell) => cell.trim())) rows.push(row);
+      row = [];
+      field = "";
+    } else field += char;
+  }
+  row.push(field);
+  if (row.some((cell) => cell.trim())) rows.push(row);
+  if (quoted) throw new Error("unclosed quote");
+  return rows;
+}
+
+function normalizeCsvHeader(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, "");
+}
+
+function isSupportedBarcode(value: string) {
+  if (!/^\d{8}$/.test(value) && !/^\d{13}$/.test(value)) return false;
+  const body = value.slice(0, -1);
+  const sum = [...body].reduce((total, digit, index) => {
+    const weight = value.length === 8 ? (index % 2 === 0 ? 3 : 1) : (index % 2 === 0 ? 1 : 3);
+    return total + Number(digit) * weight;
+  }, 0);
+  return Number(value[value.length - 1]) === (10 - sum % 10) % 10;
+}
+
 export function StockPage({
   language,
   onChanged,
@@ -85,7 +144,147 @@ export function StockPage({
   const [flexyTiers, setFlexyTiers] = useState<Array<{ up_to: number | null; surcharge: number }>>([]);
   const [flexyQuickAmounts, setFlexyQuickAmounts] = useState<number[]>([]);
   const [flexySaving, setFlexySaving] = useState(false);
+  const [batchStep, setBatchStep] = useState<BatchStep | null>(null);
+  const [batchFileName, setBatchFileName] = useState("");
+  const [batchCandidates, setBatchCandidates] = useState<BatchCandidate[]>([]);
+  const [batchSelectedIds, setBatchSelectedIds] = useState<Set<number>>(new Set());
+  const [batchQuery, setBatchQuery] = useState("");
+  const [batchPage, setBatchPage] = useState(0);
+  const [batchEntries, setBatchEntries] = useState<BatchEntry[]>([]);
+  const [batchDetailPage, setBatchDetailPage] = useState(0);
+  const [batchSaving, setBatchSaving] = useState(false);
   const load = () => api.products({ query, category, stock: stockFilter }).then(setProducts);
+
+  const batchFilteredCandidates = useMemo(() => {
+    const search = batchQuery.trim().toLocaleLowerCase();
+    return batchCandidates.filter((item) => !search || item.name.toLocaleLowerCase().includes(search) || item.barcode.includes(search));
+  }, [batchCandidates, batchQuery]);
+  const batchPageSize = 25;
+  const batchPageCount = Math.max(1, Math.ceil(batchFilteredCandidates.length / batchPageSize));
+  const visibleBatchCandidates = batchFilteredCandidates.slice(batchPage * batchPageSize, (batchPage + 1) * batchPageSize);
+  const batchDetailPageSize = 15;
+  const batchDetailPageCount = Math.max(1, Math.ceil(batchEntries.length / batchDetailPageSize));
+  const visibleBatchEntries = batchEntries.slice(batchDetailPage * batchDetailPageSize, (batchDetailPage + 1) * batchDetailPageSize);
+
+  async function importBatchFile(file?: File) {
+    if (!file) return;
+    if (!file.name.toLocaleLowerCase().endsWith(".csv")) {
+      showToast(tr("اختر ملف CSV فقط", "Sélectionnez un fichier CSV uniquement"), "warning");
+      return;
+    }
+    try {
+      const buffer = await file.arrayBuffer();
+      let source: string;
+      try {
+        source = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+      } catch {
+        source = new TextDecoder("windows-1252").decode(buffer);
+      }
+      const firstLine = source.split(/\r?\n/, 1)[0] ?? "";
+      const delimiter = (firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ";" : ",";
+      const rows = parseCsvRows(source.replace(/^\uFEFF/, ""), delimiter);
+      if (rows.length < 2) throw new Error("empty");
+      const headers = rows[0].map(normalizeCsvHeader);
+      const nameIndex = headers.findIndex((value) => ["name", "product", "productname", "designation", "productdesignation", "nom", "nomproduit", "nomduproduit", "الاسم", "اسم", "اسم المنتج", "المنتج", "التسمية"].map(normalizeCsvHeader).includes(value));
+      const barcodeIndex = headers.findIndex((value) => ["barcode", "barcodes", "codebarre", "codebarres", "ean", "ean13", "باركود", "الباركود", "رمز"].map(normalizeCsvHeader).includes(value));
+      if (nameIndex < 0 || barcodeIndex < 0) throw new Error("headers");
+      const productList = await api.products();
+      const existingBarcodes = new Set(productList.map((product) => product.barcode.trim()));
+      const parsed = rows.slice(1).map((cells, index) => ({
+        id: index,
+        name: (cells[nameIndex] ?? "").trim(),
+        barcode: (cells[barcodeIndex] ?? "").trim()
+      }));
+      const counts = new Map<string, number>();
+      for (const item of parsed) if (item.barcode) counts.set(item.barcode, (counts.get(item.barcode) ?? 0) + 1);
+      const candidates = parsed.map((item): BatchCandidate => ({
+        ...item,
+        blockedReason: !item.name || !item.barcode ? "missing"
+          : existingBarcodes.has(item.barcode) ? "existing"
+            : (counts.get(item.barcode) ?? 0) > 1 ? "duplicate"
+              : !isSupportedBarcode(item.barcode) ? "invalid"
+                : undefined
+      }));
+      setBatchCandidates(candidates);
+      setBatchSelectedIds(new Set());
+      setBatchFileName(file.name);
+      setBatchQuery("");
+      setBatchPage(0);
+      setBatchStep("select");
+    } catch (error) {
+      const message = error instanceof Error && error.message === "headers"
+        ? tr("يجب أن يحتوي الملف على عمود للاسم وعمود للباركود", "Le fichier doit contenir une colonne de nom et une colonne de code-barres")
+        : error instanceof Error && error.message === "empty"
+          ? tr("الملف لا يحتوي على منتجات", "Le fichier ne contient aucun produit")
+          : tr("تعذر قراءة ملف CSV. تحقق من تنسيق الملف والعناوين.", "Impossible de lire le CSV. Vérifiez son format et ses en-têtes.");
+      showToast(message, "error");
+    }
+  }
+
+  function startBatchImport() {
+    setBatchFileName("");
+    setBatchCandidates([]);
+    setBatchSelectedIds(new Set());
+    setBatchEntries([]);
+    setBatchQuery("");
+    setBatchPage(0);
+    setBatchStep("select");
+  }
+
+  function closeBatchImport() {
+    if (batchSaving) return;
+    setBatchStep(null);
+    setBatchCandidates([]);
+    setBatchEntries([]);
+  }
+
+  function continueBatchToDetails() {
+    const selected = batchCandidates.filter((item) => batchSelectedIds.has(item.id));
+    if (!selected.length) {
+      showToast(tr("حدد منتجًا واحدًا على الأقل", "Sélectionnez au moins un produit"), "warning");
+      return;
+    }
+    setBatchEntries(selected.map((item) => ({ ...item, salePrice: 0, quantity: 0, alertQuantity: 0, category: "Products" })));
+    setBatchDetailPage(0);
+    setBatchStep("details");
+  }
+
+  function updateBatchEntry(id: number, key: "salePrice" | "quantity" | "alertQuantity" | "category", value: number | string) {
+    setBatchEntries((entries) => entries.map((entry) => entry.id === id ? { ...entry, [key]: value } : entry));
+  }
+
+  async function submitBatchImport() {
+    if (!batchEntries.length || batchSaving) return;
+    setBatchSaving(true);
+    let saved = false;
+    try {
+      await api.saveProductsBatch(batchEntries.map((entry) => ({
+        name: entry.name,
+        barcode: entry.barcode,
+        category: entry.category || "Products",
+        size: "",
+        color: "",
+        quantity: entry.quantity,
+        low_stock_threshold: entry.alertQuantity,
+        purchase_price: 0,
+        sale_price: entry.salePrice,
+        image_data: "",
+        custom_type: "standard",
+        custom_config: {}
+      })));
+      saved = true;
+      showToast(tr(`تمت إضافة ${batchEntries.length} منتج إلى المخزون`, `${batchEntries.length} produits ajoutés au stock`), "success");
+      setBatchStep(null);
+      setBatchCandidates([]);
+      setBatchEntries([]);
+      onChanged();
+    } catch (error) {
+      showErrorToast(error, tr("تعذر إضافة المنتجات. لم يتم حفظ أي منتج.", "Impossible d’ajouter les produits. Aucun produit n’a été enregistré."));
+    } finally {
+      setBatchSaving(false);
+    }
+    if (saved) load().catch((error) => showErrorToast(error, tr("تمت الإضافة لكن تعذر تحديث قائمة المخزون", "Import terminé, mais impossible d’actualiser la liste du stock")));
+  }
 
   useEffect(() => {
     load().catch((err) => showErrorToast(err, "تعذر تحميل المخزون"));
@@ -440,10 +639,95 @@ export function StockPage({
     }
   }
 
+  if (batchStep) {
+    const selectableCount = batchCandidates.filter((item) => !item.blockedReason).length;
+    const blockedCount = batchCandidates.length - selectableCount;
+    const selectableVisibleCount = visibleBatchCandidates.filter((item) => !item.blockedReason).length;
+    const selectedVisibleCount = visibleBatchCandidates.filter((item) => !item.blockedReason && batchSelectedIds.has(item.id)).length;
+    const toggleVisible = () => setBatchSelectedIds((current) => {
+      const next = new Set(current);
+      if (selectedVisibleCount === visibleBatchCandidates.filter((item) => !item.blockedReason).length) {
+        visibleBatchCandidates.forEach((item) => next.delete(item.id));
+      } else {
+        visibleBatchCandidates.forEach((item) => { if (!item.blockedReason) next.add(item.id); });
+      }
+      return next;
+    });
+    return (
+      <section className="panel table-panel full batch-import-page">
+        <SectionHeader title={<><FileUp size={19} /> {tr("إضافة منتجات من ملف CSV", "Importer des produits depuis un CSV")}</>}>
+          <Button size="compact" type="button" disabled={batchSaving} onClick={closeBatchImport}><X size={16} /> {t.close}</Button>
+        </SectionHeader>
+        <div className="batch-import-steps" aria-label={tr("خطوات الاستيراد", "Étapes d’importation")}>
+          <span className={batchStep === "select" ? "active" : "complete"}>{tr("1. اختيار المنتجات", "1. Sélection des produits")}</span>
+          <span className={batchStep === "details" ? "active" : ""}>{tr("2. مراجعة التفاصيل", "2. Révision des détails")}</span>
+        </div>
+        {batchStep === "select" ? (
+          <>
+            <div className="batch-import-upload">
+              <div><strong>{tr("حمّل ملف المنتجات", "Importer un fichier de produits")}</strong><p>{tr("يجب أن يحتوي الملف على عمود للاسم وعمود للباركود. الملفات المفصولة بفاصلة أو فاصلة منقوطة مدعومة.", "Le fichier doit contenir une colonne de nom et une colonne de code-barres. Les séparateurs virgule et point-virgule sont pris en charge.")}</p></div>
+              <label className="ghost-button batch-file-button"><Upload size={17} /> {batchFileName ? tr("اختيار ملف آخر", "Choisir un autre fichier") : tr("اختيار ملف CSV", "Choisir un fichier CSV")}<input type="file" accept=".csv,text/csv" onChange={(event) => { void importBatchFile(event.target.files?.[0]); event.target.value = ""; }} /></label>
+              {batchFileName && <span className="batch-file-name">{batchFileName}</span>}
+            </div>
+            {batchCandidates.length > 0 && <>
+              <div className="batch-import-summary">
+                <span>{tr("الأسطر", "Lignes")} <b>{batchCandidates.length}</b></span>
+                <span>{tr("متاحة للاختيار", "Disponibles")} <b>{selectableCount}</b></span>
+                <span>{tr("مستبعدة", "Exclues")} <b>{blockedCount}</b></span>
+                <span>{tr("محددة", "Sélectionnées")} <b>{batchSelectedIds.size}</b></span>
+              </div>
+              <div className="filter-row batch-import-filter-row">
+                <div className="searchbar"><Search size={18} /><input value={batchQuery} placeholder={tr("ابحث بالاسم أو الباركود", "Rechercher par nom ou code-barres")} onChange={(event) => { setBatchQuery(event.target.value); setBatchPage(0); }} /></div>
+                <button className="ghost-button compact-button" type="button" disabled={!selectableCount} onClick={() => setBatchSelectedIds(batchSelectedIds.size ? new Set() : new Set(batchCandidates.filter((item) => !item.blockedReason).map((item) => item.id)))}><Check size={15} /> {batchSelectedIds.size ? tr("إلغاء التحديد", "Tout désélectionner") : tr("تحديد كل المتاح", "Tout sélectionner")} · {batchSelectedIds.size ? batchSelectedIds.size : selectableCount}</button>
+                <button className="ghost-button compact-button" type="button" onClick={toggleVisible} disabled={!visibleBatchCandidates.some((item) => !item.blockedReason)}>
+                  <Check size={15} /> {tr("تحديد الظاهر", "Sélectionner la page")}
+                </button>
+              </div>
+              <div className="data-table batch-candidate-table">
+                <table>
+                  <thead><tr><th><input type="checkbox" aria-label={tr("تحديد المنتجات الظاهرة", "Sélectionner les produits affichés")} checked={selectableVisibleCount > 0 && selectedVisibleCount === selectableVisibleCount} onChange={toggleVisible} /></th><th>{t.product}</th><th>{t.barcode}</th><th>{tr("الحالة", "État")}</th></tr></thead>
+                  <tbody>{visibleBatchCandidates.map((item) => <tr key={item.id} className={item.blockedReason ? "batch-row-blocked" : ""}>
+                    <td><input type="checkbox" checked={batchSelectedIds.has(item.id)} disabled={Boolean(item.blockedReason)} onChange={(event) => setBatchSelectedIds((current) => { const next = new Set(current); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; })} /></td>
+                    <td>{item.name || <span className="muted">{tr("اسم مفقود", "Nom manquant")}</span>}</td><td dir="ltr">{item.barcode || "-"}</td>
+                    <td>{item.blockedReason ? <span className="status-pill danger">{item.blockedReason === "existing" ? tr("الباركود موجود", "Code-barres déjà utilisé") : item.blockedReason === "duplicate" ? tr("مكرر في الملف", "Doublon dans le fichier") : item.blockedReason === "invalid" ? tr("باركود غير صالح", "Code-barres invalide") : tr("الاسم أو الباركود مفقود", "Nom ou code-barres manquant")}</span> : <span className="status-pill ok">{tr("متاح", "Disponible")}</span>}</td>
+                  </tr>)}</tbody>
+                </table>
+                {!batchFilteredCandidates.length && <p className="empty-state">{tr("لا توجد نتائج مطابقة", "Aucun résultat correspondant")}</p>}
+              </div>
+              <div className="batch-pagination"><span>{tr("صفحة", "Page")} {batchPage + 1} / {batchPageCount}</span><div><button className="ghost-button compact-button" type="button" disabled={batchPage === 0} onClick={() => setBatchPage((page) => Math.max(0, page - 1))} aria-label={tr("الصفحة السابقة", "Page précédente")}>{language === "fr" ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}</button><button className="ghost-button compact-button" type="button" disabled={batchPage + 1 >= batchPageCount} onClick={() => setBatchPage((page) => Math.min(batchPageCount - 1, page + 1))} aria-label={tr("الصفحة التالية", "Page suivante")}>{language === "fr" ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}</button></div></div>
+            </>}
+            <div className="button-row batch-import-actions"><Button type="button" onClick={closeBatchImport}>{t.close}</Button><Button variant="primary" type="button" disabled={!batchSelectedIds.size} onClick={continueBatchToDetails}><ArrowRight size={16} /> {tr("متابعة المنتجات المحددة", "Continuer avec la sélection")} · {batchSelectedIds.size}</Button></div>
+          </>
+        ) : (
+          <>
+            <p className="batch-details-intro">{tr("راجع بيانات المنتجات المحددة. الأسعار والكميات والتنبيه اختيارية؛ القيم الافتراضية هي صفر.", "Vérifiez les produits sélectionnés. Prix, quantité et seuil d’alerte sont facultatifs et valent zéro par défaut.")}</p>
+            <div className="data-table batch-details-table">
+              <table>
+                <thead><tr><th>{t.product}</th><th>{t.barcode}</th><th>{t.salePrice}</th><th>{tr("الكمية الأولية", "Stock initial")}</th><th>{t.alert}</th><th>{t.category}</th></tr></thead>
+                <tbody>{visibleBatchEntries.map((entry) => <tr key={entry.id}>
+                  <td>{entry.name}</td><td dir="ltr">{entry.barcode}</td>
+                  <td><TextField label={t.salePrice} type="number" min="0" step="1" value={entry.salePrice} onValueChange={(value) => updateBatchEntry(entry.id, "salePrice", Math.max(0, Number(value)))} /></td>
+                  <td><TextField label={tr("الكمية الأولية", "Stock initial")} type="number" min="0" step="1" value={entry.quantity} onValueChange={(value) => updateBatchEntry(entry.id, "quantity", Math.max(0, Number(value)))} /></td>
+                  <td><TextField label={t.alert} type="number" min="0" step="1" value={entry.alertQuantity} onValueChange={(value) => updateBatchEntry(entry.id, "alertQuantity", Math.max(0, Number(value)))} /></td>
+                  <td><SelectControl aria-label={`${t.category}: ${entry.name}`} value={entry.category} onValueChange={(value) => updateBatchEntry(entry.id, "category", value)} options={[{ value: "Products", label: tr("الافتراضي (Products)", "Par défaut (Products)") }, ...categories.filter((name) => name !== "Products").map((name) => ({ value: name, label: name }))]} /></td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+            <div className="batch-pagination"><span>{tr("صفحة", "Page")} {batchDetailPage + 1} / {batchDetailPageCount} · {batchEntries.length} {tr("منتج", "produits")}</span><div><button className="ghost-button compact-button" type="button" disabled={batchDetailPage === 0} onClick={() => setBatchDetailPage((page) => Math.max(0, page - 1))} aria-label={tr("الصفحة السابقة", "Page précédente")}>{language === "fr" ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}</button><button className="ghost-button compact-button" type="button" disabled={batchDetailPage + 1 >= batchDetailPageCount} onClick={() => setBatchDetailPage((page) => Math.min(batchDetailPageCount - 1, page + 1))} aria-label={tr("الصفحة التالية", "Page suivante")}>{language === "fr" ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}</button></div></div>
+            <div className="button-row batch-import-actions"><Button type="button" disabled={batchSaving} onClick={() => setBatchStep("select")}>{language === "fr" ? <ArrowLeft size={16} /> : <ArrowRight size={16} />} {tr("العودة للاختيار", "Retour à la sélection")}</Button><Button variant="primary" type="button" disabled={batchSaving} onClick={() => void submitBatchImport()}><Check size={16} /> {batchSaving ? tr("جار إضافة المنتجات...", "Ajout des produits...") : tr("تأكيد وإضافة", "Confirmer et ajouter")} · {batchEntries.length}</Button></div>
+          </>
+        )}
+      </section>
+    );
+  }
+
   return (
     <>
       <section className="panel table-panel full">
         <SectionHeader title={<><ClipboardList size={18} /> {t.stock}</>}>
+          <Button size="compact" type="button" onClick={startBatchImport}>
+            <FileUp size={16} /> {tr("استيراد CSV", "Importer CSV")}
+          </Button>
           <Button variant="primary" size="compact" type="button" onClick={openNewProduct}>
             <Plus size={17} /> {t.newProduct}
           </Button>

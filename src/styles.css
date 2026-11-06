@@ -6531,6 +6531,185 @@ body::-webkit-scrollbar {
   max-width: 620px;
 }
 
+.batch-import-page {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.batch-import-steps,
+.batch-import-summary,
+.batch-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.batch-import-steps {
+  justify-content: flex-start;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-soft);
+}
+
+.batch-import-steps span {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.batch-import-steps span.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+
+.batch-import-steps span.complete {
+  color: var(--accent);
+}
+
+.batch-import-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  padding: 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.batch-import-upload > div {
+  flex: 1 1 360px;
+}
+
+.batch-import-upload strong,
+.batch-details-intro {
+  color: var(--text-strong);
+}
+
+.batch-import-upload p {
+  margin: 5px 0 0;
+  color: var(--text-soft);
+}
+
+.batch-file-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.batch-file-button input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.batch-file-name {
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+}
+
+.batch-import-summary {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  color: var(--text-soft);
+}
+
+.batch-import-summary span {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.batch-import-summary b {
+  margin-inline-start: 6px;
+  color: var(--text-strong);
+}
+
+.batch-import-filter-row .searchbar {
+  flex: 1 1 300px;
+}
+
+.batch-candidate-table,
+.batch-details-table {
+  max-height: min(54vh, 640px);
+  overflow: auto;
+}
+
+.batch-candidate-table th:first-child,
+.batch-candidate-table td:first-child {
+  width: 42px;
+  text-align: center;
+}
+
+.batch-candidate-table input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--accent);
+}
+
+.batch-row-blocked {
+  opacity: 0.68;
+}
+
+.batch-details-table table {
+  min-width: 960px;
+}
+
+.batch-details-table td .field {
+  min-width: 110px;
+}
+
+.batch-pagination {
+  color: var(--text-soft);
+}
+
+.batch-pagination > div,
+.batch-import-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.batch-import-actions {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.batch-import-actions > :first-child {
+  margin-inline-end: auto;
+}
+
+.batch-details-intro {
+  margin: 0;
+}
+
+@media (max-width: 700px) {
+  .batch-import-steps,
+  .batch-pagination {
+    align-items: stretch;
+  }
+
+  .batch-import-steps span {
+    flex: 1;
+    text-align: center;
+  }
+
+  .batch-import-actions {
+    flex-wrap: wrap;
+  }
+
+  .batch-import-actions > :first-child {
+    margin-inline-end: 0;
+  }
+}
+
 .flexy-manager-balance {
   display: flex;
   align-items: center;

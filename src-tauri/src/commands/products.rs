@@ -218,6 +218,72 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
 }
 
 #[tauri::command]
+pub fn save_products_batch(
+    db: State<Database>,
+    inputs: Vec<ProductInput>,
+) -> AppResult<Vec<Product>> {
+    if inputs.is_empty() || inputs.len() > 50_000 {
+        return Err(AppError::Message(
+            "La sélection doit contenir entre 1 et 50 000 produits".into(),
+        ));
+    }
+    db.with_client(|client| {
+        let mut tx = client.transaction()?;
+        let mut seen_barcodes = std::collections::HashSet::new();
+        let barcodes: Vec<String> = inputs.iter().map(|input| input.barcode.trim().to_string()).collect();
+        for input in &inputs {
+            if input.id.is_some() || !seen_barcodes.insert(input.barcode.trim().to_string()) {
+                return Err(AppError::Message("Le lot contient des codes-barres en double".into()));
+            }
+            validate_product(&mut tx, input)?;
+        }
+        let existing = tx.query("SELECT barcode FROM products WHERE barcode = ANY($1)", &[&barcodes])?;
+        if !existing.is_empty() {
+            return Err(AppError::Message("Un produit avec ce code-barres existe déjà".into()));
+        }
+
+        let mut categories = std::collections::HashSet::new();
+        for input in &inputs {
+            let category = input.category.trim();
+            if !category.is_empty() && categories.insert(category.to_string()) {
+                tx.execute(
+                    "INSERT INTO product_categories (name) VALUES ($1) ON CONFLICT DO NOTHING",
+                    &[&category],
+                )?;
+            }
+        }
+
+        let mut saved = Vec::with_capacity(inputs.len());
+        let insert_product = tx.prepare(
+            "INSERT INTO products
+             (name, barcode, category, size, color, quantity, low_stock_threshold, purchase_price, sale_price, image_data, custom_type, custom_config)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             RETURNING id, name, barcode, category, size, color, quantity, low_stock_threshold,
+                       purchase_price, sale_price, image_data, created_at::text, updated_at::text, custom_type, custom_config",
+        )?;
+        for input in inputs {
+            let category = input.category.trim();
+            let row = tx.query_one(
+                &insert_product,
+                &[
+                    &input.name.trim(), &input.barcode.trim(), &category,
+                    &input.size.trim(), &input.color.trim(), &input.quantity,
+                    &input.low_stock_threshold, &input.purchase_price, &input.sale_price,
+                    &input.image_data, &input.custom_type, &input.custom_config,
+                ],
+            )?;
+            let product = product_from_row(&row);
+            if input.quantity > 0 {
+                insert_stock_movement(&mut tx, product.id, "initial", input.quantity, 0, input.quantity, input.purchase_price, "Stock initial")?;
+            }
+            saved.push(product);
+        }
+        tx.commit()?;
+        Ok(saved)
+    })
+}
+
+#[tauri::command]
 pub fn adjust_product_stock(db: State<Database>, input: StockMovementInput) -> AppResult<Product> {
     if input.quantity <= 0 {
         return Err(AppError::Message("الكمية يجب أن تكون أكبر من صفر".into()));
@@ -368,8 +434,8 @@ fn ean8_from_sequence(sequence: usize) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn insert_stock_movement(
-    client: &mut postgres::Client,
+fn insert_stock_movement<C: postgres::GenericClient>(
+    client: &mut C,
     product_id: i64,
     movement_type: &str,
     quantity: i64,
@@ -395,11 +461,14 @@ fn insert_stock_movement(
     Ok(())
 }
 
-fn validate_product(client: &mut postgres::Client, input: &ProductInput) -> AppResult<()> {
+fn validate_product<C: postgres::GenericClient>(
+    client: &mut C,
+    input: &ProductInput,
+) -> AppResult<()> {
     if input.name.trim().is_empty() || input.barcode.trim().is_empty() {
         return Err(AppError::Message("Nom et code-barres obligatoires".into()));
     }
-    if !is_valid_ean8(input.barcode.trim()) {
+    if !is_valid_ean(input.barcode.trim()) {
         let unchanged_legacy_barcode = if let Some(id) = input.id {
             client
                 .query_opt("SELECT barcode FROM products WHERE id = $1", &[&id])?
@@ -410,7 +479,7 @@ fn validate_product(client: &mut postgres::Client, input: &ProductInput) -> AppR
         };
         if !unchanged_legacy_barcode {
             return Err(AppError::Message(
-                "Le code-barres doit etre un EAN-8 valide compose de 8 chiffres".into(),
+                "Le code-barres doit être un EAN-8 ou EAN-13 valide".into(),
             ));
         }
     }
@@ -517,12 +586,22 @@ fn validate_product(client: &mut postgres::Client, input: &ProductInput) -> AppR
     Ok(())
 }
 
-fn is_valid_ean8(value: &str) -> bool {
-    if value.len() != 8 || !value.bytes().all(|digit| digit.is_ascii_digit()) {
+fn is_valid_ean(value: &str) -> bool {
+    if !value.bytes().all(|digit| digit.is_ascii_digit()) {
         return false;
     }
-    let expected = ean8_from_body(&value[..7]);
-    expected == value
+    if value.len() == 8 {
+        return ean8_from_body(&value[..7]) == value;
+    }
+    if value.len() == 13 {
+        let sum: u32 = value[..12]
+            .bytes()
+            .enumerate()
+            .map(|(index, digit)| u32::from(digit - b'0') * if index % 2 == 0 { 1 } else { 3 })
+            .sum();
+        return ((10 - sum % 10) % 10).to_string() == value[12..];
+    }
+    false
 }
 
 fn ean8_from_body(body: &str) -> String {
@@ -542,7 +621,7 @@ fn ean8_from_body(body: &str) -> String {
     format!("{body}{check}")
 }
 
-fn allow_negative_stock(client: &mut postgres::Client) -> AppResult<bool> {
+fn allow_negative_stock<C: postgres::GenericClient>(client: &mut C) -> AppResult<bool> {
     Ok(client
         .query_opt(
             "SELECT value FROM app_meta WHERE key = 'allow_negative_stock'",
@@ -552,7 +631,7 @@ fn allow_negative_stock(client: &mut postgres::Client) -> AppResult<bool> {
         .unwrap_or(true))
 }
 
-fn get_product(client: &mut postgres::Client, id: i64) -> AppResult<Product> {
+fn get_product<C: postgres::GenericClient>(client: &mut C, id: i64) -> AppResult<Product> {
     let row = client.query_one(
         "SELECT id, name, barcode, category, size, color, quantity, low_stock_threshold,
                 purchase_price, sale_price, image_data, created_at::text, updated_at::text, custom_type, custom_config
@@ -600,7 +679,7 @@ fn stock_movement_from_row(row: &Row) -> StockMovement {
 
 #[cfg(test)]
 mod tests {
-    use super::{ean8_from_sequence, is_valid_ean8};
+    use super::{ean8_from_sequence, is_valid_ean};
 
     #[test]
     fn generates_short_numeric_ean8_barcodes() {
@@ -608,12 +687,18 @@ mod tests {
         assert_eq!(barcode, "20000011");
         assert_eq!(barcode.len(), 8);
         assert!(barcode.bytes().all(|digit| digit.is_ascii_digit()));
-        assert!(is_valid_ean8(&barcode));
+        assert!(is_valid_ean(&barcode));
     }
 
     #[test]
     fn rejects_invalid_ean8_checksum() {
-        assert!(!is_valid_ean8("20000012"));
-        assert!(!is_valid_ean8("AS100001"));
+        assert!(!is_valid_ean("20000012"));
+        assert!(!is_valid_ean("AS100001"));
+    }
+
+    #[test]
+    fn accepts_valid_ean13_and_rejects_invalid_checksum() {
+        assert!(is_valid_ean("4006381333931"));
+        assert!(!is_valid_ean("4006381333932"));
     }
 }

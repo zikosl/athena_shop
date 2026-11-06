@@ -784,6 +784,38 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
     return product as T;
   }
 
+  if (command === "save_products_batch") {
+    const inputs = (args?.inputs ?? []) as ProductInput[];
+    if (!inputs.length || inputs.length > 2000) throw new Error("Batch size must be between 1 and 2000 products");
+    const seen = new Set<string>();
+    const existingBarcodes = new Set(db.products.map((product) => product.barcode.trim()));
+    for (const input of inputs) {
+      const barcode = input.barcode.trim();
+      if (!input.name.trim() || !isDemoBarcode(barcode)) throw new Error("Nom ou code-barres invalide");
+      if (seen.has(barcode) || existingBarcodes.has(barcode)) throw new Error("Un produit avec ce code-barres existe déjà");
+      if (!Number.isFinite(input.sale_price) || !Number.isInteger(input.quantity) || !Number.isInteger(input.low_stock_threshold) || input.sale_price < 0 || input.quantity < 0 || input.low_stock_threshold < 0) throw new Error("Valeurs de produit invalides");
+      seen.add(barcode);
+    }
+    const timestamp = new Date().toISOString();
+    let nextId = db.products.reduce((maxId, product) => Math.max(maxId, product.id + 1), Date.now());
+    const products = inputs.map((input) => ({
+      ...input,
+      id: nextId++,
+      custom_type: "standard" as const,
+      custom_config: {},
+      image_data: "",
+      created_at: timestamp,
+      updated_at: timestamp
+    }));
+    db.products = [...products, ...db.products];
+    db.categories = Array.from(new Set([...db.categories, ...products.map((product) => product.category).filter(Boolean)])).sort((a, b) => a.localeCompare(b));
+    for (const product of products) {
+      if (product.quantity > 0) db.stockMovements.unshift(makeDemoStockMovement(product, "initial", product.quantity, 0, product.quantity, product.purchase_price, "Initial stock"));
+    }
+    writeDb(db);
+    return products as T;
+  }
+
   if (command === "adjust_product_stock") {
     const input = args?.input as StockMovementInput;
     const product = db.products.find((item) => item.id === input.product_id);
@@ -1607,6 +1639,16 @@ function isDemoEan8(value: string) {
   return Number(value[7]) === (10 - (sum % 10)) % 10;
 }
 
+function isDemoEan13(value: string) {
+  if (!/^\d{13}$/.test(value)) return false;
+  const sum = value.slice(0, 12).split("").reduce((total, digit, index) => total + Number(digit) * (index % 2 === 0 ? 1 : 3), 0);
+  return Number(value[12]) === (10 - sum % 10) % 10;
+}
+
+function isDemoBarcode(value: string) {
+  return isDemoEan8(value) || isDemoEan13(value);
+}
+
 function between(value: string, from: string, to: string) {
   return value >= from && value <= to;
 }
@@ -1745,6 +1787,7 @@ export const api = {
   saveCategory: (name: string, oldName?: string) => call<string>("save_category", { name, old_name: oldName }),
   deleteCategory: (name: string) => call<void>("delete_category", { name }),
   saveProduct: (input: ProductInput) => call<Product>("save_product", { input }).then(normalizeProduct),
+  saveProductsBatch: (inputs: ProductInput[]) => call<Product[]>("save_products_batch", { inputs }).then((products) => products.map(normalizeProduct)),
   regenerateAllBarcodes: () => call<Product[]>("regenerate_all_barcodes").then((products) => products.map(normalizeProduct)),
   adjustProductStock: (input: StockMovementInput) => call<Product>("adjust_product_stock", { input }).then(normalizeProduct),
   stockMovements: (productId: number) => call<StockMovement[]>("list_stock_movements", { product_id: productId }),

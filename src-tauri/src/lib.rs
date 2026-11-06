@@ -37,6 +37,7 @@ pub fn run() {
             commands::products::save_category,
             commands::products::delete_category,
             commands::products::save_product,
+            commands::products::save_products_batch,
             commands::products::adjust_product_stock,
             commands::products::list_stock_movements,
             commands::products::regenerate_all_barcodes,
