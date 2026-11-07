@@ -6362,7 +6362,7 @@ body::-webkit-scrollbar {
   width: 100%;
   min-width: 0;
   min-height: 0;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 1 / 1;
   padding: 0;
   overflow: hidden;
   border-radius: 8px;
@@ -6420,6 +6420,25 @@ body::-webkit-scrollbar {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.app-shell .pos-grid .product-picker {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 108px), 1fr));
+  gap: 8px;
+}
+
+.app-shell .pos-grid .product-tile-overlay {
+  gap: 2px;
+  padding: 22px 8px 7px;
+}
+
+.app-shell .pos-grid .product-tile-overlay strong {
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.app-shell .pos-grid .product-tile-overlay small {
+  font-size: 10px;
 }
 
 .form-modal.stock-modal-dialog {
