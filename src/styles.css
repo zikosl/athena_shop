@@ -6441,6 +6441,45 @@ body::-webkit-scrollbar {
   font-size: 10px;
 }
 
+.app-shell .pos-grid .product-picker>.product-tile.flexy-quick-tile {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 4px;
+  padding: 8px;
+  color: var(--text-strong);
+  background: var(--surface-soft);
+  text-align: center;
+}
+
+.app-shell .pos-grid .flexy-quick-tile>span,
+.app-shell .pos-grid .flexy-quick-tile>small {
+  color: var(--text-soft);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.app-shell .pos-grid .flexy-quick-tile>strong {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.app-shell .pos-grid .flexy-quick-tile>b {
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.app-shell .pos-grid .flexy-quick-tile:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.app-shell .pos-grid .flexy-other-tile {
+  border-style: dashed;
+  color: var(--accent);
+}
+
 .form-modal.stock-modal-dialog {
   width: min(820px, 100%);
   gap: 12px;
@@ -6881,6 +6920,20 @@ body::-webkit-scrollbar {
 
 .app-shell .stock-table tbody tr:hover td {
   background: color-mix(in srgb, var(--surface-muted) 52%, transparent);
+}
+
+.app-shell .stock-table tbody tr.negative-row td {
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+}
+
+.app-shell .stock-table tbody tr.negative-row:hover td {
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+}
+
+.app-shell .stock-table td.negative-stock-quantity {
+  color: var(--danger);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .app-shell .stock-barcode-button {

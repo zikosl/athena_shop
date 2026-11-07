@@ -762,7 +762,7 @@ export function StockPage({
         <div className="filter-row">
           <div className="searchbar"><Search size={18} /><input placeholder={t.search} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
           <SelectControl aria-label={t.category} value={category} onValueChange={setCategory} options={[{ value: "", label: t.allCategories }, ...categories.map((item) => ({ value: item, label: item }))]} />
-          <SelectControl aria-label={t.stockFilter} value={stockFilter} onValueChange={(value) => setStockFilter(value as ProductStockFilter)} options={[{ value: "all", label: t.stockAll }, { value: "available", label: t.inStock }, { value: "low", label: t.lowOnly }, { value: "out", label: t.outOfStock }]} />
+          <SelectControl aria-label={t.stockFilter} value={stockFilter} onValueChange={(value) => setStockFilter(value as ProductStockFilter)} options={[{ value: "all", label: t.stockAll }, { value: "available", label: t.inStock }, { value: "low", label: t.lowOnly }, { value: "out", label: t.outOfStock }, { value: "negative", label: t.negativeOnly }]} />
         </div>
         <div className="data-table stock-table">
           <table>
@@ -784,7 +784,7 @@ export function StockPage({
               {products.map((product) => (
                   <tr
                   key={product.id}
-                  className={product.custom_type === "standard" && product.quantity <= product.low_stock_threshold ? "low-row" : ""}
+                  className={product.custom_type !== "printing" && product.quantity < 0 ? "negative-row" : product.custom_type === "standard" && product.quantity > 0 && product.quantity <= product.low_stock_threshold ? "low-row" : ""}
                     onContextMenu={(event) => { if (product.custom_type !== "flexy") openContextMenu(event, product); }}
                 >
                   <td>
@@ -794,7 +794,7 @@ export function StockPage({
                     </div>
                   </td>
                   <td><button className="stock-barcode-button" type="button" title="طباعة ملصقات الباركود" onClick={(event) => { event.stopPropagation(); setBarcodeProduct(product); }}><Barcode size={14} />{product.barcode}</button></td>
-                  <td>{product.custom_type === "printing" ? "غير محدود" : product.quantity}</td>
+                  <td className={product.custom_type !== "printing" && product.quantity < 0 ? "negative-stock-quantity" : undefined}>{product.custom_type === "printing" ? "غير محدود" : product.quantity}</td>
                   {inventoryMode && (
                     <td>
                       <input

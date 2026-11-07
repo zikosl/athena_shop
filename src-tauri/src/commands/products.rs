@@ -27,7 +27,8 @@ pub fn list_products(
                  $3 = 'all'
                  OR ($3 = 'available' AND (custom_type = 'printing' OR quantity > low_stock_threshold))
                  OR ($3 = 'low' AND custom_type = 'standard' AND quantity > 0 AND quantity <= low_stock_threshold)
-                 OR ($3 = 'out' AND custom_type <> 'printing' AND quantity <= 0)
+                 OR ($3 = 'out' AND custom_type <> 'printing' AND quantity = 0)
+                 OR ($3 = 'negative' AND custom_type <> 'printing' AND quantity < 0)
                )
              ORDER BY updated_at DESC, id DESC",
             &[&pattern, &category, &stock],

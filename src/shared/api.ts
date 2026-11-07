@@ -708,7 +708,8 @@ async function mockCall<T>(command: string, args?: Record<string, unknown>): Pro
       const matchesStock =
         stock === "available" ? product.custom_type === "printing" || product.quantity > product.low_stock_threshold :
         stock === "low" ? product.custom_type === "standard" && product.quantity > 0 && product.quantity <= product.low_stock_threshold :
-        stock === "out" ? product.custom_type !== "printing" && product.quantity <= 0 :
+        stock === "out" ? product.custom_type !== "printing" && product.quantity === 0 :
+        stock === "negative" ? product.custom_type !== "printing" && product.quantity < 0 :
         true;
       return matchesQuery && matchesCategory && matchesStock;
     }) as T;

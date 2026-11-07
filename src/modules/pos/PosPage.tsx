@@ -226,6 +226,11 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
     const normalized = query.trim().toLowerCase();
     return perfumes.filter((perfume) => !normalized || [perfume.name, perfume.family].some((value) => value.toLowerCase().includes(normalized)));
   }, [perfumes, query]);
+  const flexyProduct = productCatalog.find((product) => product.custom_type === "flexy");
+  const amountQuery = query.trim().replace(/\D/g, "");
+  const flexyQuickAmounts = [...new Set(flexyProduct?.custom_config?.quick_amounts ?? [])]
+    .filter((amount) => Number.isFinite(amount) && amount > 0 && (!amountQuery || String(amount).includes(amountQuery)))
+    .sort((left, right) => left - right);
   const total = Math.max(0, subtotal - discount);
   const normalizedPaid = Math.max(0, Math.min(paidAmount, total));
   const creditRemaining = saleType === "credit" ? Math.max(0, total - normalizedPaid) : 0;
@@ -292,26 +297,45 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
     });
   }
 
+  function addFlexyAmount(product: Product, value: number) {
+    const amount = Math.floor(value);
+    const hasMatchingTier = (product.custom_config?.surcharge_tiers ?? []).some((tier) => tier.up_to === null || amount <= tier.up_to);
+    if (!Number.isFinite(amount) || amount <= 0 || !hasMatchingTier) {
+      showToast(tr("تحقق من مبلغ Flexy وشرائح الرسوم", "Vérifiez le montant Flexy et les tranches de frais"), "warning");
+      return false;
+    }
+    if (amount > product.quantity && !allowNegativeStock) {
+      showToast(tr("الرصيد المتاح من Flexy غير كاف", "Solde Flexy insuffisant"), "warning");
+      return false;
+    }
+    const surcharge = flexyFee(product, amount);
+    setCart((items) => [...items, {
+      product,
+      quantity: 1,
+      unit_price: amount + surcharge,
+      unit_cost: product.purchase_price * amount,
+      stock_quantity: amount,
+      display_name: `${product.name} ${amount} دج`,
+      custom_option: `flexy:${amount}`,
+      cart_key: `${product.id}-${Date.now()}-${Math.random()}`
+    }]);
+    return true;
+  }
+
   function confirmCustomProduct() {
     if (!customDraft) return;
     const { product } = customDraft;
+    if (product.custom_type === "flexy") {
+      if (addFlexyAmount(product, Number(customDraft.amount))) setCustomDraft(null);
+      return;
+    }
     const quantity = Math.floor(Number(customDraft.quantity));
     let stockQuantity = quantity;
     let unitPrice = product.sale_price;
     let unitCost = product.purchase_price;
     let displayName = product.name;
     let customOption = customDraft.option;
-    if (product.custom_type === "flexy") {
-      const amount = Math.floor(Number(customDraft.amount));
-      const surcharge = flexyFee(product, amount);
-      const hasMatchingTier = (product.custom_config?.surcharge_tiers ?? []).some((tier) => tier.up_to === null || amount <= tier.up_to);
-      if (!Number.isFinite(amount) || amount <= 0 || !hasMatchingTier) { showToast(tr("تحقق من مبلغ Flexy وشرائح الرسوم", "Vérifiez le montant Flexy et les tranches de frais"), "warning"); return; }
-      stockQuantity = amount;
-      unitPrice = amount + surcharge;
-      unitCost = product.purchase_price * amount;
-      displayName = `${product.name} ${amount} دج`;
-      customOption = `flexy:${amount}`;
-    } else if (product.custom_type === "tobacco") {
+    if (product.custom_type === "tobacco") {
       const piecesPerBox = Math.max(1, product.custom_config?.pieces_per_box ?? 1);
       const isBox = customDraft.option === "box";
       stockQuantity = quantity * (isBox ? piecesPerBox : 1);
@@ -324,9 +348,9 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
       unitCost = 0;
       displayName = `${product.name} (${duplex ? "Recto-verso" : "Recto"})`;
     }
-    if (product.custom_type !== "flexy" && (!Number.isFinite(quantity) || quantity <= 0)) { showToast(tr("أدخل كمية صحيحة", "Saisissez une quantité valide"), "warning"); return; }
+    if (!Number.isFinite(quantity) || quantity <= 0) { showToast(tr("أدخل كمية صحيحة", "Saisissez une quantité valide"), "warning"); return; }
     if (product.custom_type !== "printing" && stockQuantity > product.quantity && !allowNegativeStock) { showToast(tr("المخزون غير كاف", "Stock insuffisant"), "warning"); return; }
-    setCart((items) => [...items, { product, quantity: product.custom_type === "flexy" ? 1 : quantity, unit_price: unitPrice, unit_cost: unitCost, stock_quantity: stockQuantity, display_name: displayName, custom_option: customOption, cart_key: `${product.id}-${Date.now()}-${Math.random()}` }]);
+    setCart((items) => [...items, { product, quantity, unit_price: unitPrice, unit_cost: unitCost, stock_quantity: stockQuantity, display_name: displayName, custom_option: customOption, cart_key: `${product.id}-${Date.now()}-${Math.random()}` }]);
     setCustomDraft(null);
   }
 
@@ -600,6 +624,29 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
           {(assortment === "all" || assortment === "products") && <SelectControl aria-label={t.category} value={category} onValueChange={setCategory} options={[{ value: "", label: t.allCategories }, ...categories.map((item) => ({ value: item, label: displayCategory(item) }))]} />}
         </div>
         <div className="product-picker">
+          {assortment === "flexy" && flexyProduct && <>
+            {flexyQuickAmounts.map((amount) => {
+              const surcharge = flexyFee(flexyProduct, amount);
+              const disabled = !allowNegativeStock && amount > flexyProduct.quantity;
+              return <button
+                key={`flexy-${amount}`}
+                className="product-tile flexy-quick-tile"
+                type="button"
+                disabled={disabled}
+                aria-label={`${tr("تعبئة", "Recharge")} ${money(amount)} · ${tr("الإجمالي", "Total")} ${money(amount + surcharge)}`}
+                onClick={() => addFlexyAmount(flexyProduct, amount)}
+              >
+                <span>{tr("تعبئة", "Recharge")}</span>
+                <strong>{money(amount)}</strong>
+                <small>{tr("رسوم", "Frais")} {money(surcharge)}</small>
+                <b>{money(amount + surcharge)}</b>
+              </button>;
+            })}
+            <button className="product-tile flexy-quick-tile flexy-other-tile" type="button" onClick={() => addProduct(flexyProduct)}>
+              <Plus size={20} />
+              <strong>{tr("مبلغ آخر", "Autre montant")}</strong>
+            </button>
+          </>}
           {(assortment === "all" || assortment === "perfumery") && services.enable_perfumes && visiblePerfumes.map((perfume) => (
             <article key={`perfume-${perfume.id}`} className="product-tile perfume-tile">
               <span><SprayCan size={22} /></span>
@@ -612,7 +659,7 @@ export function PosPage({ language, user, shiftOpen, onOpenShift, onSale }: { la
               </div>
             </article>
           ))}
-          {products.map((product) => (
+          {assortment !== "flexy" && products.map((product) => (
             <button key={product.id} className="product-tile" onClick={() => addProduct(product)}>
               <span className="product-tile-media">
                 {product.image_data ? <img src={product.image_data} alt="" /> : <ShoppingBag size={22} />}

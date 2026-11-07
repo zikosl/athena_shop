@@ -209,7 +209,7 @@ export interface PurchaseOrderInput {
   items: PurchaseOrderItemInput[];
 }
 
-export type ProductStockFilter = "all" | "available" | "low" | "out";
+export type ProductStockFilter = "all" | "available" | "low" | "out" | "negative";
 
 export interface ProductFilters {
   query?: string;
