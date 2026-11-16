@@ -7,7 +7,7 @@ use std::os::windows::process::CommandExt;
 
 use tauri::{AppHandle, State};
 
-use crate::db::{Database, PostgresConfig};
+use crate::db::Database;
 use crate::error::{AppError, AppResult};
 use crate::models::{AppSettings, BarcodePrintInput};
 
@@ -42,12 +42,8 @@ pub fn is_database_configured(db: State<Database>) -> AppResult<bool> {
 }
 
 #[tauri::command]
-pub fn configure_database(
-    app: AppHandle,
-    db: State<Database>,
-    input: PostgresConfig,
-) -> AppResult<()> {
-    db.configure(&app, input)
+pub fn configure_database(app: AppHandle, db: State<Database>) -> AppResult<()> {
+    db.configure(&app)
 }
 
 #[tauri::command]
@@ -416,7 +412,7 @@ pub fn save_app_settings(db: State<Database>, input: AppSettings) -> AppResult<A
     })
 }
 
-fn app_setting_bool(client: &mut postgres::Client, key: &str, default: bool) -> AppResult<bool> {
+fn app_setting_bool(client: &mut crate::db::Client, key: &str, default: bool) -> AppResult<bool> {
     Ok(client
         .query_opt("SELECT value FROM app_meta WHERE key = $1", &[&key])?
         .map(|row| row.get::<_, String>(0) == "true")
@@ -1301,9 +1297,18 @@ pub fn reset_with_dummy_data(db: State<Database>) -> AppResult<()> {
     db.with_client(|client| {
         client.batch_execute(
             "
-            TRUNCATE TABLE supplier_payments, purchase_order_items, purchase_orders, suppliers,
-              stock_movements, credit_payments, sale_items, sales, expenses, products, cash_shifts
-              RESTART IDENTITY CASCADE;
+            DELETE FROM supplier_payments;
+            DELETE FROM purchase_order_items;
+            DELETE FROM purchase_orders;
+            DELETE FROM suppliers;
+            DELETE FROM stock_movements;
+            DELETE FROM credit_payments;
+            DELETE FROM sale_items;
+            DELETE FROM perfume_sale_items;
+            DELETE FROM sales;
+            DELETE FROM expenses;
+            DELETE FROM products;
+            DELETE FROM cash_shifts;
 
             INSERT INTO products
               (id, name, barcode, category, size, color, quantity, low_stock_threshold, purchase_price, sale_price, image_data)
@@ -1319,21 +1324,21 @@ pub fn reset_with_dummy_data(db: State<Database>) -> AppResult<()> {
 
             INSERT INTO expenses (id, label, category, amount, note, expense_date, created_at)
             VALUES
-              (1, 'Loyer boutique', 'Fixe', 18000, 'Dummy data', CURRENT_DATE - INTERVAL '2 days', NOW() - INTERVAL '2 days'),
-              (2, 'Publicite Instagram', 'Marketing', 4200, 'Campagne test', CURRENT_DATE - INTERVAL '1 day', NOW() - INTERVAL '1 day'),
-              (3, 'Sachets et emballage', 'Fournitures', 2300, 'Stock emballage', CURRENT_DATE, NOW()),
-              (4, 'Livraison fournisseur', 'Transport', 3100, 'Reception marchandise', CURRENT_DATE - INTERVAL '12 days', NOW() - INTERVAL '12 days'),
-              (5, 'Nettoyage boutique', 'Service', 1200, 'Entretien', CURRENT_DATE - INTERVAL '20 days', NOW() - INTERVAL '20 days');
+              (1, 'Loyer boutique', 'Fixe', 18000, 'Dummy data', date('now', '-2 days'), datetime('now', '-2 days')),
+              (2, 'Publicite Instagram', 'Marketing', 4200, 'Campagne test', date('now', '-1 day'), datetime('now', '-1 day')),
+              (3, 'Sachets et emballage', 'Fournitures', 2300, 'Stock emballage', CURRENT_DATE, CURRENT_TIMESTAMP),
+              (4, 'Livraison fournisseur', 'Transport', 3100, 'Reception marchandise', date('now', '-12 days'), datetime('now', '-12 days')),
+              (5, 'Nettoyage boutique', 'Service', 1200, 'Entretien', date('now', '-20 days'), datetime('now', '-20 days'));
 
             INSERT INTO sales
               (id, receipt_no, subtotal, discount, total, profit, payment_method, sale_type, customer_name, customer_phone,
                paid_amount, remaining_amount, due_date, credit_note, credit_status, cashier, created_at)
             VALUES
-              (1, 'AS-DEMO-0001', 6200, 0, 6200, 3200, 'Especes', 'cash', '', '', 6200, 0, '', '', 'paid', 'Administrateur', NOW() - INTERVAL '6 days'),
-              (2, 'AS-DEMO-0002', 8600, 200, 8400, 4200, 'Especes', 'credit', 'Samira', '0555000001', 6000, 2400, '', 'Client fidele', 'partial', 'Administrateur', NOW() - INTERVAL '4 days'),
-              (3, 'AS-DEMO-0003', 6150, 0, 6150, 2780, 'Especes', 'cash', '', '', 6150, 0, '', '', 'paid', 'Administrateur', NOW() - INTERVAL '1 day'),
-              (4, 'AS-DEMO-0004', 10800, 0, 10800, 5200, 'Especes', 'credit', 'Nadia', '0555000002', 4000, 6800, '', 'A payer fin semaine', 'partial', 'Administrateur', NOW()),
-              (5, 'AS-DEMO-0005', 3150, 0, 3150, 1730, 'Especes', 'cash', '', '', 3150, 0, '', '', 'paid', 'Administrateur', NOW());
+              (1, 'AS-DEMO-0001', 6200, 0, 6200, 3200, 'Especes', 'cash', '', '', 6200, 0, '', '', 'paid', 'Administrateur', datetime('now', '-6 days')),
+              (2, 'AS-DEMO-0002', 8600, 200, 8400, 4200, 'Especes', 'credit', 'Samira', '0555000001', 6000, 2400, '', 'Client fidele', 'partial', 'Administrateur', datetime('now', '-4 days')),
+              (3, 'AS-DEMO-0003', 6150, 0, 6150, 2780, 'Especes', 'cash', '', '', 6150, 0, '', '', 'paid', 'Administrateur', datetime('now', '-1 day')),
+              (4, 'AS-DEMO-0004', 10800, 0, 10800, 5200, 'Especes', 'credit', 'Nadia', '0555000002', 4000, 6800, '', 'A payer fin semaine', 'partial', 'Administrateur', CURRENT_TIMESTAMP),
+              (5, 'AS-DEMO-0005', 3150, 0, 3150, 1730, 'Especes', 'cash', '', '', 3150, 0, '', '', 'paid', 'Administrateur', CURRENT_TIMESTAMP);
 
             INSERT INTO sale_items
               (sale_id, product_id, product_name, barcode, quantity, unit_price, purchase_price, line_total)
@@ -1352,16 +1357,11 @@ pub fn reset_with_dummy_data(db: State<Database>) -> AppResult<()> {
 
             INSERT INTO credit_payments (id, sale_id, amount, note, cashier, paid_at)
             VALUES
-              (1, 2, 3000, 'Versement dummy', 'Administrateur', NOW() - INTERVAL '2 days'),
-              (2, 4, 0, 'Initial dummy ignored in reports', 'Administrateur', NOW());
+              (1, 2, 3000, 'Versement dummy', 'Administrateur', datetime('now', '-2 days')),
+              (2, 4, 0, 'Initial dummy ignored in reports', 'Administrateur', CURRENT_TIMESTAMP);
 
             DELETE FROM credit_payments WHERE amount <= 0;
 
-            SELECT setval('products_id_seq', (SELECT MAX(id) FROM products));
-            SELECT setval('expenses_id_seq', (SELECT MAX(id) FROM expenses));
-            SELECT setval('sales_id_seq', (SELECT MAX(id) FROM sales));
-            SELECT setval('sale_items_id_seq', (SELECT MAX(id) FROM sale_items));
-            SELECT setval('credit_payments_id_seq', (SELECT MAX(id) FROM credit_payments));
             ",
         )?;
         Ok(())
@@ -1427,23 +1427,22 @@ pub fn empty_database(db: State<Database>) -> AppResult<()> {
     db.with_client(|client| {
         client.batch_execute(
             "
-            TRUNCATE TABLE
-              perfume_sale_items,
-              perfume_prices,
-              perfumes,
-              flacons,
-              credit_payments,
-              sale_items,
-              sales,
-              expenses,
-              supplier_payments,
-              purchase_order_items,
-              purchase_orders,
-              suppliers,
-              products,
-              cash_shifts,
-              stock_movements
-            RESTART IDENTITY CASCADE;
+            DELETE FROM supplier_payments;
+            DELETE FROM purchase_order_items;
+            DELETE FROM purchase_orders;
+            DELETE FROM suppliers;
+            DELETE FROM stock_movements;
+            DELETE FROM credit_payments;
+            DELETE FROM perfume_sale_items;
+            DELETE FROM sale_items;
+            DELETE FROM sales;
+            DELETE FROM expenses;
+            DELETE FROM perfume_purchases;
+            DELETE FROM perfume_prices;
+            DELETE FROM perfumes;
+            DELETE FROM flacons;
+            DELETE FROM products;
+            DELETE FROM cash_shifts;
             ",
         )?;
         Ok(())

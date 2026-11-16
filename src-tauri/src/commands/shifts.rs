@@ -1,5 +1,5 @@
+use crate::db::{Client, Row};
 use chrono::{Local, NaiveDate, NaiveTime, TimeZone};
-use postgres::{Client, Row};
 use tauri::State;
 
 use crate::db::Database;
@@ -53,7 +53,7 @@ pub fn open_shift(db: State<Database>, input: OpenShiftInput) -> AppResult<CashS
         let cashier = input.cashier.trim().to_string();
         let row = client.query_one(
             "INSERT INTO cash_shifts (opening_amount, auto_close_at, cashier)
-             VALUES ($1::float8, $2::text::timestamptz, $3::text)
+             VALUES ($1, $2::timestamptz, $3)
              RETURNING id",
             &[&opening_amount, &close_at, &cashier],
         )?;
@@ -72,7 +72,7 @@ pub fn close_shift(db: State<Database>, input: CloseShiftInput) -> AppResult<Cas
         let expected = get_shift(client, target_id)?.expected_amount;
         client.execute(
             "UPDATE cash_shifts
-             SET status = 'closed', closed_at = COALESCE(closed_at, NOW()), closing_amount = $1
+             SET status = 'closed', closed_at = COALESCE(closed_at, CURRENT_TIMESTAMP), closing_amount = $1
              WHERE id = $2 AND status = 'open'",
             &[&expected, &target_id],
         )?;
@@ -94,7 +94,7 @@ pub fn shift_id_for_date(client: &mut Client, date: NaiveDate) -> AppResult<Opti
     }
     Ok(client
         .query_opt(
-            "SELECT id FROM cash_shifts WHERE opened_at::date = $1 ORDER BY opened_at DESC LIMIT 1",
+            "SELECT id FROM cash_shifts WHERE date(opened_at) = $1 ORDER BY opened_at DESC LIMIT 1",
             &[&date],
         )?
         .map(|row| row.get(0)))
@@ -116,7 +116,7 @@ pub fn refresh_closed_shift(client: &mut Client, shift_id: Option<i64>) -> AppRe
 
 pub fn auto_close_due_shift(client: &mut Client) -> AppResult<()> {
     let rows = client.query(
-        "SELECT id FROM cash_shifts WHERE status = 'open' AND auto_close_at <= NOW()",
+        "SELECT id FROM cash_shifts WHERE status = 'open' AND auto_close_at <= CURRENT_TIMESTAMP",
         &[],
     )?;
     for row in rows {
@@ -146,27 +146,27 @@ fn current_shift_for_client(client: &mut Client) -> AppResult<Option<CashShift>>
 fn get_shift(client: &mut Client, id: i64) -> AppResult<CashShift> {
     let row = client.query_one(
         "WITH sale_payment_totals AS (
-           SELECT sale_id, COALESCE(SUM(amount), 0)::float8 AS amount
+           SELECT sale_id, COALESCE(SUM(amount), 0) AS amount
            FROM credit_payments GROUP BY sale_id
          ),
          sales_totals AS (
            SELECT shift_id,
-                  COALESCE(SUM(CASE WHEN sale_type IN ('cash', 'delivery') THEN total ELSE GREATEST(paid_amount - COALESCE(spt.amount, 0), 0) END), 0)::float8 AS amount
+                  COALESCE(SUM(CASE WHEN sale_type IN ('cash', 'delivery') THEN total ELSE MAX(paid_amount - COALESCE(spt.amount, 0), 0) END), 0) AS amount
            FROM sales s
            LEFT JOIN sale_payment_totals spt ON spt.sale_id = s.id
            WHERE s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid'
            GROUP BY shift_id
          ),
          payment_totals AS (
-           SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount FROM credit_payments GROUP BY shift_id
+           SELECT shift_id, COALESCE(SUM(amount), 0) AS amount FROM credit_payments GROUP BY shift_id
          ),
          expense_totals AS (
-           SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount FROM expenses GROUP BY shift_id
+           SELECT shift_id, COALESCE(SUM(amount), 0) AS amount FROM expenses GROUP BY shift_id
          ),
          supplier_payment_totals AS (
-           SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount FROM supplier_payments GROUP BY shift_id
+           SELECT shift_id, COALESCE(SUM(amount), 0) AS amount FROM supplier_payments GROUP BY shift_id
          )
-         SELECT cs.id, cs.opened_at::text, COALESCE(cs.closed_at::text, ''), cs.auto_close_at::text,
+         SELECT cs.id, cs.opened_at, COALESCE(cs.closed_at, ''), cs.auto_close_at,
                 cs.opening_amount, cs.closing_amount,
                 cs.opening_amount + COALESCE(st.amount, 0) + COALESCE(pt.amount, 0) - COALESCE(et.amount, 0) - COALESCE(spt.amount, 0),
                 COALESCE(st.amount, 0), COALESCE(pt.amount, 0), COALESCE(et.amount, 0),

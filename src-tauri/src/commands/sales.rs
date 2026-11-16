@@ -1,5 +1,5 @@
+use crate::db::{Client, Row};
 use chrono::{Local, NaiveDate};
-use postgres::{Client, Row};
 use tauri::State;
 
 use crate::db::Database;
@@ -103,7 +103,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
         } else {
             client
                 .query_opt(
-                    "SELECT id FROM cash_shifts WHERE opened_at::date = $1 ORDER BY opened_at DESC LIMIT 1",
+                    "SELECT id FROM cash_shifts WHERE date(opened_at) = $1 ORDER BY opened_at DESC LIMIT 1",
                     &[&sale_date],
                 )?
                 .map(|row| row.get::<_, i64>(0))
@@ -175,7 +175,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
             gross_profit += (unit_price - unit_cost) * item.quantity as f64;
 
             tx.execute(
-                "UPDATE products SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2",
+                "UPDATE products SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
                 &[&requested_stock, &product.id],
             )?;
 
@@ -200,7 +200,7 @@ pub fn checkout(db: State<Database>, input: CheckoutInput) -> AppResult<Sale> {
             subtotal += line_total;
             gross_profit += (perfume.sale_price - perfume.cost_per_ml * perfume.volume_ml) * item.quantity as f64;
             tx.execute(
-                "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml - $1, updated_at = NOW() WHERE id = $2",
+                "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
                 &[&needed_ml, &perfume.id],
             )?;
             perfume_lines.push((perfume, item.quantity, line_total));
@@ -368,7 +368,7 @@ pub fn list_sales(db: State<Database>) -> AppResult<Vec<Sale>> {
         let rows = client.query(
             "SELECT id, receipt_no, subtotal, discount, total, profit, payment_method,
                     sale_type, customer_name, customer_phone, paid_amount, remaining_amount,
-                    due_date, credit_note, credit_status, cashier, created_at::text
+                    due_date, credit_note, credit_status, cashier, created_at
              FROM sales ORDER BY id DESC LIMIT 100",
             &[],
         )?;
@@ -389,7 +389,7 @@ pub fn list_delivery_sales(db: State<Database>) -> AppResult<Vec<Sale>> {
         let rows = client.query(
             "SELECT id, receipt_no, subtotal, discount, total, profit, payment_method,
                     sale_type, customer_name, customer_phone, paid_amount, remaining_amount,
-                    due_date, credit_note, credit_status, cashier, created_at::text
+                    due_date, credit_note, credit_status, cashier, created_at
              FROM sales WHERE sale_type = 'delivery' ORDER BY id DESC LIMIT 200",
             &[],
         )?;
@@ -438,7 +438,7 @@ pub fn collect_delivery(db: State<Database>, id: i64) -> AppResult<Sale> {
         tx.execute(
             "UPDATE sales
              SET shift_id = $1, paid_amount = total, remaining_amount = 0,
-                 credit_status = 'delivery_paid', collected_at = NOW()
+                 credit_status = 'delivery_paid', collected_at = CURRENT_TIMESTAMP
              WHERE id = $2",
             &[&shift_id, &id],
         )?;
@@ -473,7 +473,7 @@ pub fn return_delivery(db: State<Database>, id: i64) -> AppResult<Sale> {
             if item.stock_quantity <= 0 { continue; }
             let before: i64 = tx.query_one("SELECT quantity FROM products WHERE id = $1", &[&item.product_id])?.get(0);
             tx.execute(
-                "UPDATE products SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2",
+                "UPDATE products SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
                 &[&item.stock_quantity, &item.product_id],
             )?;
             if !item.custom_option.is_empty() && item.stock_quantity > 0 {
@@ -483,7 +483,7 @@ pub fn return_delivery(db: State<Database>, id: i64) -> AppResult<Sale> {
         for item in stored_perfume_sale_items(&mut tx, id)? {
             let returned_volume = item.volume_ml * item.quantity as f64;
             tx.execute(
-                "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml + $1, updated_at = NOW() WHERE id = $2",
+                "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
                 &[&returned_volume, &item.perfume_id],
             )?;
         }
@@ -577,7 +577,7 @@ pub fn delete_sale(db: State<Database>, id: i64) -> AppResult<()> {
             if item.stock_quantity <= 0 { continue; }
             let before: i64 = tx.query_one("SELECT quantity FROM products WHERE id = $1", &[&item.product_id])?.get(0);
             tx.execute(
-                "UPDATE products SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2",
+                "UPDATE products SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
                 &[&item.stock_quantity, &item.product_id],
             )?;
             if !item.custom_option.is_empty() && item.stock_quantity > 0 {
@@ -587,7 +587,7 @@ pub fn delete_sale(db: State<Database>, id: i64) -> AppResult<()> {
         for item in perfume_items {
             let returned_volume = item.volume_ml * item.quantity as f64;
             tx.execute(
-                "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml + $1, updated_at = NOW() WHERE id = $2",
+                "UPDATE perfumes SET remaining_volume_ml = remaining_volume_ml + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
                 &[&returned_volume, &item.perfume_id],
             )?;
         }
@@ -599,7 +599,7 @@ pub fn delete_sale(db: State<Database>, id: i64) -> AppResult<()> {
 }
 
 fn insert_custom_stock_movement(
-    tx: &mut postgres::Transaction<'_>,
+    tx: &mut crate::db::DbTransaction<'_>,
     product_id: i64,
     movement_type: &str,
     quantity: i64,
@@ -617,7 +617,7 @@ fn insert_custom_stock_movement(
 }
 
 fn get_product_for_sale(
-    client: &mut postgres::Transaction<'_>,
+    client: &mut crate::db::DbTransaction<'_>,
     id: i64,
 ) -> AppResult<Option<ProductForSale>> {
     let row = client.query_opt(
@@ -740,14 +740,14 @@ fn resolve_custom_line(
 }
 
 fn get_perfume_for_sale(
-    client: &mut postgres::Transaction<'_>,
+    client: &mut crate::db::DbTransaction<'_>,
     perfume_id: i64,
     flacon_id: i64,
 ) -> AppResult<Option<PerfumeForSale>> {
     let row = client.query_opt(
         "SELECT p.id, p.name, p.remaining_volume_ml, p.cost_per_ml,
                 f.id, CONCAT(f.name, ' ', f.flacon_type), f.volume_ml,
-                COALESCE(NULLIF(pp.sale_price, 0), f.sale_price)::float8
+                COALESCE(NULLIF(pp.sale_price, 0), f.sale_price)
          FROM perfumes p
          JOIN flacons f ON f.id = $2
          LEFT JOIN perfume_prices pp ON pp.perfume_id = p.id AND pp.flacon_id = f.id
@@ -770,7 +770,7 @@ fn load_sale(client: &mut Client, sale_id: i64) -> AppResult<Sale> {
     let row = client.query_one(
         "SELECT id, receipt_no, subtotal, discount, total, profit, payment_method,
                 sale_type, customer_name, customer_phone, paid_amount, remaining_amount,
-                due_date, credit_note, credit_status, cashier, created_at::text
+                due_date, credit_note, credit_status, cashier, created_at
          FROM sales WHERE id = $1",
         &[&sale_id],
     )?;
@@ -780,7 +780,7 @@ fn load_sale(client: &mut Client, sale_id: i64) -> AppResult<Sale> {
 }
 
 fn replace_sale_items(
-    tx: &mut postgres::Transaction<'_>,
+    tx: &mut crate::db::DbTransaction<'_>,
     sale_id: i64,
     input_items: Vec<crate::models::SaleItemUpdateInput>,
 ) -> AppResult<()> {
@@ -806,7 +806,7 @@ fn replace_sale_items(
     if sale_type == "credit" {
         let payment_count: i64 = tx
             .query_one(
-                "SELECT COUNT(*)::bigint FROM credit_payments WHERE sale_id = $1",
+                "SELECT COUNT(*) FROM credit_payments WHERE sale_id = $1",
                 &[&sale_id],
             )?
             .get(0);
@@ -829,7 +829,7 @@ fn replace_sale_items(
 
     for item in &old_items {
         tx.execute(
-            "UPDATE products SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2",
+            "UPDATE products SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
             &[&item.quantity, &item.product_id],
         )?;
     }
@@ -837,8 +837,8 @@ fn replace_sale_items(
     tx.execute("DELETE FROM sale_items WHERE sale_id = $1", &[&sale_id])?;
 
     let perfume_totals = tx.query_one(
-        "SELECT COALESCE(SUM(line_total), 0)::float8,
-                COALESCE(SUM((unit_price - cost_per_ml * volume_ml) * quantity), 0)::float8
+        "SELECT COALESCE(SUM(line_total), 0),
+                COALESCE(SUM((unit_price - cost_per_ml * volume_ml) * quantity), 0)
          FROM perfume_sale_items WHERE sale_id = $1",
         &[&sale_id],
     )?;
@@ -872,7 +872,7 @@ fn replace_sale_items(
         gross_profit += (unit_price - old_item.purchase_price) * input.quantity as f64;
 
         tx.execute(
-            "UPDATE products SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2",
+            "UPDATE products SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
             &[&input.quantity, &input.product_id],
         )?;
         tx.execute(
@@ -919,7 +919,7 @@ fn replace_sale_items(
     Ok(())
 }
 
-fn allow_negative_stock(client: &mut postgres::Transaction<'_>) -> AppResult<bool> {
+fn allow_negative_stock(client: &mut crate::db::DbTransaction<'_>) -> AppResult<bool> {
     Ok(client
         .query_opt(
             "SELECT value FROM app_meta WHERE key = 'allow_negative_stock'",
@@ -929,7 +929,7 @@ fn allow_negative_stock(client: &mut postgres::Transaction<'_>) -> AppResult<boo
         .unwrap_or(true))
 }
 
-fn max_discount_amount(client: &mut postgres::Transaction<'_>) -> AppResult<f64> {
+fn max_discount_amount(client: &mut crate::db::DbTransaction<'_>) -> AppResult<f64> {
     Ok(client
         .query_opt(
             "SELECT value FROM app_meta WHERE key = 'max_discount_amount'",
@@ -986,7 +986,7 @@ fn calculate_sale_totals(
 }
 
 fn stored_sale_items(
-    client: &mut postgres::Transaction<'_>,
+    client: &mut crate::db::DbTransaction<'_>,
     sale_id: i64,
 ) -> AppResult<Vec<StoredSaleItem>> {
     let rows = client.query(
@@ -1010,7 +1010,7 @@ fn stored_sale_items(
 }
 
 fn stored_perfume_sale_items(
-    client: &mut postgres::Transaction<'_>,
+    client: &mut crate::db::DbTransaction<'_>,
     sale_id: i64,
 ) -> AppResult<Vec<StoredPerfumeSaleItem>> {
     let rows = client.query(
@@ -1028,14 +1028,17 @@ fn stored_perfume_sale_items(
         .collect())
 }
 
-fn sale_shift_id(client: &mut postgres::Transaction<'_>, sale_id: i64) -> AppResult<Option<i64>> {
+fn sale_shift_id(
+    client: &mut crate::db::DbTransaction<'_>,
+    sale_id: i64,
+) -> AppResult<Option<i64>> {
     Ok(client
         .query_one("SELECT shift_id FROM sales WHERE id = $1", &[&sale_id])?
         .get(0))
 }
 
 fn refresh_closed_shift_closing_amount(
-    client: &mut postgres::Transaction<'_>,
+    client: &mut crate::db::DbTransaction<'_>,
     shift_id: Option<i64>,
 ) -> AppResult<()> {
     let Some(shift_id) = shift_id else {
@@ -1043,12 +1046,12 @@ fn refresh_closed_shift_closing_amount(
     };
     let row = client.query_opt(
         "WITH sale_payment_totals AS (
-           SELECT sale_id, COALESCE(SUM(amount), 0)::float8 AS amount
+           SELECT sale_id, COALESCE(SUM(amount), 0) AS amount
            FROM credit_payments GROUP BY sale_id
          ),
          sales_totals AS (
            SELECT shift_id,
-                  COALESCE(SUM(CASE WHEN sale_type IN ('cash', 'delivery') THEN total ELSE GREATEST(paid_amount - COALESCE(spt.amount, 0), 0) END), 0)::float8 AS amount
+                  COALESCE(SUM(CASE WHEN sale_type IN ('cash', 'delivery') THEN total ELSE MAX(paid_amount - COALESCE(spt.amount, 0), 0) END), 0) AS amount
            FROM sales s
            LEFT JOIN sale_payment_totals spt ON spt.sale_id = s.id
            WHERE s.shift_id = $1
@@ -1056,15 +1059,15 @@ fn refresh_closed_shift_closing_amount(
            GROUP BY shift_id
          ),
          payment_totals AS (
-           SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount
+           SELECT shift_id, COALESCE(SUM(amount), 0) AS amount
            FROM credit_payments WHERE shift_id = $1 GROUP BY shift_id
          ),
          expense_totals AS (
-           SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount
+           SELECT shift_id, COALESCE(SUM(amount), 0) AS amount
            FROM expenses WHERE shift_id = $1 GROUP BY shift_id
          ),
          supplier_payment_totals AS (
-           SELECT shift_id, COALESCE(SUM(amount), 0)::float8 AS amount
+           SELECT shift_id, COALESCE(SUM(amount), 0) AS amount
            FROM supplier_payments WHERE shift_id = $1 GROUP BY shift_id
          )
          SELECT cs.status,

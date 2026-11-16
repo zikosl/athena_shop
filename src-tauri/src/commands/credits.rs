@@ -1,4 +1,4 @@
-use postgres::{Client, Row};
+use crate::db::{Client, Row};
 use tauri::State;
 
 use crate::db::Database;
@@ -11,7 +11,7 @@ pub fn list_credits(db: State<Database>) -> AppResult<Vec<CreditAccount>> {
         let rows = client.query(
             "SELECT id, receipt_no, subtotal, discount, total, profit, payment_method,
                     sale_type, customer_name, customer_phone, paid_amount, remaining_amount,
-                    due_date, credit_note, credit_status, cashier, created_at::text
+                    due_date, credit_note, credit_status, cashier, created_at
              FROM sales
              WHERE sale_type = 'credit'
              ORDER BY remaining_amount DESC, id DESC",
@@ -95,7 +95,7 @@ fn load_credit_account(client: &mut Client, sale_id: i64) -> AppResult<CreditAcc
     let row = client.query_one(
         "SELECT id, receipt_no, subtotal, discount, total, profit, payment_method,
                 sale_type, customer_name, customer_phone, paid_amount, remaining_amount,
-                due_date, credit_note, credit_status, cashier, created_at::text
+                due_date, credit_note, credit_status, cashier, created_at
          FROM sales WHERE id = $1",
         &[&sale_id],
     )?;
@@ -109,7 +109,7 @@ fn load_credit_account(client: &mut Client, sale_id: i64) -> AppResult<CreditAcc
 
 fn list_payments(client: &mut Client, sale_id: i64) -> AppResult<Vec<CreditPayment>> {
     let rows = client.query(
-        "SELECT id, sale_id, amount, note, paid_at::text, cashier
+        "SELECT id, sale_id, amount, note, paid_at, cashier
          FROM credit_payments WHERE sale_id = $1 ORDER BY id DESC",
         &[&sale_id],
     )?;

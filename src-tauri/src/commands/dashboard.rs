@@ -1,3 +1,4 @@
+use chrono::{Duration, Local};
 use tauri::State;
 
 use crate::db::Database;
@@ -18,25 +19,27 @@ struct DayStats {
 #[tauri::command]
 pub fn get_dashboard(db: State<Database>) -> AppResult<DashboardStats> {
     db.with_client(|client| {
-        let today = day_stats(client, "CURRENT_DATE")?;
-        let yesterday = day_stats(client, "CURRENT_DATE - INTERVAL '1 day'")?;
+        let today_date = Local::now().date_naive();
+        let today = day_stats(client, &today_date.format("%Y-%m-%d").to_string())?;
+        let yesterday_date = today_date - Duration::days(1);
+        let yesterday = day_stats(client, &yesterday_date.format("%Y-%m-%d").to_string())?;
 
         let low_stock_count: i64 = client
             .query_one(
-                "SELECT COUNT(*)::bigint FROM products WHERE custom_type = 'standard' AND quantity <= low_stock_threshold",
+                "SELECT COUNT(*) FROM products WHERE custom_type = 'standard' AND quantity <= low_stock_threshold",
                 &[],
             )?
             .get(0);
 
         let row = client.query_one(
-            "SELECT COUNT(*)::bigint, COALESCE(SUM(remaining_amount), 0)::float8
+            "SELECT COUNT(*), COALESCE(SUM(remaining_amount), 0)
              FROM sales WHERE sale_type = 'credit' AND remaining_amount > 0",
             &[],
         )?;
         let open_credit_count: i64 = row.get(0);
         let credit_remaining_total: f64 = row.get(1);
         let row = client.query_one(
-            "SELECT COUNT(*)::bigint, COALESCE(SUM(total), 0)::float8
+            "SELECT COUNT(*), COALESCE(SUM(total), 0)
              FROM sales WHERE sale_type = 'delivery' AND credit_status = 'delivery_pending'",
             &[],
         )?;
@@ -67,10 +70,9 @@ pub fn get_dashboard(db: State<Database>) -> AppResult<DashboardStats> {
     })
 }
 
-fn day_stats(client: &mut postgres::Client, day_sql: &str) -> AppResult<DayStats> {
-    let sales_query = format!(
-        "WITH payment_totals AS (
-           SELECT sale_id, COALESCE(SUM(amount), 0)::float8 AS amount
+fn day_stats(client: &mut crate::db::Client, day: &str) -> AppResult<DayStats> {
+    let sales_query = "WITH payment_totals AS (
+           SELECT sale_id, COALESCE(SUM(amount), 0) AS amount
            FROM credit_payments
            GROUP BY sale_id
          )
@@ -78,61 +80,54 @@ fn day_stats(client: &mut postgres::Client, day_sql: &str) -> AppResult<DayStats
            COALESCE(SUM(
              CASE
                WHEN s.sale_type IN ('cash', 'delivery') THEN s.total
-               ELSE GREATEST(s.paid_amount - COALESCE(p.amount, 0), 0)
+               ELSE MAX(s.paid_amount - COALESCE(p.amount, 0), 0)
              END
-           ), 0)::float8,
-           COUNT(*)::bigint,
+           ), 0),
+           COUNT(*),
            COALESCE(SUM(
              CASE
                WHEN s.total <= 0 THEN 0
                WHEN s.sale_type IN ('cash', 'delivery') THEN s.profit
-               ELSE s.profit * GREATEST(s.paid_amount - COALESCE(p.amount, 0), 0) / s.total
+               ELSE s.profit * MAX(s.paid_amount - COALESCE(p.amount, 0), 0) / s.total
              END
-           ), 0)::float8
+           ), 0)
          FROM sales s
          LEFT JOIN payment_totals p ON p.sale_id = s.id
-         WHERE (CASE
+         WHERE date(CASE
                   WHEN s.sale_type = 'delivery' AND s.credit_status = 'delivery_paid'
                     THEN COALESCE(s.collected_at, s.created_at)
                   ELSE s.created_at
-                END)::date = {day_sql}
-           AND (s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid')"
-    );
-    let row = client.query_one(&sales_query, &[])?;
+                END) = $1
+           AND (s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid')";
+    let row = client.query_one(&sales_query, &[&day])?;
     let cash_in: f64 = row.get(0);
     let sales_count: i64 = row.get(1);
     let sale_profit: f64 = row.get(2);
 
-    let payments_query = format!(
-        "SELECT
-           COALESCE(SUM(cp.amount), 0)::float8,
+    let payments_query = "SELECT
+           COALESCE(SUM(cp.amount), 0),
            COALESCE(SUM(
              CASE
                WHEN s.total <= 0 THEN 0
                ELSE s.profit * cp.amount / s.total
              END
-           ), 0)::float8
+           ), 0)
          FROM credit_payments cp
          JOIN sales s ON s.id = cp.sale_id
-         WHERE cp.paid_at::date = {day_sql}"
-    );
-    let row = client.query_one(&payments_query, &[])?;
+         WHERE date(cp.paid_at) = $1";
+    let row = client.query_one(&payments_query, &[&day])?;
     let credit_payments: f64 = row.get(0);
     let credit_payment_profit: f64 = row.get(1);
-    let delivery_query = format!(
-        "SELECT COALESCE(SUM(total), 0)::float8
+    let delivery_query = "SELECT COALESCE(SUM(total), 0)
          FROM sales
          WHERE sale_type = 'delivery'
            AND credit_status = 'delivery_paid'
-           AND COALESCE(collected_at, created_at)::date = {day_sql}"
-    );
-    let delivery_collected: f64 = client.query_one(&delivery_query, &[])?.get(0);
+           AND date(COALESCE(collected_at, created_at)) = $1";
+    let delivery_collected: f64 = client.query_one(&delivery_query, &[&day])?.get(0);
 
-    let expenses_query = format!(
-        "SELECT COALESCE(SUM(amount), 0)::float8
-         FROM expenses WHERE expense_date = {day_sql}"
-    );
-    let expenses: f64 = client.query_one(&expenses_query, &[])?.get(0);
+    let expenses_query = "SELECT COALESCE(SUM(amount), 0)
+         FROM expenses WHERE expense_date = $1";
+    let expenses: f64 = client.query_one(expenses_query, &[&day])?.get(0);
 
     Ok(DayStats {
         cash_in: cash_in + credit_payments,

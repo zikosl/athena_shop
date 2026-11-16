@@ -1,4 +1,4 @@
-use postgres::Row;
+use crate::db::Row;
 use tauri::State;
 
 use crate::db::Database;
@@ -19,9 +19,9 @@ pub fn list_products(
         let stock = stock.unwrap_or_else(|| "all".into());
         let rows = client.query(
             "SELECT id, name, barcode, category, size, color, quantity, low_stock_threshold,
-                    purchase_price, sale_price, image_data, created_at::text, updated_at::text, custom_type, custom_config
+                    purchase_price, sale_price, image_data, created_at, updated_at, custom_type, custom_config
              FROM products
-             WHERE (name ILIKE $1 OR barcode ILIKE $1 OR category ILIKE $1 OR size ILIKE $1 OR color ILIKE $1)
+             WHERE (name LIKE $1 OR barcode LIKE $1 OR category LIKE $1 OR size LIKE $1 OR color LIKE $1)
                AND ($2 = '' OR category = $2)
                AND (
                  $3 = 'all'
@@ -43,7 +43,7 @@ pub fn list_categories(db: State<Database>) -> AppResult<Vec<String>> {
     db.with_client(|client| {
         let rows = client.query(
             "SELECT name FROM product_categories
-             UNION SELECT DISTINCT btrim(category) FROM products WHERE btrim(category) <> ''
+             UNION SELECT DISTINCT trim(category) FROM products WHERE trim(category) <> ''
              ORDER BY name",
             &[],
         )?;
@@ -81,7 +81,7 @@ pub fn save_category(
                 &[&name],
             )?;
             tx.execute(
-                "UPDATE products SET category = $1, updated_at = NOW() WHERE category = $2",
+                "UPDATE products SET category = $1, updated_at = CURRENT_TIMESTAMP WHERE category = $2",
                 &[&name, &old_name],
             )?;
             tx.execute(
@@ -123,6 +123,7 @@ pub fn delete_category(db: State<Database>, name: String) -> AppResult<()> {
 pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Product> {
     db.with_client(|client| {
         validate_product(client, &input)?;
+        let custom_config = serde_json::to_string(&input.custom_config)?;
         if input.id.is_none() && input.custom_type == "flexy" {
             if let Some(existing) = client.query_opt(
                 "SELECT id FROM products WHERE custom_type = 'flexy' ORDER BY id LIMIT 1",
@@ -146,7 +147,7 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
                 "UPDATE products
                  SET name = $1, barcode = $2, category = $3, size = $4, color = $5,
                      quantity = $6, low_stock_threshold = $7, purchase_price = $8,
-                     sale_price = $9, image_data = $10, custom_type = $11, custom_config = $12, updated_at = NOW()
+                     sale_price = $9, image_data = $10, custom_type = $11, custom_config = $12, updated_at = CURRENT_TIMESTAMP
                  WHERE id = $13",
                 &[
                     &input.name.trim(),
@@ -160,7 +161,7 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
                     &input.sale_price,
                     &input.image_data,
                     &input.custom_type,
-                    &input.custom_config,
+                    &custom_config,
                     &id,
                 ],
             )?;
@@ -196,7 +197,7 @@ pub fn save_product(db: State<Database>, input: ProductInput) -> AppResult<Produ
                         &input.sale_price,
                         &input.image_data,
                         &input.custom_type,
-                        &input.custom_config,
+                        &custom_config,
                     ],
                 )?
                 .get(0);
@@ -238,8 +239,17 @@ pub fn save_products_batch(
             }
             validate_product(&mut tx, input)?;
         }
-        let existing = tx.query("SELECT barcode FROM products WHERE barcode = ANY($1)", &[&barcodes])?;
-        if !existing.is_empty() {
+        let mut existing_barcode = false;
+        for chunk in barcodes.chunks(900) {
+            let placeholders = (1..=chunk.len()).map(|index| format!("${index}")).collect::<Vec<_>>().join(", ");
+            let sql = format!("SELECT 1 FROM products WHERE barcode IN ({placeholders}) LIMIT 1");
+            let params = chunk.iter().map(|barcode| barcode as &dyn rusqlite::ToSql).collect::<Vec<_>>();
+            if tx.query_opt(&sql, &params)?.is_some() {
+                existing_barcode = true;
+                break;
+            }
+        }
+        if existing_barcode {
             return Err(AppError::Message("Un produit avec ce code-barres existe déjà".into()));
         }
 
@@ -255,22 +265,21 @@ pub fn save_products_batch(
         }
 
         let mut saved = Vec::with_capacity(inputs.len());
-        let insert_product = tx.prepare(
-            "INSERT INTO products
+        let insert_product = "INSERT INTO products
              (name, barcode, category, size, color, quantity, low_stock_threshold, purchase_price, sale_price, image_data, custom_type, custom_config)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
              RETURNING id, name, barcode, category, size, color, quantity, low_stock_threshold,
-                       purchase_price, sale_price, image_data, created_at::text, updated_at::text, custom_type, custom_config",
-        )?;
+                       purchase_price, sale_price, image_data, created_at, updated_at, custom_type, custom_config";
         for input in inputs {
             let category = input.category.trim();
+            let custom_config = serde_json::to_string(&input.custom_config)?;
             let row = tx.query_one(
-                &insert_product,
+                insert_product,
                 &[
                     &input.name.trim(), &input.barcode.trim(), &category,
                     &input.size.trim(), &input.color.trim(), &input.quantity,
                     &input.low_stock_threshold, &input.purchase_price, &input.sale_price,
-                    &input.image_data, &input.custom_type, &input.custom_config,
+                    &input.image_data, &input.custom_type, &custom_config,
                 ],
             )?;
             let product = product_from_row(&row);
@@ -327,7 +336,7 @@ pub fn adjust_product_stock(db: State<Database>, input: StockMovementInput) -> A
 
         client.execute(
             "UPDATE products
-             SET quantity = $1, purchase_price = $2, updated_at = NOW()
+             SET quantity = $1, purchase_price = $2, updated_at = CURRENT_TIMESTAMP
              WHERE id = $3",
             &[&next_quantity, &next_purchase_price, &input.product_id],
         )?;
@@ -354,7 +363,7 @@ pub fn list_stock_movements(db: State<Database>, product_id: i64) -> AppResult<V
     db.with_client(|client| {
         let rows = client.query(
             "SELECT sm.id, sm.product_id, p.name, p.barcode, sm.movement_type, sm.quantity,
-                    sm.before_quantity, sm.after_quantity, sm.unit_purchase_price, sm.note, sm.created_at::text
+                    sm.before_quantity, sm.after_quantity, sm.unit_purchase_price, sm.note, sm.created_at
              FROM stock_movements sm
              JOIN products p ON p.id = sm.product_id
              WHERE sm.product_id = $1
@@ -413,7 +422,7 @@ pub fn regenerate_all_barcodes(db: State<Database>) -> AppResult<Vec<Product>> {
             let id: i64 = row.get(0);
             let barcode = ean8_from_sequence(id as usize);
             tx.execute(
-                "UPDATE products SET barcode = $1, updated_at = NOW() WHERE id = $2",
+                "UPDATE products SET barcode = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
                 &[&barcode, &id],
             )?;
         }
@@ -421,7 +430,7 @@ pub fn regenerate_all_barcodes(db: State<Database>) -> AppResult<Vec<Product>> {
 
         let rows = client.query(
             "SELECT id, name, barcode, category, size, color, quantity, low_stock_threshold,
-                    purchase_price, sale_price, image_data, created_at::text, updated_at::text, custom_type, custom_config
+                    purchase_price, sale_price, image_data, created_at, updated_at, custom_type, custom_config
              FROM products ORDER BY updated_at DESC, id DESC",
             &[],
         )?;
@@ -435,7 +444,7 @@ fn ean8_from_sequence(sequence: usize) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn insert_stock_movement<C: postgres::GenericClient>(
+fn insert_stock_movement<C: crate::db::SqliteClientExt>(
     client: &mut C,
     product_id: i64,
     movement_type: &str,
@@ -462,7 +471,7 @@ fn insert_stock_movement<C: postgres::GenericClient>(
     Ok(())
 }
 
-fn validate_product<C: postgres::GenericClient>(
+fn validate_product<C: crate::db::SqliteClientExt>(
     client: &mut C,
     input: &ProductInput,
 ) -> AppResult<()> {
@@ -622,7 +631,7 @@ fn ean8_from_body(body: &str) -> String {
     format!("{body}{check}")
 }
 
-fn allow_negative_stock<C: postgres::GenericClient>(client: &mut C) -> AppResult<bool> {
+fn allow_negative_stock<C: crate::db::SqliteClientExt>(client: &mut C) -> AppResult<bool> {
     Ok(client
         .query_opt(
             "SELECT value FROM app_meta WHERE key = 'allow_negative_stock'",
@@ -632,10 +641,10 @@ fn allow_negative_stock<C: postgres::GenericClient>(client: &mut C) -> AppResult
         .unwrap_or(true))
 }
 
-fn get_product<C: postgres::GenericClient>(client: &mut C, id: i64) -> AppResult<Product> {
+fn get_product<C: crate::db::SqliteClientExt>(client: &mut C, id: i64) -> AppResult<Product> {
     let row = client.query_one(
         "SELECT id, name, barcode, category, size, color, quantity, low_stock_threshold,
-                purchase_price, sale_price, image_data, created_at::text, updated_at::text, custom_type, custom_config
+                purchase_price, sale_price, image_data, created_at, updated_at, custom_type, custom_config
          FROM products WHERE id = $1",
         &[&id],
     )?;

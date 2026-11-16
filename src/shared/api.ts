@@ -17,7 +17,6 @@ import {
   PerfumeInput,
   PerfumePurchase,
   PerfumePurchaseInput,
-  PostgresConfig,
   ProfileInput,
   Product,
   ProductFilters,
@@ -1758,7 +1757,7 @@ function makeDemoStockMovement(
 
 export const api = {
   isDatabaseConfigured: () => isTauri ? call<boolean>("is_database_configured") : Promise.resolve(true),
-  configureDatabase: (input: PostgresConfig) => call<void>("configure_database", { input }),
+  configureDatabase: () => call<void>("configure_database"),
   login: (username: string, password: string) => call<UserSession>("login", { input: { username, password } }),
   updateProfile: (input: ProfileInput) => call<UserSession>("update_profile", { input }),
   appSettings: () => call<AppSettings>("get_app_settings"),

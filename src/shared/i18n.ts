@@ -140,7 +140,7 @@ const arabicText = {
   adminAccount: "حساب المدير",
   defaultUser: "المستخدم الافتراضي: admin / admin123",
   database: "قاعدة البيانات",
-  databaseInfo: "PostgreSQL يتم ضبطها عند أول تشغيل.",
+  databaseInfo: "تُحفظ البيانات محليًا على هذا الجهاز.",
   languagePair: "العربية"
 } as const;
 
@@ -284,7 +284,7 @@ const frenchText = {
   adminAccount: "Compte administrateur",
   defaultUser: "Compte par défaut : admin / admin123",
   database: "Base de données",
-  databaseInfo: "PostgreSQL est configuré au premier démarrage.",
+  databaseInfo: "Les données sont stockées localement sur cet ordinateur.",
   languagePair: "Français"
 } as const;
 

@@ -1,4 +1,4 @@
-use postgres::Row;
+use crate::db::Row;
 use tauri::State;
 
 use crate::db::Database;
@@ -11,7 +11,7 @@ use crate::models::{
 pub fn list_flacons(db: State<Database>) -> AppResult<Vec<Flacon>> {
     db.with_client(|client| {
         let rows = client.query(
-            "SELECT id, name, flacon_type, volume_ml, sale_price, active, created_at::text
+            "SELECT id, name, flacon_type, volume_ml, sale_price, active, created_at
              FROM flacons ORDER BY volume_ml, flacon_type, id",
             &[],
         )?;
@@ -50,7 +50,7 @@ pub fn save_flacon(db: State<Database>, input: FlaconInput) -> AppResult<Flacon>
             &[&id, &input.sale_price],
         )?;
         let row = client.query_one(
-            "SELECT id, name, flacon_type, volume_ml, sale_price, active, created_at::text FROM flacons WHERE id = $1",
+            "SELECT id, name, flacon_type, volume_ml, sale_price, active, created_at FROM flacons WHERE id = $1",
             &[&id],
         )?;
         Ok(flacon_from_row(&row))
@@ -62,7 +62,7 @@ pub fn list_perfumes(db: State<Database>) -> AppResult<Vec<Perfume>> {
     db.with_client(|client| {
         let rows = client.query(
             "SELECT id, name, family, total_volume_ml, remaining_volume_ml, total_purchase_price,
-                    cost_per_ml, low_stock_ml, created_at::text, updated_at::text
+                    cost_per_ml, low_stock_ml, created_at, updated_at
              FROM perfumes ORDER BY updated_at DESC, id DESC",
             &[],
         )?;
@@ -104,7 +104,7 @@ pub fn save_perfume(db: State<Database>, input: PerfumeInput) -> AppResult<Perfu
             tx.execute(
                 "UPDATE perfumes
                  SET name = $1, family = $2, total_volume_ml = $3, remaining_volume_ml = $4,
-                     total_purchase_price = $5, cost_per_ml = $6, low_stock_ml = $7, updated_at = NOW()
+                     total_purchase_price = $5, cost_per_ml = $6, low_stock_ml = $7, updated_at = CURRENT_TIMESTAMP
                  WHERE id = $8",
                 &[
                     &input.name.trim(),
@@ -155,7 +155,7 @@ pub fn save_perfume(db: State<Database>, input: PerfumeInput) -> AppResult<Perfu
 
         let row = client.query_one(
             "SELECT id, name, family, total_volume_ml, remaining_volume_ml, total_purchase_price,
-                    cost_per_ml, low_stock_ml, created_at::text, updated_at::text
+                    cost_per_ml, low_stock_ml, created_at, updated_at
              FROM perfumes WHERE id = $1",
             &[&id],
         )?;
@@ -170,7 +170,7 @@ pub fn list_perfume_purchases(db: State<Database>) -> AppResult<Vec<PerfumePurch
     db.with_client(|client| {
         let rows = client.query(
             "SELECT pp.id, pp.perfume_id, COALESCE(p.name, ''), pp.title, pp.amount,
-                    pp.volume_ml, pp.note, pp.created_at::text
+                    pp.volume_ml, pp.note, pp.created_at
              FROM perfume_purchases pp
              LEFT JOIN perfumes p ON p.id = pp.perfume_id
              ORDER BY pp.created_at DESC, pp.id DESC",
@@ -208,7 +208,7 @@ pub fn save_perfume_purchase(
                 tx.execute(
                     "UPDATE perfumes
                      SET total_volume_ml = $1, remaining_volume_ml = $2, total_purchase_price = $3,
-                         cost_per_ml = $4, updated_at = NOW()
+                         cost_per_ml = $4, updated_at = CURRENT_TIMESTAMP
                      WHERE id = $5",
                     &[&next_total_volume, &next_remaining, &next_purchase, &cost_per_ml, &perfume_id],
                 )?;
@@ -230,7 +230,7 @@ pub fn save_perfume_purchase(
         tx.commit()?;
         let row = client.query_one(
             "SELECT pp.id, pp.perfume_id, COALESCE(p.name, ''), pp.title, pp.amount,
-                    pp.volume_ml, pp.note, pp.created_at::text
+                    pp.volume_ml, pp.note, pp.created_at
              FROM perfume_purchases pp
              LEFT JOIN perfumes p ON p.id = pp.perfume_id
              WHERE pp.id = $1",
@@ -240,10 +240,10 @@ pub fn save_perfume_purchase(
     })
 }
 
-fn list_prices(client: &mut postgres::Client, perfume_id: i64) -> AppResult<Vec<PerfumePrice>> {
+fn list_prices(client: &mut crate::db::Client, perfume_id: i64) -> AppResult<Vec<PerfumePrice>> {
     let rows = client.query(
         "SELECT f.id, CONCAT(f.name, ' ', f.flacon_type), f.volume_ml,
-                COALESCE(NULLIF(pp.sale_price, 0), f.sale_price)::float8
+                COALESCE(NULLIF(pp.sale_price, 0), f.sale_price)
          FROM flacons f
          LEFT JOIN perfume_prices pp ON pp.flacon_id = f.id AND pp.perfume_id = $1
          WHERE f.active = TRUE

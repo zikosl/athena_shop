@@ -5,6 +5,8 @@ pub enum AppError {
     #[error("{0}")]
     Message(String),
     #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
+    #[error(transparent)]
     Postgres(#[from] postgres::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),

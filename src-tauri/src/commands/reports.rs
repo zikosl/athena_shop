@@ -1,5 +1,5 @@
+use crate::db::Client;
 use chrono::{Datelike, Duration, NaiveDate};
-use postgres::Client;
 use tauri::State;
 
 use crate::db::Database;
@@ -46,13 +46,13 @@ pub fn get_report(db: State<Database>, input: ReportFilter) -> AppResult<ReportD
 
         let gross_sales: f64 = client
             .query_one(
-                "SELECT COALESCE(SUM(total), 0)::float8
+                "SELECT COALESCE(SUM(total), 0)
                  FROM sales
-                 WHERE (CASE
+                 WHERE date(CASE
                           WHEN sale_type = 'delivery' AND credit_status = 'delivery_paid'
                             THEN COALESCE(collected_at, created_at)
                           ELSE created_at
-                        END)::date BETWEEN $1 AND $2
+                        END) BETWEEN $1 AND $2
                    AND (sale_type <> 'delivery' OR credit_status = 'delivery_paid')",
                 &[&from_date, &to_date],
             )?
@@ -65,20 +65,20 @@ pub fn get_report(db: State<Database>, input: ReportFilter) -> AppResult<ReportD
 
         summary.credit_collected = client
             .query_one(
-                "SELECT COALESCE(SUM(amount), 0)::float8
-                 FROM credit_payments WHERE paid_at::date BETWEEN $1 AND $2",
+                "SELECT COALESCE(SUM(amount), 0)
+                 FROM credit_payments WHERE date(paid_at) BETWEEN $1 AND $2",
                 &[&from_date, &to_date],
             )?
             .get(0);
         summary.credit_remaining = client
             .query_one(
-                "SELECT COALESCE(SUM(remaining_amount), 0)::float8
+                "SELECT COALESCE(SUM(remaining_amount), 0)
                  FROM sales WHERE sale_type = 'credit' AND remaining_amount > 0",
                 &[],
             )?
             .get(0);
         let row = client.query_one(
-            "SELECT COUNT(*)::bigint, COALESCE(SUM(total), 0)::float8
+            "SELECT COUNT(*), COALESCE(SUM(total), 0)
              FROM sales WHERE sale_type = 'delivery' AND credit_status = 'delivery_pending'",
             &[],
         )?;
@@ -86,32 +86,32 @@ pub fn get_report(db: State<Database>, input: ReportFilter) -> AppResult<ReportD
         summary.delivery_pending_total = row.get(1);
         summary.delivery_collected = client
             .query_one(
-                "SELECT COALESCE(SUM(total), 0)::float8
+                "SELECT COALESCE(SUM(total), 0)
                  FROM sales
                  WHERE sale_type = 'delivery'
                    AND credit_status = 'delivery_paid'
-                   AND COALESCE(collected_at, created_at)::date BETWEEN $1 AND $2",
+                   AND date(COALESCE(collected_at, created_at)) BETWEEN $1 AND $2",
                 &[&from_date, &to_date],
             )?
             .get(0);
         summary.supplier_purchases = client
             .query_one(
-                "SELECT COALESCE(SUM(subtotal), 0)::float8
+                "SELECT COALESCE(SUM(subtotal), 0)
                  FROM purchase_orders
-                 WHERE status <> 'draft' AND confirmed_at::date BETWEEN $1 AND $2",
+                 WHERE status <> 'draft' AND date(confirmed_at) BETWEEN $1 AND $2",
                 &[&from_date, &to_date],
             )?
             .get(0);
         summary.supplier_payments = client
             .query_one(
-                "SELECT COALESCE(SUM(amount), 0)::float8
-                 FROM supplier_payments WHERE paid_at::date BETWEEN $1 AND $2",
+                "SELECT COALESCE(SUM(amount), 0)
+                 FROM supplier_payments WHERE date(paid_at) BETWEEN $1 AND $2",
                 &[&from_date, &to_date],
             )?
             .get(0);
         summary.supplier_remaining = client
             .query_one(
-                "SELECT COALESCE(SUM(remaining_amount), 0)::float8
+                "SELECT COALESCE(SUM(remaining_amount), 0)
                  FROM purchase_orders WHERE status <> 'draft' AND remaining_amount > 0",
                 &[],
             )?
@@ -120,19 +120,21 @@ pub fn get_report(db: State<Database>, input: ReportFilter) -> AppResult<ReportD
             "SELECT
                COALESCE(SUM(CASE WHEN custom_type = 'printing'
                  THEN 0
-                 ELSE purchase_price * quantity END), 0)::float8,
+                 ELSE purchase_price * quantity END), 0),
                COALESCE(SUM(CASE custom_type
                  WHEN 'flexy' THEN quantity + COALESCE((
-                   SELECT (tier->>'surcharge')::float8
-                   FROM jsonb_array_elements(COALESCE(custom_config->'surcharge_tiers', '[]'::jsonb)) AS tiers(tier)
-                   WHERE NULLIF(tier->>'up_to', 'null') IS NULL OR quantity <= NULLIF(tier->>'up_to', 'null')::float8
-                   ORDER BY CASE WHEN NULLIF(tier->>'up_to', 'null') IS NULL THEN 1 ELSE 0 END, NULLIF(tier->>'up_to', 'null')::float8
+                   SELECT CAST(json_extract(tier.value, '$.surcharge') AS REAL)
+                   FROM json_each(COALESCE(json_extract(products.custom_config, '$.surcharge_tiers'), '[]')) AS tier
+                   WHERE json_extract(tier.value, '$.up_to') IS NULL
+                      OR quantity <= CAST(json_extract(tier.value, '$.up_to') AS REAL)
+                   ORDER BY CASE WHEN json_extract(tier.value, '$.up_to') IS NULL THEN 1 ELSE 0 END,
+                            CAST(json_extract(tier.value, '$.up_to') AS REAL)
                    LIMIT 1
                  ), 0)
-                 WHEN 'tobacco' THEN FLOOR(quantity / GREATEST(COALESCE((custom_config->>'pieces_per_box')::float8, 1), 1)) * COALESCE((custom_config->>'box_sale_price')::float8, 0)
-                   + (quantity - FLOOR(quantity / GREATEST(COALESCE((custom_config->>'pieces_per_box')::float8, 1), 1)) * GREATEST(COALESCE((custom_config->>'pieces_per_box')::float8, 1), 1)) * COALESCE((custom_config->>'piece_sale_price')::float8, 0)
-                 WHEN 'printing' THEN COALESCE((custom_config->>'recto_price')::float8, 0) * quantity
-                 ELSE sale_price * quantity END), 0)::float8
+                 WHEN 'tobacco' THEN CAST(quantity / MAX(COALESCE((custom_config->>'pieces_per_box'), 1), 1) AS INTEGER) * COALESCE((custom_config->>'box_sale_price'), 0)
+                   + (quantity - CAST(quantity / MAX(COALESCE((custom_config->>'pieces_per_box'), 1), 1) AS INTEGER) * MAX(COALESCE((custom_config->>'pieces_per_box'), 1), 1)) * COALESCE((custom_config->>'piece_sale_price'), 0)
+                 WHEN 'printing' THEN COALESCE((custom_config->>'recto_price'), 0) * quantity
+                 ELSE sale_price * quantity END), 0)
              FROM products",
             &[],
         )?;
@@ -168,7 +170,7 @@ struct BucketTotals {
 fn bucket_totals(client: &mut Client, start: NaiveDate, end: NaiveDate) -> AppResult<BucketTotals> {
     let row = client.query_one(
         "WITH payment_totals AS (
-           SELECT sale_id, COALESCE(SUM(amount), 0)::float8 AS amount
+           SELECT sale_id, COALESCE(SUM(amount), 0) AS amount
            FROM credit_payments
            GROUP BY sale_id
          )
@@ -176,27 +178,27 @@ fn bucket_totals(client: &mut Client, start: NaiveDate, end: NaiveDate) -> AppRe
            COALESCE(SUM(
              CASE
                WHEN s.sale_type IN ('cash', 'delivery') THEN s.total
-               ELSE GREATEST(s.paid_amount - COALESCE(p.amount, 0), 0)
+               ELSE MAX(s.paid_amount - COALESCE(p.amount, 0), 0)
              END
-           ), 0)::float8,
-           COUNT(*)::bigint,
+           ), 0),
+           COUNT(*),
            COALESCE(SUM(
              CASE
                WHEN s.total <= 0 THEN 0
                WHEN s.sale_type IN ('cash', 'delivery') THEN s.profit
-               ELSE s.profit * GREATEST(s.paid_amount - COALESCE(p.amount, 0), 0) / s.total
+               ELSE s.profit * MAX(s.paid_amount - COALESCE(p.amount, 0), 0) / s.total
              END
-           ), 0)::float8,
-           COALESCE(SUM(s.total), 0)::float8,
-           COALESCE(SUM(GREATEST(s.total - s.profit, 0)), 0)::float8,
-           COALESCE(SUM(s.profit), 0)::float8
+           ), 0),
+           COALESCE(SUM(s.total), 0),
+           COALESCE(SUM(MAX(s.total - s.profit, 0)), 0),
+           COALESCE(SUM(s.profit), 0)
          FROM sales s
          LEFT JOIN payment_totals p ON p.sale_id = s.id
-         WHERE (CASE
+         WHERE date(CASE
                   WHEN s.sale_type = 'delivery' AND s.credit_status = 'delivery_paid'
                     THEN COALESCE(s.collected_at, s.created_at)
                   ELSE s.created_at
-                END)::date BETWEEN $1 AND $2
+                  END) BETWEEN $1 AND $2
            AND (s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid')",
         &[&start, &end],
     )?;
@@ -209,16 +211,16 @@ fn bucket_totals(client: &mut Client, start: NaiveDate, end: NaiveDate) -> AppRe
 
     let row = client.query_one(
         "SELECT
-           COALESCE(SUM(cp.amount), 0)::float8,
+           COALESCE(SUM(cp.amount), 0),
            COALESCE(SUM(
              CASE
                WHEN s.total <= 0 THEN 0
                ELSE s.profit * cp.amount / s.total
              END
-           ), 0)::float8
+           ), 0)
          FROM credit_payments cp
          JOIN sales s ON s.id = cp.sale_id
-         WHERE cp.paid_at::date BETWEEN $1 AND $2",
+         WHERE date(cp.paid_at) BETWEEN $1 AND $2",
         &[&start, &end],
     )?;
     let credit_entry: f64 = row.get(0);
@@ -226,15 +228,15 @@ fn bucket_totals(client: &mut Client, start: NaiveDate, end: NaiveDate) -> AppRe
 
     let expenses: f64 = client
         .query_one(
-            "SELECT COALESCE(SUM(amount), 0)::float8
+            "SELECT COALESCE(SUM(amount), 0)
              FROM expenses WHERE expense_date BETWEEN $1 AND $2",
             &[&start, &end],
         )?
         .get(0);
     let supplier_payments: f64 = client
         .query_one(
-            "SELECT COALESCE(SUM(amount), 0)::float8
-             FROM supplier_payments WHERE paid_at::date BETWEEN $1 AND $2",
+            "SELECT COALESCE(SUM(amount), 0)
+             FROM supplier_payments WHERE date(paid_at) BETWEEN $1 AND $2",
             &[&start, &end],
         )?
         .get(0);
@@ -257,14 +259,14 @@ fn top_products(
     to_date: NaiveDate,
 ) -> AppResult<Vec<ReportTopItem>> {
     let rows = client.query(
-        "SELECT si.product_name, SUM(si.quantity)::bigint, COALESCE(SUM(si.line_total), 0)::float8
+        "SELECT si.product_name, SUM(si.quantity), COALESCE(SUM(si.line_total), 0)
          FROM sale_items si
          JOIN sales s ON s.id = si.sale_id
-         WHERE (CASE
+         WHERE date(CASE
                   WHEN s.sale_type = 'delivery' AND s.credit_status = 'delivery_paid'
                     THEN COALESCE(s.collected_at, s.created_at)
                   ELSE s.created_at
-                END)::date BETWEEN $1 AND $2
+                  END) BETWEEN $1 AND $2
            AND (s.sale_type <> 'delivery' OR s.credit_status = 'delivery_paid')
          GROUP BY si.product_name
          ORDER BY COALESCE(SUM(si.line_total), 0) DESC, SUM(si.quantity) DESC

@@ -8,7 +8,7 @@ use crate::models::{ClientInput, ClientRecord};
 pub fn list_clients(db: State<Database>) -> AppResult<Vec<ClientRecord>> {
     db.with_client(|client| {
         let rows = client.query(
-            "SELECT id, name, phone, created_at::text FROM clients ORDER BY name, id",
+            "SELECT id, name, phone, created_at FROM clients ORDER BY name, id",
             &[],
         )?;
         Ok(rows
@@ -39,7 +39,7 @@ pub fn save_client(db: State<Database>, input: ClientInput) -> AppResult<ClientR
         let row = client.query_one(
             "INSERT INTO clients (name, phone) VALUES ($1, $2)
              ON CONFLICT (phone) DO UPDATE SET name = EXCLUDED.name
-             RETURNING id, name, phone, created_at::text",
+             RETURNING id, name, phone, created_at",
             &[&name, &phone],
         )?;
         Ok(ClientRecord {

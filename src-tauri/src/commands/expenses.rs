@@ -1,5 +1,5 @@
+use crate::db::Row;
 use chrono::{Local, NaiveDate};
-use postgres::Row;
 use tauri::State;
 
 use crate::db::Database;
@@ -10,7 +10,7 @@ use crate::models::{Expense, ExpenseInput};
 pub fn list_expenses(db: State<Database>) -> AppResult<Vec<Expense>> {
     db.with_client(|client| {
         let rows = client.query(
-            "SELECT id, label, category, amount, note, expense_date::text, created_at::text
+            "SELECT id, label, category, amount, note, expense_date, created_at
              FROM expenses ORDER BY expense_date DESC, id DESC",
             &[],
         )?;
@@ -105,9 +105,9 @@ pub fn delete_expense(db: State<Database>, id: i64) -> AppResult<()> {
     })
 }
 
-fn get_expense(client: &mut postgres::Client, id: i64) -> AppResult<Expense> {
+fn get_expense(client: &mut crate::db::Client, id: i64) -> AppResult<Expense> {
     let row = client.query_one(
-        "SELECT id, label, category, amount, note, expense_date::text, created_at::text
+        "SELECT id, label, category, amount, note, expense_date, created_at
          FROM expenses WHERE id = $1",
         &[&id],
     )?;

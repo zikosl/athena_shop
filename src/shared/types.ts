@@ -22,14 +22,6 @@ export interface ProfileInput {
   password: string;
 }
 
-export interface PostgresConfig {
-  host: string;
-  port: number;
-  database: string;
-  user: string;
-  password: string;
-}
-
 export interface AppSettings {
   allow_negative_stock: boolean;
   cash_register_auto_close_time: string;

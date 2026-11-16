@@ -1,4 +1,4 @@
-use postgres::{Client, Row};
+use crate::db::{Client, Row};
 use tauri::State;
 
 use crate::db::Database;
@@ -15,11 +15,11 @@ pub fn list_suppliers(db: State<Database>) -> AppResult<Vec<Supplier>> {
     db.with_client(|client| {
         let rows = client.query(
             "SELECT s.id, s.name, s.phone, s.address, s.note, s.active,
-                    COALESCE(SUM(CASE WHEN po.status <> 'draft' THEN po.subtotal ELSE 0 END), 0)::float8 AS total_purchases,
-                    COALESCE(SUM(CASE WHEN po.status <> 'draft' THEN po.paid_amount ELSE 0 END), 0)::float8 AS total_paid,
-                    COALESCE(SUM(CASE WHEN po.status <> 'draft' THEN po.remaining_amount ELSE 0 END), 0)::float8 AS remaining_amount,
-                    COALESCE(MAX(CASE WHEN po.status <> 'draft' THEN po.confirmed_at::text ELSE NULL END), '') AS last_purchase_at,
-                    s.created_at::text
+                    COALESCE(SUM(CASE WHEN po.status <> 'draft' THEN po.subtotal ELSE 0 END), 0) AS total_purchases,
+                    COALESCE(SUM(CASE WHEN po.status <> 'draft' THEN po.paid_amount ELSE 0 END), 0) AS total_paid,
+                    COALESCE(SUM(CASE WHEN po.status <> 'draft' THEN po.remaining_amount ELSE 0 END), 0) AS remaining_amount,
+                    COALESCE(MAX(CASE WHEN po.status <> 'draft' THEN po.confirmed_at ELSE NULL END), '') AS last_purchase_at,
+                    s.created_at
              FROM suppliers s
              LEFT JOIN purchase_orders po ON po.supplier_id = s.id
              GROUP BY s.id
@@ -196,7 +196,7 @@ pub fn confirm_purchase_order(
         client.execute(
             "UPDATE purchase_orders
              SET paid_amount = $1, remaining_amount = $2, status = $3,
-                 cashier = $4, confirmed_at = NOW()
+                 cashier = $4, confirmed_at = CURRENT_TIMESTAMP
              WHERE id = $5",
             &[&paid_amount, &remaining, &status, &cashier.trim(), &id],
         )?;
@@ -259,7 +259,7 @@ pub fn list_supplier_payments(db: State<Database>) -> AppResult<Vec<SupplierPaym
     db.with_client(|client| {
         let rows = client.query(
             "SELECT sp.id, sp.supplier_id, s.name, sp.purchase_order_id, po.bon_no, sp.shift_id,
-                    sp.amount, sp.note, sp.cashier, sp.paid_at::text
+                    sp.amount, sp.note, sp.cashier, sp.paid_at
              FROM supplier_payments sp
              JOIN suppliers s ON s.id = sp.supplier_id
              JOIN purchase_orders po ON po.id = sp.purchase_order_id
@@ -351,7 +351,7 @@ fn apply_purchase_stock(
         item.unit_purchase_price
     };
     client.execute(
-        "UPDATE products SET quantity = $1, purchase_price = $2, updated_at = NOW() WHERE id = $3",
+        "UPDATE products SET quantity = $1, purchase_price = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
         &[&after_quantity, &next_purchase_price, &item.product_id],
     )?;
     client.execute(
@@ -403,7 +403,7 @@ fn insert_supplier_payment(
 
 fn next_bon_no(client: &mut Client) -> AppResult<String> {
     let next: i64 = client
-        .query_one("SELECT nextval('purchase_orders_id_seq')", &[])?
+        .query_one("SELECT COALESCE(MAX(id), 0) + 1 FROM purchase_orders", &[])?
         .get(0);
     Ok(format!("BA-{:06}", next))
 }
@@ -411,11 +411,11 @@ fn next_bon_no(client: &mut Client) -> AppResult<String> {
 fn get_supplier(client: &mut Client, id: i64) -> AppResult<Supplier> {
     let row = client.query_one(
         "SELECT s.id, s.name, s.phone, s.address, s.note, s.active,
-                COALESCE(SUM(CASE WHEN po.status <> 'draft' THEN po.subtotal ELSE 0 END), 0)::float8,
-                COALESCE(SUM(CASE WHEN po.status <> 'draft' THEN po.paid_amount ELSE 0 END), 0)::float8,
-                COALESCE(SUM(CASE WHEN po.status <> 'draft' THEN po.remaining_amount ELSE 0 END), 0)::float8,
-                COALESCE(MAX(CASE WHEN po.status <> 'draft' THEN po.confirmed_at::text ELSE NULL END), ''),
-                s.created_at::text
+                COALESCE(SUM(CASE WHEN po.status <> 'draft' THEN po.subtotal ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN po.status <> 'draft' THEN po.paid_amount ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN po.status <> 'draft' THEN po.remaining_amount ELSE 0 END), 0),
+                COALESCE(MAX(CASE WHEN po.status <> 'draft' THEN po.confirmed_at ELSE NULL END), ''),
+                s.created_at
          FROM suppliers s
          LEFT JOIN purchase_orders po ON po.supplier_id = s.id
          WHERE s.id = $1
@@ -428,8 +428,8 @@ fn get_supplier(client: &mut Client, id: i64) -> AppResult<Supplier> {
 fn get_purchase_order_for_client(client: &mut Client, id: i64) -> AppResult<PurchaseOrder> {
     let row = client.query_one(
         "SELECT po.id, po.bon_no, po.supplier_id, s.name, po.subtotal, po.paid_amount,
-                po.remaining_amount, po.status, po.note, po.cashier, po.created_at::text,
-                COALESCE(po.confirmed_at::text, '')
+                po.remaining_amount, po.status, po.note, po.cashier, po.created_at,
+                COALESCE(po.confirmed_at, '')
          FROM purchase_orders po
          JOIN suppliers s ON s.id = po.supplier_id
          WHERE po.id = $1",
@@ -442,7 +442,7 @@ fn get_purchase_order_for_client(client: &mut Client, id: i64) -> AppResult<Purc
     )?;
     let payment_rows = client.query(
         "SELECT sp.id, sp.supplier_id, s.name, sp.purchase_order_id, po.bon_no, sp.shift_id,
-                sp.amount, sp.note, sp.cashier, sp.paid_at::text
+                sp.amount, sp.note, sp.cashier, sp.paid_at
          FROM supplier_payments sp
          JOIN suppliers s ON s.id = sp.supplier_id
          JOIN purchase_orders po ON po.id = sp.purchase_order_id
